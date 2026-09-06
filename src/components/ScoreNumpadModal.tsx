@@ -138,24 +138,32 @@ export function ScoreNumpadModal({
           paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 16px)'
         }}
       >
-        {/* Top Close Button (X) - positioned securely top-4 right-4 z-20 without obstructing the teams */}
+        {/* Top Close Button ('X') - Strictly positioned relative to modal container with high z-index and ample tap area */}
         <button
           type="button"
           onClick={onClose}
           onTouchStart={() => vibratePop()}
-          className="absolute top-4 right-4 z-20 p-2 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors cursor-pointer border border-zinc-700/60 shadow-md"
+          className="absolute top-3.5 right-3.5 z-30 p-2 rounded-full bg-zinc-800/90 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-400 hover:text-white transition-all cursor-pointer border border-zinc-700/70 shadow-lg active:scale-95 flex items-center justify-center"
           title="Cerrar modal"
+          aria-label="Cerrar modal"
         >
           <X className="w-4 h-4" />
         </button>
 
-        {/* Top drag handle pill */}
-        <div className="pt-3.5 pb-2 flex items-center justify-center">
+        {/* Top Header Row with Centered Drag Handle Pill */}
+        <div className="pt-3.5 pb-1 flex items-center justify-center">
           <div className="w-12 h-1.5 bg-zinc-700/60 rounded-full" />
         </div>
 
+        {/* Modal Section Title - Vertically clears the space so the TV scoreboard is well below the 'X' button */}
+        <div className="text-center px-4 pb-2">
+          <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+            Pronosticar Resultado
+          </p>
+        </div>
+
         {/* 1. Header (Marcador Global - Estilo TV) */}
-        <div className="mx-4 mt-2 mb-2 bg-[#0c0c0f] border border-zinc-800/90 rounded-2xl p-2.5 shadow-inner">
+        <div className="mx-4 mb-2 bg-[#0c0c0f] border border-zinc-800/90 rounded-2xl p-2.5 shadow-inner">
           <div className="flex items-center justify-between gap-2">
             {/* Home Team (TV Left) */}
             <div 
@@ -261,20 +269,20 @@ export function ScoreNumpadModal({
         </div>
 
         {/* 2. Sección Central (Foco de Edición) */}
-        <div className="flex flex-col items-center justify-center py-2 px-4">
+        <div className="flex flex-col items-center justify-center py-1 px-4">
           {/* Logo del equipo en edición */}
-          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-zinc-900/90 border-2 border-zinc-700/60 p-1.5 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.15)] shrink-0">
+          <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-zinc-900/90 border-2 border-zinc-700/60 p-1 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.15)] shrink-0">
             <TeamBadge 
               src={activeTeamFlag} 
               teamName={activeTeamName} 
-              className="w-12 h-12 sm:w-16 sm:h-16 object-contain" 
+              className="w-10 h-10 sm:w-12 sm:h-12 object-contain" 
             />
           </div>
 
           {/* Etiqueta del equipo separada con margen adecuado (no superpuesta al logo) */}
-          <div className="mt-2.5 mb-1">
+          <div className="mt-2 mb-0.5">
             <span className={cn(
-              "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-md inline-flex items-center gap-1",
+              "px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-md inline-flex items-center gap-1",
               isHome 
                 ? "bg-blue-500/15 text-blue-400 border-blue-500/40" 
                 : "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
@@ -287,15 +295,15 @@ export function ScoreNumpadModal({
             {activeTeamName}
           </h3>
 
-          <p className="text-xs font-semibold text-zinc-400 mt-0.5">
+          <p className="text-[11px] font-semibold text-zinc-400 mt-0.5">
             ¿Cuántos goles?
           </p>
 
           {/* Large Focused Score Indicator */}
           <div className="mt-1 mb-1">
-            <div className="min-w-[80px] h-14 bg-zinc-900/90 border border-zinc-700/70 rounded-2xl flex items-center justify-center px-4 shadow-inner">
+            <div className="min-w-[76px] h-12 bg-zinc-900/90 border border-zinc-700/70 rounded-2xl flex items-center justify-center px-4 shadow-inner">
               <span className={cn(
-                "font-mono text-4xl sm:text-5xl font-black tracking-wider",
+                "font-mono text-3xl sm:text-4xl font-black tracking-wider",
                 currentScore !== '' ? "text-white" : "text-zinc-600"
               )}>
                 {currentScore !== '' ? currentScore : '0'}

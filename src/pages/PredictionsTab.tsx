@@ -688,6 +688,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                       <div className="flex items-center justify-center gap-1.5">
                         <button
                           type="button"
+                          onTouchStart={() => vibratePop()}
                           onClick={() => openScoreModal(match, 'home')}
                           className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-900/30 hover:bg-blue-900/50 active:scale-95 border-2 border-blue-500/60 hover:border-blue-400 rounded-xl text-center text-sm sm:text-base font-black text-white font-mono flex items-center justify-center transition-all shadow-sm cursor-pointer select-none"
                           title="Pronosticar goles Local"
@@ -697,6 +698,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                         <span className="text-zinc-500 font-black text-[10px] select-none">VS</span>
                         <button
                           type="button"
+                          onTouchStart={() => vibratePop()}
                           onClick={() => openScoreModal(match, 'away')}
                           className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-900/30 hover:bg-blue-900/50 active:scale-95 border-2 border-blue-500/60 hover:border-blue-400 rounded-xl text-center text-sm sm:text-base font-black text-white font-mono flex items-center justify-center transition-all shadow-sm cursor-pointer select-none"
                           title="Pronosticar goles Visitante"
@@ -708,6 +710,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                         {hasSaved ? (
                           <button
                             type="button"
+                            onTouchStart={() => vibratePop()}
                             onClick={() => openScoreModal(match, 'home')}
                             className="text-[9px] text-emerald-400 hover:text-emerald-300 uppercase tracking-widest font-bold bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-lg border border-emerald-500/20 transition-all flex items-center gap-1 cursor-pointer select-none"
                           >
@@ -717,6 +720,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                         ) : (
                           <button
                             type="button"
+                            onTouchStart={() => vibratePop()}
                             onClick={() => openScoreModal(match, 'home')}
                             className="text-[9px] text-blue-400 hover:text-blue-300 uppercase tracking-widest font-bold bg-blue-500/10 hover:bg-blue-500/20 px-2 py-0.5 rounded-lg border border-blue-500/30 transition-all cursor-pointer select-none"
                           >
