@@ -1,0 +1,295 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "Participant in the prediction pool",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string"
+        },
+        "displayName": {
+          "type": "string"
+        },
+        "email": {
+          "type": "string"
+        },
+        "points": {
+          "type": "number"
+        },
+        "exactMatches": {
+          "type": "number"
+        },
+        "paid": {
+          "type": "boolean"
+        },
+        "isAdmin": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "uid",
+        "displayName",
+        "email",
+        "points",
+        "exactMatches",
+        "paid",
+        "isAdmin",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Setting": {
+      "title": "Setting",
+      "description": "Global settings for the pool group",
+      "type": "object",
+      "properties": {
+        "groupName": {
+          "type": "string"
+        },
+        "adminId": {
+          "type": "string"
+        },
+        "rulesText": {
+          "type": "string"
+        },
+        "blockMinutesBeforeMatch": {
+          "type": "number"
+        },
+        "pointsExactMatch": {
+          "type": "number"
+        },
+        "pointsWinnerTie": {
+          "type": "number"
+        },
+        "pointsTeamGoals": {
+          "type": "number"
+        },
+        "pointsGoalDiff": {
+          "type": "number"
+        },
+        "pointsChampion": {
+          "type": "number"
+        },
+        "pointsRunnerUp": {
+          "type": "number"
+        },
+        "pointsThirdPlace": {
+          "type": "number"
+        },
+        "pointsSpecial": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "groupName",
+        "adminId",
+        "blockMinutesBeforeMatch",
+        "updatedAt"
+      ]
+    },
+    "Match": {
+      "title": "Match",
+      "description": "A football match",
+      "type": "object",
+      "properties": {
+        "group": {
+          "type": "string"
+        },
+        "date": {
+          "type": "string"
+        },
+        "homeTeam": {
+          "type": "string"
+        },
+        "awayTeam": {
+          "type": "string"
+        },
+        "homeFlag": {
+          "type": "string"
+        },
+        "awayFlag": {
+          "type": "string"
+        },
+        "homeScore": {
+          "type": "number"
+        },
+        "awayScore": {
+          "type": "number"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "group",
+        "date",
+        "homeTeam",
+        "awayTeam",
+        "status"
+      ]
+    },
+    "Prediction": {
+      "title": "Prediction",
+      "description": "User's prediction for a match",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "matchId": {
+          "type": "string"
+        },
+        "groupId": {
+          "type": "string"
+        },
+        "homeScore": {
+          "type": "number"
+        },
+        "awayScore": {
+          "type": "number"
+        },
+        "pointsEarned": {
+          "type": "number"
+        },
+        "reactions": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "userId",
+        "matchId",
+        "homeScore",
+        "awayScore",
+        "pointsEarned",
+        "updatedAt"
+      ]
+    },
+    "Podium": {
+      "title": "Podium",
+      "description": "User's podium prediction",
+      "type": "object",
+      "properties": {
+        "userId": {
+          "type": "string"
+        },
+        "champion": {
+          "type": "string"
+        },
+        "runnerUp": {
+          "type": "string"
+        },
+        "thirdPlace": {
+          "type": "string"
+        },
+        "topScorer": {
+          "type": "string"
+        },
+        "mostAssists": {
+          "type": "string"
+        },
+        "bestKeeper": {
+          "type": "string"
+        },
+        "mvp": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "number"
+        }
+      },
+      "required": [
+        "userId",
+        "updatedAt"
+      ]
+    },
+    "Group": {
+      "title": "Group",
+      "description": "A group for predictions",
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "adminId": {
+          "type": "string"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "createdAt": {
+          "type": "number"
+        },
+        "blockedMembers": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "required": [
+        "name",
+        "code",
+        "adminId",
+        "members",
+        "createdAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": {
+        "$ref": "#/entities/User"
+      },
+      "description": "User profiles"
+    },
+    "/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/Setting"
+      },
+      "description": "Global config ('global' is the doc id)"
+    },
+    "/matches/{matchId}": {
+      "schema": {
+        "$ref": "#/entities/Match"
+      },
+      "description": "Matches"
+    },
+    "/predictions/{predictionId}": {
+      "schema": {
+        "$ref": "#/entities/Prediction"
+      },
+      "description": "Predictions per match"
+    },
+    "/podiums/{podiumId}": {
+      "schema": {
+        "$ref": "#/entities/Podium"
+      },
+      "description": "Podium predictions per user"
+    },
+    "/groups/{groupId}": {
+      "schema": {
+        "$ref": "#/entities/Group"
+      },
+      "description": "Groups collection"
+    }
+  }
+}

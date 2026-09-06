@@ -1,0 +1,133 @@
+@import url('https://fonts.googleapis.com/css2?family=Marcellus&family=Lato:wght@300;400;700&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Lato", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Marcellus", serif;
+}
+
+body {
+  font-family: var(--font-sans);
+  background-color: #121212;
+  color: #E0E0E0;
+  overscroll-behavior-y: none;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+html {
+  overscroll-behavior-y: none;
+}
+
+input, textarea, [contenteditable="true"], .selectable-text {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+
+/* Custom Range Slider Thumb styles for Dual Scrubber */
+input[type="range"].dual-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+}
+
+input[type="range"].dual-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 2px solid #ffffff;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+input[type="range"].dual-slider::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+  background: #60a5fa;
+}
+
+input[type="range"].dual-slider::-moz-range-thumb {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #3b82f6;
+  border: 2px solid #ffffff;
+  cursor: pointer;
+  pointer-events: auto;
+  box-shadow: 0 0 10px rgba(59, 130, 246, 0.6);
+  transition: transform 0.1s ease, background-color 0.1s ease;
+}
+
+/* Driver.js Dark Theme Overrides */
+.driver-popover {
+  background-color: #121215 !important;
+  color: #e4e4e7 !important;
+  border: 1px solid #27272a !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+}
+
+.driver-popover-title {
+  font-weight: 900 !important;
+  color: #ffffff !important;
+  font-size: 1.125rem !important;
+  margin-bottom: 0.5rem !important;
+}
+
+.driver-popover-description {
+  color: #a1a1aa !important;
+  font-size: 0.875rem !important;
+}
+
+.driver-popover-footer button {
+  background-color: #2563eb !important;
+  color: white !important;
+  border: none !important;
+  text-shadow: none !important;
+  border-radius: 8px !important;
+  font-weight: 700 !important;
+  padding: 6px 12px !important;
+  transition: all 0.2s !important;
+}
+
+.driver-popover-footer button:hover {
+  background-color: #1d4ed8 !important;
+}
+
+.driver-popover-footer .driver-popover-close-btn {
+  background-color: transparent !important;
+  color: #a1a1aa !important;
+}
+
+.driver-popover-footer .driver-popover-close-btn:hover {
+  background-color: #27272a !important;
+  color: #ffffff !important;
+}
+
+.driver-popover-navigation-btns {
+  gap: 0.5rem !important;
+}
+
+.driver-popover-arrow-side-top {
+  border-bottom-color: #27272a !important;
+}
+
+.driver-popover-arrow-side-bottom {
+  border-top-color: #27272a !important;
+}
+
+.driver-popover-arrow-side-left {
+  border-right-color: #27272a !important;
+}
+
+.driver-popover-arrow-side-right {
+  border-left-color: #27272a !important;
+}

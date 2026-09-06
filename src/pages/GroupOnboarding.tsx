@@ -1,0 +1,449 @@
+import React, { useState, useEffect } from 'react';
+import { useGroups } from '../components/GroupsProvider';
+import { useAuth } from '../components/AuthProvider';
+import { db } from '../lib/firebase';
+import { doc, getDoc, setDoc, updateDoc, arrayUnion, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
+import { Trophy, Crown, Medal, Flame, Zap, UserCheck, ArrowRight, Save, LogOut, Scan, X, Search, CheckCircle2 } from 'lucide-react';
+import { handleFirestoreError, OperationType, cn, isCabraSuprema } from '../lib/utils';
+import { auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
+import { Podium } from '../types';
+import { QuickQRScannerModal } from '../components/QuickQRScannerModal';
+import { FooterVersion } from '../components/FooterVersion';
+import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
+
+import { TeamBadge } from '../components/TeamBadge';
+
+interface Props {
+  forcePodiumStep?: boolean;
+  onPodiumSaved?: () => void;
+}
+
+const POPULAR_PLAYERS = [
+  { name: 'K. Mbappé', id: 351860 },
+  { name: 'E. Haaland', id: 839956 },
+  { name: 'V. Júnior', id: 843926 },
+  { name: 'H. Kane', id: 170323 },
+  { name: 'J. Bellingham', id: 954060 },
+  { name: 'M. Salah', id: 159665 },
+  { name: 'R. Lewandowski', id: 66986 },
+  { name: 'L. Yamal', id: 1478144 },
+  { name: 'F. Wirtz', id: 981995 },
+  { name: 'K. De Bruyne', id: 104523 }
+];
+
+export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Props = {}) {
+  const { groups, loadingGroups } = useGroups();
+  const { user, profile, logout } = useAuth();
+  
+  // 0: Welcome, 1: Join Group, 2: Predictions Wizard
+  const [step, setStep] = useState<0 | 1 | 2>(forcePodiumStep ? 0 : 1);
+  const [wizardStep, setWizardStep] = useState<number>(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  
+  // Join Group State
+  const [inviteCode, setInviteCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [errorMsg, setErrorMsg] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
+  
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const codeFromUrl = params.get('invite');
+    if (codeFromUrl) {
+      setInviteCode(codeFromUrl.toUpperCase());
+    }
+  }, []);
+
+  // Create Group State (Cabra Suprema / Super Admin only)
+  const [creating, setCreating] = useState(false);
+  const [newGroupName, setNewGroupName] = useState('');
+  
+  // Predictions State
+  const [podium, setPodium] = useState<Partial<Podium>>({});
+  const [savingPodium, setSavingPodium] = useState(false);
+  const [hasPodium, setHasPodium] = useState(false);
+
+  useEffect(() => {
+    if (!user) return;
+    const checkPodium = async () => {
+      try {
+        const snap = await getDoc(doc(db, 'podiums', user.uid));
+        if (snap.exists()) {
+          setHasPodium(true);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    };
+    checkPodium();
+  }, [user]);
+
+  // If they have groups, but no podium, jump to step 2
+  useEffect(() => {
+    if (groups.length > 0 && !hasPodium) {
+      setStep(0);
+    }
+  }, [groups.length, hasPodium]);
+
+  const handleJoin = async () => {
+    if (!inviteCode || !user) return;
+    setJoining(true);
+    setErrorMsg('');
+    try {
+      const q = query(collection(db, 'groups'), where('code', '==', inviteCode.toUpperCase()));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        setErrorMsg('Código no válido');
+        setJoining(false);
+        return;
+      }
+      
+      const groupDoc = snap.docs[0];
+      await updateDoc(groupDoc.ref, {
+        members: arrayUnion(user.uid)
+      });
+      // Context will automatically update since it listens to groups where array-contains uid
+    } catch (e: any) {
+      setErrorMsg(e.message);
+      setJoining(false);
+    }
+  };
+
+  const handleCreate = async () => {
+    if (!newGroupName || !user || !isCabraSuprema(profile, user?.email)) return;
+    setCreating(true);
+    try {
+      const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+      const newRef = doc(collection(db, 'groups'));
+      await setDoc(newRef, {
+        name: newGroupName,
+        code,
+        adminId: user.uid,
+        members: [user.uid],
+        createdAt: Date.now()
+      });
+    } catch (e: any) {
+      console.error(e);
+      setCreating(false);
+    }
+  };
+
+  const savePredictions = async () => {
+    if (!user) return;
+    setSavingPodium(true);
+    try {
+      const data: Podium = {
+        userId: user.uid,
+        champion: (podium.champion || '').trim(),
+        championLogo: getTeamLogoByName(podium.champion),
+        runnerUp: (podium.runnerUp || '').trim(),
+        runnerUpLogo: getTeamLogoByName(podium.runnerUp),
+        topScorer: (podium.topScorer || '').trim(),
+        mostAssists: (podium.mostAssists || '').trim(),
+        mvp: (podium.mvp || '').trim(),
+        updatedAt: Date.now()
+      };
+      await setDoc(doc(db, 'podiums', user.uid), data);
+      if (onPodiumSaved) {
+        onPodiumSaved();
+      } else {
+        window.location.reload(); // Refresh to enter app
+      }
+    } catch (e: any) {
+      console.error(e);
+      setSavingPodium(false);
+    }
+  };
+
+  if (loadingGroups) {
+    return <div className="min-h-screen flex items-center justify-center bg-[#0a0a0b] text-white">Cargando...</div>;
+  }
+
+  const filteredTeams = UCL_36_TEAMS.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.country.toLowerCase().includes(searchTerm.toLowerCase()));
+  const filteredPlayers = POPULAR_PLAYERS.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
+  const showCustomPlayer = searchTerm.trim().length > 0 && !POPULAR_PLAYERS.some(p => p.name.toLowerCase() === searchTerm.toLowerCase());
+
+  return (
+    <div className="h-[100dvh] overflow-hidden flex flex-col bg-[#0a0a0b] font-sans text-zinc-200">
+      
+      {/* STEP 0: WELCOME */}
+      {step === 0 && (
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500">
+          <img src="/logo.png" alt="La Cabra Gol Logo" className="w-32 h-32 object-contain mb-6 drop-shadow-[0_0_25px_rgba(59,130,246,0.2)]" />
+          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">¡Bienvenido!</h1>
+          <p className="text-sm text-zinc-400 max-w-sm mb-12 leading-relaxed">
+            Antes de ver los partidos y la tabla de posiciones, necesitamos que elijas a tus candidatos para ganar el torneo. Esto te dará puntos extra al final.
+          </p>
+          <button 
+            onClick={() => {
+              setStep(2);
+              setSearchTerm('');
+            }} 
+            className="w-full max-w-xs bg-blue-600 hover:bg-blue-500 text-white font-black text-sm uppercase tracking-widest py-4 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all flex items-center justify-center gap-2"
+          >
+            Elegir Candidatos <ArrowRight className="w-5 h-5" />
+          </button>
+        </div>
+      )}
+
+      {/* STEP 1: JOIN GROUP */}
+      {step === 1 && groups.length === 0 && (
+        <div className="flex-1 flex flex-col items-center justify-center p-4">
+          <div className="w-full max-w-md bg-[#121215] border border-zinc-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
+            <div className="space-y-6">
+              <div className="text-center space-y-2">
+                <img src="/logo.png" alt="La Cabra Gol Logo" className="w-20 h-20 object-contain mx-auto mb-4 drop-shadow-[0_0_15px_rgba(59,130,246,0.3)]" />
+                <h1 className="text-2xl font-black text-white tracking-tight">Únete a un Grupo</h1>
+                <p className="text-xs text-zinc-400 leading-relaxed">
+                  Para participar, necesitas un código de invitación. Pídeselo al administrador de tu liga o escanea el QR.
+                </p>
+              </div>
+
+              <div className="space-y-3">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="CÓDIGO DE 6 LETRAS"
+                    value={inviteCode}
+                    onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
+                    maxLength={6}
+                    className="flex-1 min-w-0 bg-zinc-900 border border-zinc-700/80 rounded-xl px-4 py-3 text-center text-lg font-black text-white tracking-[0.3em] placeholder:text-zinc-600 outline-none focus:border-blue-500 transition-colors uppercase"
+                  />
+                  <button
+                    onClick={() => setShowScanner(true)}
+                    className="shrink-0 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-xl px-4 flex items-center justify-center transition-colors border border-zinc-700/80"
+                    title="Escanear Código QR"
+                  >
+                    <Scan className="w-5 h-5" />
+                  </button>
+                </div>
+                
+                {/* Modal de Escáner Instantáneo sin UI innecesaria */}
+                <QuickQRScannerModal
+                  isOpen={showScanner}
+                  onClose={() => setShowScanner(false)}
+                  onScan={(scannedCode) => setInviteCode(scannedCode)}
+                  title="Escanear Invitación"
+                />
+
+                {errorMsg && <p className="text-[10px] font-bold text-red-400 text-center uppercase">{errorMsg}</p>}
+                
+                <button
+                  onClick={handleJoin}
+                  disabled={joining || inviteCode.length < 5}
+                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white font-black text-xs uppercase tracking-widest py-3.5 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)] transition-all flex items-center justify-center gap-2"
+                >
+                  {joining ? 'Buscando...' : 'Entrar al Grupo'}
+                  {!joining && <ArrowRight className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Crear Grupo SOLO para Cabra Suprema (Super Admin) */}
+              {isCabraSuprema(profile, user?.email) && (
+                <div className="pt-6 border-t border-zinc-800 space-y-3">
+                  <p className="text-[10px] font-bold text-amber-400 text-center uppercase tracking-wider">Cabra Suprema (Crear Grupo)</p>
+                  <input
+                    type="text"
+                    placeholder="Nombre del nuevo grupo"
+                    value={newGroupName}
+                    onChange={(e) => setNewGroupName(e.target.value)}
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-600 outline-none focus:border-emerald-500 transition-colors"
+                  />
+                  <button
+                    onClick={handleCreate}
+                    disabled={creating || !newGroupName}
+                    className="w-full bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-400 border border-emerald-600/50 font-bold text-xs py-2 rounded-lg transition-colors"
+                  >
+                    {creating ? 'Creando...' : 'Crear Nuevo Grupo'}
+                  </button>
+                </div>
+              )}
+
+              <button onClick={logout} className="absolute top-4 right-4 text-zinc-500 hover:text-red-400 transition-colors" title="Cerrar Sesión">
+                <LogOut className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* Watermark version footer */}
+          <FooterVersion className="mt-4" />
+        </div>
+      )}
+
+      {/* STEP 2: PREDICTIONS WIZARD */}
+      {step === 2 && (
+        <div className="flex-1 flex flex-col min-h-0 w-full max-w-2xl mx-auto p-4 md:p-6 animate-in slide-in-from-right-8 duration-300">
+          
+          {/* Header */}
+          <div className="flex-none pb-4">
+            <div className="flex items-center justify-between text-xs font-bold text-zinc-500 mb-4">
+              <span className="uppercase tracking-widest">Tus Candidatos</span>
+              <span>Paso {wizardStep} de 5</span>
+            </div>
+            
+            <div className="w-full bg-zinc-900 rounded-full h-1.5 mb-8">
+              <div 
+                className="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out" 
+                style={{ width: `${(wizardStep / 5) * 100}%` }}
+              ></div>
+            </div>
+
+            <div className="text-center space-y-3 mb-6">
+              {wizardStep === 1 && <Crown className="w-14 h-14 text-amber-400 mx-auto drop-shadow-[0_0_15px_rgba(251,191,36,0.3)]" />}
+              {wizardStep === 2 && <Medal className="w-14 h-14 text-zinc-300 mx-auto drop-shadow-[0_0_15px_rgba(212,212,216,0.2)]" />}
+              {wizardStep === 3 && <Flame className="w-14 h-14 text-emerald-400 mx-auto drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />}
+              {wizardStep === 4 && <Zap className="w-14 h-14 text-blue-400 mx-auto drop-shadow-[0_0_15px_rgba(59,130,246,0.3)]" />}
+              {wizardStep === 5 && <UserCheck className="w-14 h-14 text-indigo-400 mx-auto drop-shadow-[0_0_15px_rgba(99,102,241,0.3)]" />}
+              
+              <h2 className="text-2xl sm:text-3xl font-black text-white tracking-tight">
+                {wizardStep === 1 && '¿Quién crees que será campeón?'}
+                {wizardStep === 2 && '¿Quién será el Subcampeón?'}
+                {wizardStep === 3 && '¿Quién será el Máximo Goleador?'}
+                {wizardStep === 4 && '¿Quién dará Más Asistencias?'}
+                {wizardStep === 5 && '¿Quién será el MVP del Torneo?'}
+              </h2>
+            </div>
+
+            {/* Search Bar */}
+            <div className="relative">
+              <Search className="w-5 h-5 text-zinc-500 absolute left-4 top-1/2 -translate-y-1/2" />
+              <input
+                type="text"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                placeholder={wizardStep <= 2 ? "Buscar equipo (Ej: Real Madrid)..." : "Buscar o escribir jugador..."}
+                className="w-full bg-zinc-900 border border-zinc-800 rounded-2xl pl-12 pr-4 py-4 text-sm font-semibold text-white placeholder:text-zinc-500 focus:border-blue-500 outline-none transition-colors"
+              />
+            </div>
+          </div>
+
+          {/* Scrollable List */}
+          <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0 pb-4">
+            <div className="space-y-2">
+              {wizardStep <= 2 ? (
+                filteredTeams.map(team => {
+                  const isSelected = wizardStep === 1 ? podium.champion === team.name : podium.runnerUp === team.name;
+                  return (
+                    <button
+                      key={team.id}
+                      onClick={() => setPodium(p => wizardStep === 1 ? { ...p, champion: team.name } : { ...p, runnerUp: team.name })}
+                      className={cn(
+                        "w-full flex items-center gap-4 p-4 rounded-2xl border transition-all text-left",
+                        isSelected 
+                          ? "bg-blue-500/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                          : "bg-[#121215] border-zinc-800/50 hover:bg-zinc-900/80 hover:border-zinc-700"
+                      )}
+                    >
+                      <TeamBadge src={`/api/team-image/${team.id}`} teamName={team.name} size="md" />
+                      <div className="flex flex-col flex-1">
+                        <span className={cn("text-base font-bold", isSelected ? "text-blue-400" : "text-white")}>{team.name}</span>
+                        <span className="text-xs text-zinc-500 font-medium">{team.country}</span>
+                      </div>
+                      {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
+                    </button>
+                  );
+                })
+              ) : (
+                <>
+                  {filteredPlayers.map(player => {
+                    const isSelected = (wizardStep === 3 && podium.topScorer === player.name) || (wizardStep === 4 && podium.mostAssists === player.name) || (wizardStep === 5 && podium.mvp === player.name);
+                    return (
+                      <button
+                        key={player.id}
+                        onClick={() => setPodium(p => {
+                          if (wizardStep === 3) return { ...p, topScorer: player.name };
+                          if (wizardStep === 4) return { ...p, mostAssists: player.name };
+                          return { ...p, mvp: player.name };
+                        })}
+                        className={cn(
+                          "w-full flex items-center gap-4 p-4 rounded-2xl border transition-all text-left",
+                          isSelected 
+                            ? "bg-blue-500/10 border-blue-500/50 shadow-[0_0_15px_rgba(59,130,246,0.15)]"
+                            : "bg-[#121215] border-zinc-800/50 hover:bg-zinc-900/80 hover:border-zinc-700"
+                        )}
+                      >
+                        <img 
+                          src={`https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=128&bold=true`} 
+                          alt={player.name} 
+                          className="w-12 h-12 rounded-full object-cover shrink-0 border border-zinc-700/50" 
+                        />
+                        <div className="flex-1">
+                          <span className={cn("text-base font-bold", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
+                        </div>
+                        {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
+                      </button>
+                    );
+                  })}
+                  {showCustomPlayer && (
+                    <button
+                      onClick={() => setPodium(p => {
+                        const val = searchTerm.trim();
+                        if (wizardStep === 3) return { ...p, topScorer: val };
+                        if (wizardStep === 4) return { ...p, mostAssists: val };
+                        return { ...p, mvp: val };
+                      })}
+                      className={cn(
+                        "w-full flex items-center gap-4 p-4 rounded-2xl border transition-all text-left bg-zinc-900 border-zinc-700 hover:border-blue-500/50"
+                      )}
+                    >
+                      <img 
+                        src={`https://ui-avatars.com/api/?name=${encodeURIComponent(searchTerm.trim())}&background=27272a&color=3b82f6&size=128&bold=true`} 
+                        alt="Custom" 
+                        className="w-12 h-12 rounded-full object-cover shrink-0 border border-blue-500/30" 
+                      />
+                      <div className="flex flex-col flex-1">
+                        <span className="text-base font-bold text-white">{searchTerm.trim()}</span>
+                        <span className="text-xs text-blue-400 font-medium uppercase tracking-wider">Usar este nombre personalizado</span>
+                      </div>
+                    </button>
+                  )}
+                </>
+              )}
+              
+              {(wizardStep <= 2 ? filteredTeams.length === 0 : (filteredPlayers.length === 0 && !showCustomPlayer)) && (
+                <div className="text-center py-10">
+                  <p className="text-sm text-zinc-500 font-medium">No se encontraron resultados para "{searchTerm}"</p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Bottom Controls */}
+          <div className="flex-none pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-[#0a0a0b] border-t border-zinc-800">
+            <div className="flex gap-3">
+              {wizardStep > 1 && (
+                <button 
+                  onClick={() => {
+                    setWizardStep(w => w - 1);
+                    setSearchTerm('');
+                  }} 
+                  className="px-6 py-4 bg-[#121215] text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-2xl hover:bg-zinc-900 border border-zinc-800 transition-colors"
+                >
+                  Atrás
+                </button>
+              )}
+              <button 
+                onClick={() => {
+                  if (wizardStep < 5) {
+                    setWizardStep(w => w + 1);
+                    setSearchTerm('');
+                  } else {
+                    savePredictions();
+                  }
+                }} 
+                disabled={savingPodium || (wizardStep === 1 && !podium.champion) || (wizardStep === 2 && !podium.runnerUp) || (wizardStep === 3 && !podium.topScorer) || (wizardStep === 4 && !podium.mostAssists) || (wizardStep === 5 && !podium.mvp)}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white font-black text-sm uppercase tracking-widest py-4 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.2)] transition-all flex items-center justify-center gap-2"
+              >
+                {wizardStep < 5 ? 'Siguiente' : (savingPodium ? 'Guardando...' : 'Finalizar')}
+                {wizardStep < 5 ? <ArrowRight className="w-5 h-5" /> : (!savingPodium && <Save className="w-5 h-5" />)}
+              </button>
+            </div>
+          </div>
+
+        </div>
+      )}
+    </div>
+  );
+}

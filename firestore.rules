@@ -1,0 +1,204 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function getUserData() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    function isAdmin() {
+      return isSignedIn() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && getUserData().isAdmin == true) ||
+        request.auth.token.email == 'richarddiaz0107@gmail.com'
+      );
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'displayName', 'email', 'points', 'exactMatches', 'paid', 'isAdmin', 'createdAt', 'updatedAt']) &&
+             data.uid is string &&
+             data.displayName is string && data.displayName.size() <= 100 &&
+             data.email is string && data.email.size() <= 200 &&
+             data.points is number &&
+             data.exactMatches is number &&
+             data.paid is bool &&
+             data.isAdmin is bool &&
+             data.createdAt is number &&
+             data.updatedAt is number;
+    }
+
+    match /users/{userId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() &&
+                    request.auth.uid == userId &&
+                    isValidId(userId) &&
+                    isValidUser(incoming()) &&
+                    incoming().uid == userId &&
+                    incoming().points == 0 &&
+                    incoming().exactMatches == 0 &&
+                    incoming().paid == false &&
+                    (incoming().isAdmin == false || request.auth.token.email == 'richarddiaz0107@gmail.com');
+      allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && (
+        (userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'updatedAt'])) ||
+        (userId == request.auth.uid && request.auth.token.email == 'richarddiaz0107@gmail.com' && incoming().diff(existing()).affectedKeys().hasOnly(['isAdmin', 'updatedAt'])) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['paid', 'points', 'exactMatches', 'isAdmin', 'updatedAt']))
+      );
+    }
+
+    function isValidSetting(data) {
+      return data.keys().hasAll(['groupName', 'adminId', 'blockMinutesBeforeMatch', 'updatedAt']) &&
+             data.groupName is string && data.groupName.size() <= 100 &&
+             data.adminId is string && data.adminId.size() <= 128 &&
+             data.blockMinutesBeforeMatch is number &&
+             data.updatedAt is number;
+    }
+
+    match /settings/{settingId} {
+      allow read: if isSignedIn();
+      allow create: if (isAdmin() || (isSignedIn() && (
+        incoming().adminId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/groups/$(settingId)) && get(/databases/$(database)/documents/groups/$(settingId)).data.adminId == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/groups/$(settingId)) && 'coAdmins' in get(/databases/$(database)/documents/groups/$(settingId)).data && request.auth.uid in get(/databases/$(database)/documents/groups/$(settingId)).data.coAdmins)
+      ))) && isValidId(settingId) && isValidSetting(incoming());
+      allow update: if (isAdmin() || (isSignedIn() && (
+        incoming().adminId == request.auth.uid ||
+        (exists(/databases/$(database)/documents/groups/$(settingId)) && get(/databases/$(database)/documents/groups/$(settingId)).data.adminId == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/groups/$(settingId)) && 'coAdmins' in get(/databases/$(database)/documents/groups/$(settingId)).data && request.auth.uid in get(/databases/$(database)/documents/groups/$(settingId)).data.coAdmins)
+      ))) && isValidId(settingId) && isValidSetting(incoming());
+    }
+
+    match /system/{documentId} {
+      allow read: if isSignedIn();
+      allow create, update, delete: if isAdmin();
+    }
+
+    function isValidMatch(data) {
+      return data.keys().hasAll(['group', 'date', 'homeTeam', 'awayTeam', 'status']) &&
+             data.group is string && data.group.size() <= 100 &&
+             data.date is string && data.date.size() <= 100 &&
+             data.homeTeam is string && data.homeTeam.size() <= 100 &&
+             data.awayTeam is string && data.awayTeam.size() <= 100 &&
+             (!('homeFlag' in data) || data.homeFlag is string) &&
+             (!('awayFlag' in data) || data.awayFlag is string) &&
+             data.status is string && data.status.size() <= 20 &&
+             (!('homeScore' in data) || data.homeScore == null || data.homeScore is number) &&
+             (!('awayScore' in data) || data.awayScore == null || data.awayScore is number);
+    }
+
+    match /matches/{matchId} {
+      allow read: if isSignedIn();
+      allow create: if isAdmin() && isValidId(matchId) && isValidMatch(incoming());
+      allow update: if isAdmin() && isValidId(matchId) && isValidMatch(incoming());
+      allow delete: if isAdmin() && isValidId(matchId);
+    }
+
+    function isValidPrediction(data) {
+      return data.keys().hasAll(['userId', 'matchId', 'homeScore', 'awayScore', 'pointsEarned', 'updatedAt']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.matchId is string && data.matchId.size() <= 128 &&
+             (!('groupId' in data) || (data.groupId is string && data.groupId.size() <= 128)) &&
+             (!('reactions' in data) || data.reactions is map) &&
+             data.homeScore is number &&
+             data.awayScore is number &&
+             data.pointsEarned is number &&
+             data.updatedAt is number;
+    }
+
+    match /predictions/{predictionId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming()) &&
+                    incoming().userId == request.auth.uid &&
+                    incoming().pointsEarned == 0 &&
+                    (isAdmin() || request.time.toMillis() < timestamp(get(/databases/$(database)/documents/matches/$(incoming().matchId)).data.date).toMillis() - (15 * 60 * 1000));
+      allow update: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming()) && (
+        (incoming().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['homeScore', 'awayScore', 'updatedAt']) && (isAdmin() || request.time.toMillis() < timestamp(get(/databases/$(database)/documents/matches/$(existing().matchId)).data.date).toMillis() - (15 * 60 * 1000))) ||
+        (incoming().diff(existing()).affectedKeys().hasOnly(['reactions'])) ||
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['pointsEarned', 'updatedAt']))
+      );
+    }
+
+    function isValidPodium(data) {
+      return data.keys().hasAll(['userId', 'updatedAt']) &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.updatedAt is number;
+    }
+
+    match /podiums/{podiumId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(podiumId) && isValidPodium(incoming()) &&
+                    incoming().userId == request.auth.uid &&
+                    request.time < timestamp("2026-09-08T00:00:00Z");
+      allow update: if isSignedIn() && isValidId(podiumId) && isValidPodium(incoming()) &&
+                    incoming().userId == request.auth.uid &&
+                    request.time < timestamp("2026-09-08T00:00:00Z");
+    }
+    function isValidGroup(data) {
+      return data.keys().hasAll(['name', 'code', 'adminId', 'members', 'createdAt']) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.code is string && data.code.size() <= 10 &&
+             data.adminId is string && data.adminId.size() <= 128 &&
+             data.members is list && data.members.size() <= 1000 &&
+             (data.members.size() == 0 || data.members[0] is string) &&
+             (!('blockedMembers' in data) || (data.blockedMembers is list && data.blockedMembers.size() <= 1000 && (data.blockedMembers.size() == 0 || data.blockedMembers[0] is string))) &&
+             (!('coAdmins' in data) || (data.coAdmins is list && data.coAdmins.size() <= 100)) &&
+             data.createdAt is number;
+    }
+
+    match /groups/{groupId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(groupId) && isValidGroup(incoming()) &&
+                    incoming().adminId == request.auth.uid &&
+                    incoming().members.hasAny([request.auth.uid]);
+      allow update: if isSignedIn() && isValidId(groupId) && isValidGroup(incoming()) && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['members', 'blockedMembers'])) ||
+        (existing().adminId == request.auth.uid) ||
+        ('coAdmins' in existing() && request.auth.uid in existing().coAdmins) ||
+        (isAdmin())
+      );
+      allow delete: if isSignedIn() && isValidId(groupId) && (
+        existing().adminId == request.auth.uid || isAdmin()
+      );
+    }
+
+    function isValidMessage(data) {
+      return data.keys().hasAll(['groupId', 'userId', 'userName', 'text', 'createdAt']) &&
+             data.groupId is string && data.groupId.size() <= 128 &&
+             data.userId is string && data.userId.size() <= 128 &&
+             data.userName is string && data.userName.size() <= 100 &&
+             data.text is string && data.text.size() <= 500 &&
+             (!('replyTo' in data) || data.replyTo is string) &&
+             (!('reactions' in data) || data.reactions is map) &&
+             data.createdAt is number;
+    }
+
+    match /messages/{messageId} {
+      allow read: if isSignedIn();
+      allow create: if isSignedIn() && isValidId(messageId) && isValidMessage(incoming()) &&
+                    incoming().userId == request.auth.uid;
+      allow update: if isSignedIn() && isValidId(messageId) && isValidMessage(incoming()) && (
+        incoming().diff(existing()).affectedKeys().hasOnly(['reactions'])
+      );
+      allow delete: if isAdmin() || existing().userId == request.auth.uid || 
+        (get(/databases/$(database)/documents/groups/$(existing().groupId)).data.adminId == request.auth.uid) ||
+        (request.auth.uid in get(/databases/$(database)/documents/groups/$(existing().groupId)).data.coAdmins);
+    }
+  }
+}
