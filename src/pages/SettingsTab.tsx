@@ -13,6 +13,7 @@ import { GroupMembersList } from '../components/GroupMembersList';
 import { isCabraSuprema } from '../lib/utils';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
 import { deleteGroupPodium } from '../lib/podium';
+import { FooterVersion } from '../components/FooterVersion';
 
 
 function ReadOnlyRules({ settings }: { settings: any }) {

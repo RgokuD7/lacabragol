@@ -14,6 +14,7 @@ import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { getGroupPodium, saveGroupPodium, findAnyUserPodium } from '../lib/podium';
 
 import { TeamBadge } from '../components/TeamBadge';
+import { vibrateSuccess, vibrateError } from '../lib/haptics';
 
 interface Props {
   forcePodiumStep?: boolean;
@@ -35,7 +36,7 @@ const POPULAR_PLAYERS = [
 ];
 
 export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, targetGroupId }: Props = {}) {
-  const { groups, loadingGroups, setActiveGroupId } = useGroups();
+  const { groups, loadingGroups, activeGroupId, setActiveGroupId } = useGroups();
   const { user, profile, logout } = useAuth();
 
   const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
@@ -151,10 +152,16 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
   };
 
   const handleCopyExistingPodium = async () => {
-    if (!user || !existingPodium || !effectiveGroupId) return;
+    const resolvedGroupId = effectiveGroupId || activeGroupId || (groups.length > 0 ? groups[0]?.id : null);
+    if (!user || !existingPodium) return;
+    if (!resolvedGroupId) {
+      alert("No se encontró el grupo activo para guardar tus candidatos. Selecciona un grupo e inténtalo de nuevo.");
+      return;
+    }
     setSavingPodium(true);
     try {
-      await saveGroupPodium(effectiveGroupId, user.uid, existingPodium);
+      await saveGroupPodium(resolvedGroupId, user.uid, existingPodium);
+      vibrateSuccess();
       if (onPodiumSaved) {
         onPodiumSaved();
       } else {
@@ -162,15 +169,26 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
       }
     } catch (e: any) {
       console.error("Error copying podium:", e);
+      vibrateError();
+      alert("Error al copiar candidatos: " + (e?.message || "Error desconocido"));
       setSavingPodium(false);
     }
   };
 
   const savePredictions = async () => {
-    if (!user || !effectiveGroupId) return;
+    const resolvedGroupId = effectiveGroupId || activeGroupId || (groups.length > 0 ? groups[0]?.id : null);
+    if (!user) {
+      alert("Debes iniciar sesión para guardar tus candidatos.");
+      return;
+    }
+    if (!resolvedGroupId) {
+      alert("No se encontró el grupo activo para guardar tus candidatos. Selecciona un grupo e inténtalo de nuevo.");
+      return;
+    }
     setSavingPodium(true);
     try {
-      await saveGroupPodium(effectiveGroupId, user.uid, podium);
+      await saveGroupPodium(resolvedGroupId, user.uid, podium);
+      vibrateSuccess();
       if (onPodiumSaved) {
         onPodiumSaved();
       } else {
@@ -178,6 +196,8 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
       }
     } catch (e: any) {
       console.error("Error saving podium:", e);
+      vibrateError();
+      alert("Error al guardar candidatos: " + (e?.message || "Error desconocido"));
       setSavingPodium(false);
     }
   };
@@ -195,7 +215,13 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
       
       {/* STEP 0: WELCOME */}
       {step === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500 max-w-md mx-auto w-full">
+        <div 
+          className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500 max-w-md mx-auto w-full"
+          style={{ 
+            paddingTop: 'max(calc(env(safe-area-inset-top, 0px) + 20px), 24px)', 
+            paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 20px), 24px)' 
+          }}
+        >
           <img src="/logo.png" alt="La Cabra Gol Logo" className="w-24 h-24 sm:w-28 sm:h-28 object-contain mb-4 drop-shadow-[0_0_25px_rgba(59,130,246,0.2)]" />
           <h1 className="text-2xl sm:text-3xl font-black text-white mb-2 tracking-tight">
             {targetGroup ? `¡Candidatos para ${targetGroup.name}!` : '¡Bienvenido!'}
@@ -241,7 +267,13 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
 
       {/* STEP 1: JOIN GROUP */}
       {step === 1 && groups.length === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center p-4">
+        <div 
+          className="flex-1 flex flex-col items-center justify-center p-4"
+          style={{ 
+            paddingTop: 'max(calc(env(safe-area-inset-top, 0px) + 20px), 24px)', 
+            paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 20px), 24px)' 
+          }}
+        >
           <div className="w-full max-w-md bg-[#121215] border border-zinc-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
             <div className="space-y-6">
               <div className="text-center space-y-2">
@@ -325,7 +357,12 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
 
       {/* STEP 2: PREDICTIONS WIZARD */}
       {step === 2 && (
-        <div className="flex-1 flex flex-col min-h-0 w-full max-w-2xl mx-auto p-4 md:p-6 animate-in slide-in-from-right-8 duration-300">
+        <div 
+          className="flex-1 flex flex-col min-h-0 w-full max-w-2xl mx-auto px-4 md:px-6 pb-4 md:pb-6 animate-in slide-in-from-right-8 duration-300"
+          style={{ 
+            paddingTop: 'max(calc(env(safe-area-inset-top, 0px) + 20px), 28px)' 
+          }}
+        >
           
           {/* Header */}
           <div className="flex-none pb-4">
@@ -462,7 +499,12 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
           </div>
 
           {/* Bottom Controls */}
-          <div className="flex-none pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] bg-[#0a0a0b] border-t border-zinc-800">
+          <div 
+            className="flex-none pt-4 bg-[#0a0a0b] border-t border-zinc-800"
+            style={{ 
+              paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 16px)' 
+            }}
+          >
             <div className="flex gap-3">
               {wizardStep > 1 && (
                 <button 

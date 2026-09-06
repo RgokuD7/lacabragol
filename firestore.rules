@@ -127,9 +127,9 @@ service cloud.firestore {
       allow create: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming()) &&
                     incoming().userId == request.auth.uid &&
                     incoming().pointsEarned == 0 &&
-                    (isAdmin() || request.time.toMillis() < timestamp(get(/databases/$(database)/documents/matches/$(incoming().matchId)).data.date).toMillis() - (15 * 60 * 1000));
+                    (isAdmin() || get(/databases/$(database)/documents/matches/$(incoming().matchId)).data.status == 'pending');
       allow update: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming()) && (
-        (incoming().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['homeScore', 'awayScore', 'updatedAt']) && (isAdmin() || request.time.toMillis() < timestamp(get(/databases/$(database)/documents/matches/$(existing().matchId)).data.date).toMillis() - (15 * 60 * 1000))) ||
+        (incoming().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['homeScore', 'awayScore', 'updatedAt']) && (isAdmin() || get(/databases/$(database)/documents/matches/$(existing().matchId)).data.status == 'pending')) ||
         (incoming().diff(existing()).affectedKeys().hasOnly(['reactions'])) ||
         (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['pointsEarned', 'updatedAt']))
       );
@@ -144,11 +144,9 @@ service cloud.firestore {
     match /podiums/{podiumId} {
       allow read: if isSignedIn();
       allow create: if isSignedIn() && isValidId(podiumId) && isValidPodium(incoming()) &&
-                    incoming().userId == request.auth.uid &&
-                    request.time < timestamp("2026-09-08T00:00:00Z");
+                    incoming().userId == request.auth.uid;
       allow update: if isSignedIn() && isValidId(podiumId) && isValidPodium(incoming()) &&
-                    incoming().userId == request.auth.uid &&
-                    request.time < timestamp("2026-09-08T00:00:00Z");
+                    incoming().userId == request.auth.uid;
       allow delete: if isSignedIn() && isValidId(podiumId) && (
         resource.data.userId == request.auth.uid || isAdmin()
       );
