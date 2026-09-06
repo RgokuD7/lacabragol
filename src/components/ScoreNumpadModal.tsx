@@ -138,28 +138,30 @@ export function ScoreNumpadModal({
           paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 16px)'
         }}
       >
-        {/* Top Close Button ('X') - Strictly positioned relative to modal container with high z-index and ample tap area */}
-        <button
-          type="button"
-          onClick={onClose}
-          onTouchStart={() => vibratePop()}
-          className="absolute top-3.5 right-3.5 z-30 p-2 rounded-full bg-zinc-800/90 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-400 hover:text-white transition-all cursor-pointer border border-zinc-700/70 shadow-lg active:scale-95 flex items-center justify-center"
-          title="Cerrar modal"
-          aria-label="Cerrar modal"
-        >
-          <X className="w-4 h-4" />
-        </button>
+        {/* Top Header Bar with Drag Handle, Title & Dedicated Close Button */}
+        <div className="relative flex items-center justify-between px-4 pt-3 pb-2.5 border-b border-zinc-800/60 mb-2">
+          {/* Left balance spacer to keep center content perfectly centered */}
+          <div className="w-8 h-8 shrink-0" />
 
-        {/* Top Header Row with Centered Drag Handle Pill */}
-        <div className="pt-3.5 pb-1 flex items-center justify-center">
-          <div className="w-12 h-1.5 bg-zinc-700/60 rounded-full" />
-        </div>
+          {/* Centered Drag Handle + Modal Title */}
+          <div className="flex flex-col items-center gap-1">
+            <div className="w-12 h-1.5 bg-zinc-700/60 rounded-full" />
+            <span className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
+              Pronosticar Resultado
+            </span>
+          </div>
 
-        {/* Modal Section Title - Vertically clears the space so the TV scoreboard is well below the 'X' button */}
-        <div className="text-center px-4 pb-2">
-          <p className="text-[11px] font-bold uppercase tracking-wider text-zinc-400">
-            Pronosticar Resultado
-          </p>
+          {/* Close Button ('X') - Contained in header row, completely separated from TV scoreboard */}
+          <button
+            type="button"
+            onClick={onClose}
+            onTouchStart={() => vibratePop()}
+            className="w-8 h-8 rounded-full bg-zinc-800/90 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-400 hover:text-white transition-all cursor-pointer border border-zinc-700/70 shadow-md active:scale-95 flex items-center justify-center shrink-0"
+            title="Cerrar modal"
+            aria-label="Cerrar modal"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
 
         {/* 1. Header (Marcador Global - Estilo TV) */}
