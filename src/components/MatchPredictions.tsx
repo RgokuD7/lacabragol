@@ -82,7 +82,25 @@ function PredictionCard({
   );
 }
 
-export function MatchPredictions({ matchId, locked, matchStatus, matchHomeTeam, matchAwayTeam, pointsNode, isJackpot }: { matchId: string, locked: boolean, matchStatus: string, matchHomeTeam: string, matchAwayTeam: string, pointsNode?: React.ReactNode, isJackpot?: boolean }) {
+export function MatchPredictions({ 
+  matchId, 
+  locked, 
+  matchStatus, 
+  matchHomeTeam, 
+  matchAwayTeam, 
+  pointsNode, 
+  isJackpot,
+  isTutorialActive 
+}: { 
+  matchId: string; 
+  locked: boolean; 
+  matchStatus: string; 
+  matchHomeTeam: string; 
+  matchAwayTeam: string; 
+  pointsNode?: React.ReactNode; 
+  isJackpot?: boolean;
+  isTutorialActive?: boolean;
+}) {
   const { activeGroupId, groups } = useGroups();
   const { user: currentUser } = useAuth();
   const [expanded, setExpanded] = useState(false);
@@ -93,9 +111,27 @@ export function MatchPredictions({ matchId, locked, matchStatus, matchHomeTeam, 
   const [contextMenuPos, setContextMenuPos] = useState({ top: 0, left: 0 });
   
   const activeGroup = groups.find(g => g.id === activeGroupId);
+  const isTutorialMatch = isTutorialActive || matchId === 'tutorial-mock-match';
 
   const handleReaction = async (predId: string, emoji: string) => {
     if (!currentUser) return;
+    if (isTutorialMatch) {
+      setPredictions(prev => prev.map(p => {
+        if (p.id !== predId) return p;
+        const curr = p.reactions || {};
+        const currentList = Array.isArray(curr[emoji]) ? [...curr[emoji]] : [];
+        const has = currentList.includes(currentUser.uid);
+        const updated = { ...curr };
+        if (has) {
+          updated[emoji] = currentList.filter(u => u !== currentUser.uid);
+        } else {
+          updated[emoji] = [...currentList, currentUser.uid];
+        }
+        return { ...p, reactions: updated };
+      }));
+      vibrateTap();
+      return;
+    }
     try {
       const pred = predictions.find(p => p.id === predId);
       if (!pred) return;
@@ -129,9 +165,81 @@ export function MatchPredictions({ matchId, locked, matchStatus, matchHomeTeam, 
     }
   };
 
-  const isMatchOpen = !locked && matchStatus !== 'in_progress' && matchStatus !== 'finished';
+  const isMatchOpen = !isTutorialMatch && !locked && matchStatus !== 'in_progress' && matchStatus !== 'finished';
 
   const loadPredictions = () => {
+    if (isTutorialMatch) {
+      setPredictions([
+        {
+          id: 'tutorial-pred-carlos',
+          userId: 'tutorial-user-carlos',
+          matchId,
+          homeScore: 2,
+          awayScore: 1,
+          pointsEarned: 5,
+          updatedAt: Date.now(),
+          reactions: { '🔥': ['u1', 'u2'], '🐐': ['u3'] },
+          user: {
+            uid: 'tutorial-user-carlos',
+            displayName: 'Carlos Mendoza',
+            nickname: 'Carlos M.',
+            email: 'carlos@example.com',
+            points: 45,
+            exactMatches: 8,
+            paid: true,
+            isAdmin: false,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+        },
+        {
+          id: 'tutorial-pred-mateo',
+          userId: 'tutorial-user-mateo',
+          matchId,
+          homeScore: 2,
+          awayScore: 0,
+          pointsEarned: 3,
+          updatedAt: Date.now(),
+          reactions: { '👏': ['u1'] },
+          user: {
+            uid: 'tutorial-user-mateo',
+            displayName: 'Mateo González',
+            nickname: 'Mateo G.',
+            email: 'mateo@example.com',
+            points: 38,
+            exactMatches: 5,
+            paid: true,
+            isAdmin: false,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+        },
+        {
+          id: 'tutorial-pred-lucas',
+          userId: 'tutorial-user-lucas',
+          matchId,
+          homeScore: 1,
+          awayScore: 1,
+          pointsEarned: 0,
+          updatedAt: Date.now(),
+          reactions: { '😂': ['u2'] },
+          user: {
+            uid: 'tutorial-user-lucas',
+            displayName: 'Lucas Romero',
+            nickname: 'Lucas R.',
+            email: 'lucas@example.com',
+            points: 29,
+            exactMatches: 3,
+            paid: true,
+            isAdmin: false,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+          }
+        }
+      ]);
+      setLoading(false);
+      return;
+    }
     if (isMatchOpen) {
       setPredictions([]);
       setLoading(false);
@@ -250,7 +358,7 @@ export function MatchPredictions({ matchId, locked, matchStatus, matchHomeTeam, 
                   handleReaction={handleReaction}
                   setContextMenuPos={setContextMenuPos}
                   setContextMenuPredId={setContextMenuPredId}
-                  matchStatus={matchStatus}
+                  matchStatus={isTutorialMatch ? 'finished' : matchStatus}
                 />
               ))}
             </div>

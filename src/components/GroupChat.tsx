@@ -130,16 +130,39 @@ function ChatMessageItem({
 }
 
 export function GroupChat({ 
-  isOpen = true, 
-  onClose = () => {}
+  isOpen = false, 
+  onClose,
+  isTutorialActive = false
 }: { 
   isOpen?: boolean; 
   onClose?: () => void;
+  isTutorialActive?: boolean;
 }) {
 
   const { user, profile } = useAuth();
   const { activeGroupId, groups } = useGroups();
   const [messages, setMessages] = useState<Message[]>([]);
+  const [tutorialMockMsgs, setTutorialMockMsgs] = useState<Message[]>([
+    {
+      id: 'tutorial-msg-1',
+      groupId: activeGroupId || 'mock-group',
+      userId: 'mock-user-carlos',
+      userName: 'Carlos M.',
+      text: '¡Qué partidazo señores! ¿Vieron ese golazo al ángulo? ⚽🔥',
+      reactions: { '❤️': 2, '🔥': 3 } as any,
+      createdAt: Date.now() - 120000,
+    },
+    {
+      id: 'tutorial-msg-2',
+      groupId: activeGroupId || 'mock-group',
+      userId: 'mock-user-mateo',
+      userName: 'Mateo G.',
+      text: '¡Una locura total! Ya sumé mis primeros 5 puntos en la tabla 😎',
+      replyTo: 'tutorial-msg-1',
+      reactions: { '🐐': 2 } as any,
+      createdAt: Date.now() - 60000,
+    }
+  ]);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -249,6 +272,16 @@ export function GroupChat({
   };
 
   const handleReaction = async (msgId: string, emoji: string) => {
+    if (msgId.startsWith('tutorial-')) {
+      setTutorialMockMsgs(prev => prev.map(m => {
+        if (m.id !== msgId) return m;
+        const currentReactions = { ...(m.reactions || {}) };
+        currentReactions[emoji] = (currentReactions[emoji] || 0) + 1;
+        return { ...m, reactions: currentReactions };
+      }));
+      vibrateTap();
+      return;
+    }
     try {
       const msg = messages.find(m => m.id === msgId);
       if (!msg || !user?.uid) return;
@@ -335,18 +368,26 @@ export function GroupChat({
           id="tutorial-chat-messages-container"
           className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-zinc-800 relative z-0"
         >
-          {messages.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center text-zinc-500 opacity-50 space-y-2">
-              <MessageSquare className="w-8 h-8" />
-              <p className="text-xs">No hay mensajes aún.</p>
-            </div>
-          ) : (
-            messages.map((msg, idx) => (
+          {(() => {
+            const displayMessages = isTutorialActive
+              ? [...messages.filter(m => !m.id.startsWith('tutorial-')), ...tutorialMockMsgs]
+              : messages;
+
+            if (displayMessages.length === 0) {
+              return (
+                <div className="h-full flex flex-col items-center justify-center text-zinc-500 opacity-50 space-y-2">
+                  <MessageSquare className="w-8 h-8" />
+                  <p className="text-xs">No hay mensajes aún.</p>
+                </div>
+              );
+            }
+
+            return displayMessages.map((msg, idx) => (
               <ChatMessageItem
                 key={msg.id}
                 msg={msg}
                 idx={idx}
-                messages={messages}
+                messages={displayMessages}
                 user={user}
                 activeGroup={activeGroup}
                 setContextMenuPos={setContextMenuPos}
@@ -356,8 +397,8 @@ export function GroupChat({
                 activeEmojiPicker={activeEmojiPicker}
                 handleReaction={handleReaction}
               />
-            ))
-          )}
+            ));
+          })()}
 
           <div ref={messagesEndRef} />
         </div>
@@ -394,7 +435,7 @@ export function GroupChat({
         )}
 
         {/* Input Area */}
-        <div className="p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[max(env(safe-area-inset-bottom),32px)]">
+        <div className="p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[env(safe-area-inset-bottom,12px)]">
           <form onSubmit={handleSendMessage} className="flex gap-2 w-full">
             <input
               id="chat-input"

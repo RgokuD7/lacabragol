@@ -31,7 +31,25 @@ import {
 
 export type StatusFilterType = 'all' | 'open' | 'live' | 'finished';
 
-export function PredictionsTab() {
+const TUTORIAL_MOCK_MATCH: Match = {
+  id: 'tutorial-mock-match',
+  group: 'Jornada 1',
+  date: new Date().toISOString(),
+  homeTeam: 'FC Barcelona',
+  awayTeam: 'Real Madrid',
+  homeFlag: 'https://img.sofascore.com/api/v1/team/2817/image',
+  awayFlag: 'https://img.sofascore.com/api/v1/team/2829/image',
+  homeScore: 2,
+  awayScore: 1,
+  status: 'in_progress',
+  apiId: 99999999,
+};
+
+interface PredictionsTabProps {
+  isTutorialActive?: boolean;
+}
+
+export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps = {}) {
   const { user, profile } = useAuth();
   const { settings } = useSettings();
   const { groups: userCommunityGroups, activeGroupId } = useGroups();
@@ -452,18 +470,23 @@ export function PredictionsTab() {
 
       {/* Match Cards List Denso y Estructurado */}
       <div className="space-y-2">
-        {filteredMatches.map((match, idx) => {
+        {(isTutorialActive ? [TUTORIAL_MOCK_MATCH, ...filteredMatches.filter(m => m.id !== 'tutorial-mock-match')] : filteredMatches).map((match, idx) => {
+          const isTutorialItem = match.id === 'tutorial-mock-match';
           const isFinished = match.status === 'finished';
           const isInProgress = match.status === 'in_progress';
-          const isScheduleLocked = isMatchLocked(match.date);
-          const locked = isFinished || isInProgress || isScheduleLocked;
-          const pred = predictions[match.id];
-          const hasSaved = !!pred;
+          const isScheduleLocked = isTutorialItem ? false : isMatchLocked(match.date);
+          const locked = isTutorialItem ? false : (isFinished || isInProgress || isScheduleLocked);
+          const pred = isTutorialItem
+            ? ({ id: 'tutorial-pred-me', userId: user?.uid || 'me', matchId: match.id, homeScore: 2, awayScore: 1, pointsEarned: 5, updatedAt: Date.now() } as Prediction)
+            : predictions[match.id];
+          const hasSaved = isTutorialItem ? true : !!pred;
           
-          const scores = localScores[match.id] || { 
-            home: pred ? String(pred.homeScore) : '', 
-            away: pred ? String(pred.awayScore) : '' 
-          };
+          const scores = isTutorialItem 
+            ? { home: '2', away: '1' }
+            : (localScores[match.id] || { 
+                home: pred ? String(pred.homeScore) : '', 
+                away: pred ? String(pred.awayScore) : '' 
+              });
 
           const isSaving = savingId === match.id;
           const hasValidInputs = scores.home !== '' && scores.away !== '';
@@ -639,8 +662,9 @@ export function PredictionsTab() {
                 matchHomeTeam={match.homeTeam} 
                 matchAwayTeam={match.awayTeam} 
                 isJackpot={evalResult.type === 'exact'}
+                isTutorialActive={isTutorialItem}
                 pointsNode={
-                  isFinished && hasSaved && evalResult.points > 0 ? (
+                  (isFinished || isTutorialItem) && hasSaved && evalResult.points > 0 ? (
                     <span className="text-[10px] font-black text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded shadow-sm border border-amber-500/20">
                       +{evalResult.points}p
                     </span>
@@ -651,7 +675,7 @@ export function PredictionsTab() {
           );
         })}
 
-        {filteredMatches.length === 0 && (
+        {!isTutorialActive && filteredMatches.length === 0 && (
           <div className="text-center bg-[#121215] border border-zinc-800 rounded-xl text-zinc-400 p-6 space-y-2">
             <Filter className="w-5 h-5 mx-auto text-zinc-500" />
             <p className="text-xs font-semibold text-white">No hay partidos en este filtro</p>

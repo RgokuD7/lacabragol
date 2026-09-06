@@ -32,7 +32,7 @@ import { doc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRem
 import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { GroupChat } from './GroupChat';
-import { TutorialPlayground } from './TutorialPlayground';
+import { startInteractiveTutorial } from '../lib/driver';
 import { User as UserIcon } from 'lucide-react';
 
 export function Layout() {
@@ -86,18 +86,21 @@ export function Layout() {
   
   const runTutorial = () => {
     setIsTutorialActive(true);
-  };
-
-  const handleFinishTutorial = () => {
-    setIsTutorialActive(false);
-    if (user) {
-      localStorage.setItem(`hasSeenTutorial_${user.uid}`, 'true');
-      try {
-        updateDoc(doc(db, 'users', user.uid), { hasSeenTutorial: true }).catch(() => {});
-      } catch (e) {
-        console.warn("Could not save hasSeenTutorial:", e);
-      }
-    }
+    setTimeout(() => {
+      startInteractiveTutorial({
+        onComplete: () => {
+          setIsTutorialActive(false);
+          if (user) {
+            localStorage.setItem(`hasSeenTutorial_${user.uid}`, 'true');
+            try {
+              updateDoc(doc(db, 'users', user.uid), { hasSeenTutorial: true }).catch(() => {});
+            } catch (e) {
+              console.warn("Could not save hasSeenTutorial:", e);
+            }
+          }
+        }
+      });
+    }, 150);
   };
 
   // Auto-launch tutorial for new users who haven't completed it
@@ -282,9 +285,9 @@ export function Layout() {
       </header>
 
       {/* Main Content Area */}
-      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col pb-[calc(56px+max(env(safe-area-inset-bottom),20px))]' : 'overflow-y-auto pb-[140px] scrollbar-thin scrollbar-thumb-zinc-800'}`}>
+      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'overflow-y-auto pb-[calc(64px+env(safe-area-inset-bottom,0px))] scrollbar-thin scrollbar-thumb-zinc-800'}`}>
         <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'h-full'}`}>
-          {activeTab === 'predictions' && <PredictionsTab />}
+          {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
           {activeTab === 'standings' && <StandingsTab />}
           {activeTab === 'ranking' && <RankingTab />}
           {activeTab === 'settings' && <SettingsTab />}
@@ -297,7 +300,7 @@ export function Layout() {
         <button
           id="fab-group-chat"
           onClick={openChat}
-          className="fixed bottom-24 right-5 z-40 w-14 h-14 bg-blue-600 hover:bg-blue-500 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform active:scale-90 border border-blue-400/30"
+          className="fixed bottom-20 right-5 z-40 w-14 h-14 bg-blue-600 hover:bg-blue-500 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform active:scale-90 border border-blue-400/30"
           title="Chat del Grupo"
         >
           <MessageCircle className="w-6 h-6" />
@@ -314,11 +317,12 @@ export function Layout() {
         <GroupChat 
           isOpen={isChatOpen} 
           onClose={() => setIsChatOpen(false)} 
+          isTutorialActive={isTutorialActive}
         />
       )}
 
       {/* Bottom Navigation Bar Compacto */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-[#111114]/70 backdrop-blur-2xl border-t border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pb-[max(env(safe-area-inset-bottom),20px)]">
+      <nav className="fixed bottom-0 left-0 right-0 bg-[#111114]/70 backdrop-blur-2xl border-t border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pb-[env(safe-area-inset-bottom)]">
         <div className="max-w-4xl mx-auto flex justify-between px-1 py-1">
           {/* Main 2 Tabs: Partidos y Tabla */}
           {tabs.slice(0, 2).map((tab) => {
@@ -474,11 +478,6 @@ export function Layout() {
           </button>
         </div>
       </BaseBottomSheet>
-
-      {/* Tutorial Playground: Mock interactive tutorial that unmounts completely on finish/skip */}
-      {isTutorialActive && (
-        <TutorialPlayground onFinish={handleFinishTutorial} />
-      )}
     </div>
   );
 }

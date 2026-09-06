@@ -144,12 +144,6 @@ export const startInteractiveTutorial = (options?: TutorialOptions) => {
               driverObj.moveNext();
             }, 300);
           },
-          onDoneClick: () => {
-            const closeBtn = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
-            if (closeBtn) closeBtn.click();
-            finish();
-            driverObj.destroy();
-          },
           onPrevClick: () => {
             const closeBtn = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
             if (closeBtn) closeBtn.click();
@@ -157,6 +151,33 @@ export const startInteractiveTutorial = (options?: TutorialOptions) => {
               driverObj.movePrevious();
             }, 300);
           },
+        },
+      },
+      // Paso 9 (Tabla de Posiciones): Elemento tab Tabla
+      {
+        element: '#nav-standings',
+        popover: {
+          title: 'Tabla de Posiciones',
+          description: 'En la Tabla revisas la clasificación en tiempo real, con la columna de puntos fija mientras navegas las estadísticas.',
+          side: 'top',
+          align: 'center',
+          onPrevClick: () => {
+            const fab = document.querySelector<HTMLButtonElement>('#fab-group-chat');
+            if (fab) fab.click();
+            setTimeout(() => {
+              driverObj.movePrevious();
+            }, 300);
+          },
+        },
+      },
+      // Paso 10 (Ranking, Grupo y Perfil): Elemento grupo de tabs
+      {
+        element: '#nav-group-ranking-profile',
+        popover: {
+          title: 'Ranking, Grupo y Perfil',
+          description: 'En Ranking verás los podios. En Grupo están las reglas de tu liga, y en Perfil configuras tu apodo y eliges a tus candidatos del Podio.',
+          side: 'top',
+          align: 'center',
         },
       },
     ],
