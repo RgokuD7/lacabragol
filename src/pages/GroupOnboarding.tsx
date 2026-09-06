@@ -38,7 +38,8 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
   const { groups, loadingGroups, setActiveGroupId } = useGroups();
   const { user, profile, logout } = useAuth();
 
-  const effectiveGroupId = targetGroupId || (groups.length > 0 ? groups[0].id : null);
+  const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
+  const effectiveGroupId = createdGroupId || targetGroupId || activeGroupId || (groups.length > 0 ? groups[0].id : null);
   const targetGroup = groups.find(g => g.id === effectiveGroupId);
   
   // 0: Welcome, 1: Join Group, 2: Predictions Wizard
@@ -95,10 +96,10 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
 
   // If they have groups, but no podium, jump to step 0
   useEffect(() => {
-    if (groups.length > 0 && !hasPodium) {
+    if ((groups.length > 0 || createdGroupId) && !hasPodium) {
       setStep(0);
     }
-  }, [groups.length, hasPodium]);
+  }, [groups.length, createdGroupId, hasPodium]);
 
   const handleJoin = async () => {
     if (!inviteCode || !user) return;
@@ -118,6 +119,7 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
       await updateDoc(groupDoc.ref, {
         members: arrayUnion(user.uid)
       });
+      setCreatedGroupId(groupDoc.id);
       setActiveGroupId(groupDoc.id);
       setStep(0);
     } catch (e: any) {
@@ -139,6 +141,7 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
         members: [user.uid],
         createdAt: Date.now()
       });
+      setCreatedGroupId(newRef.id);
       setActiveGroupId(newRef.id);
       setStep(0);
     } catch (e: any) {
@@ -148,7 +151,7 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
   };
 
   const handleCopyExistingPodium = async () => {
-    if (!user || !existingPodium) return;
+    if (!user || !existingPodium || !effectiveGroupId) return;
     setSavingPodium(true);
     try {
       await saveGroupPodium(effectiveGroupId, user.uid, existingPodium);
@@ -164,7 +167,7 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
   };
 
   const savePredictions = async () => {
-    if (!user) return;
+    if (!user || !effectiveGroupId) return;
     setSavingPodium(true);
     try {
       await saveGroupPodium(effectiveGroupId, user.uid, podium);

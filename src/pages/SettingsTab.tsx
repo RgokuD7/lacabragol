@@ -10,9 +10,9 @@ import { User, Group, Setting } from '../types';
 import { Award, CheckCircle2, User as UserIcon, LogOut, Plus, LogIn, Share2, Save, Users, AlertCircle, Copy, Hash, Edit3, X, Trash2 } from 'lucide-react';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { GroupMembersList } from '../components/GroupMembersList';
-import { FooterVersion } from '../components/FooterVersion';
 import { isCabraSuprema } from '../lib/utils';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
+import { deleteGroupPodium } from '../lib/podium';
 
 
 function ReadOnlyRules({ settings }: { settings: any }) {
@@ -319,6 +319,7 @@ export function SettingsTab() {
         await updateDoc(doc(db, 'groups', g.id), {
           members: arrayRemove(user.uid)
         });
+        await deleteGroupPodium(g.id, user.uid);
         if (g.id === activeGroupId) {
           const other = groups.find(x => x.id !== g.id);
           if (other) setActiveGroupId(other.id);
@@ -342,6 +343,7 @@ export function SettingsTab() {
     setDeletingGroup(true);
     try {
       await deleteDoc(doc(db, 'groups', activeGroup.id));
+      await deleteGroupPodium(activeGroup.id, user.uid);
       const remaining = groups.filter(g => g.id !== activeGroup.id);
       if (remaining.length > 0) {
         setActiveGroupId(remaining[0].id);

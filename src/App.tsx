@@ -43,27 +43,10 @@ function AppContent() {
       try {
         const groupPodiumRef = doc(db, 'podiums', `${currentGroupId}_${user.uid}`);
         const snap = await getDoc(groupPodiumRef);
-        if (snap.exists()) {
-          if (isMounted) setHasPodium(true);
-          return;
+        // Check if group-specific podium exists
+        if (isMounted) {
+          setHasPodium(snap.exists());
         }
-
-        // Automatic migration for single-group existing users with legacy podium
-        if (groups.length === 1) {
-          const legacySnap = await getDoc(doc(db, 'podiums', user.uid));
-          if (legacySnap.exists()) {
-            await setDoc(groupPodiumRef, {
-              ...legacySnap.data(),
-              groupId: currentGroupId,
-              updatedAt: Date.now()
-            });
-            if (isMounted) setHasPodium(true);
-            return;
-          }
-        }
-
-        // For new groups or missing podiums, require setup
-        if (isMounted) setHasPodium(false);
       } catch (err) {
         console.warn("Error checking group podium:", err);
         if (isMounted) setHasPodium(true);

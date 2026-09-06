@@ -20,17 +20,13 @@ export function initViewportFixes() {
     }
   };
 
-  // 1. Immediately reset if the window scroll changes
-  window.addEventListener('scroll', resetWindowScroll, { passive: true });
-
-  // 2. When any input / textarea / editable element blurs, reset scroll
+  // 1. When any input / textarea / editable element blurs (keyboard dismisses), reset window scroll
   window.addEventListener('focusout', (e) => {
     const target = e.target as HTMLElement | null;
     if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
-      // Run multiple passes to match keyboard slide-down animation timing
-      setTimeout(resetWindowScroll, 50);
-      setTimeout(resetWindowScroll, 150);
-      setTimeout(resetWindowScroll, 300);
+      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+      setTimeout(resetWindowScroll, 80);
+      setTimeout(resetWindowScroll, 250);
     }
   });
 

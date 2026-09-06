@@ -10,18 +10,12 @@ html, body {
   margin: 0;
   padding: 0;
   width: 100%;
-  height: 100%;
-  height: -webkit-fill-available;
-  overflow: hidden;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  min-height: 100%;
+  min-height: 100dvh;
   background-color: #0a0a0b;
   color: #E0E0E0;
   font-family: var(--font-sans);
-  overscroll-behavior: none;
+  overscroll-behavior-y: none;
   -webkit-tap-highlight-color: transparent;
   -webkit-touch-callout: none;
   user-select: none;
@@ -30,14 +24,10 @@ html, body {
 
 #root {
   width: 100%;
-  height: 100%;
-  height: -webkit-fill-available;
-  overflow: hidden;
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
+  min-height: 100%;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
 }
 
 input, textarea, [contenteditable="true"], .selectable-text {

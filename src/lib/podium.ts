@@ -1,4 +1,4 @@
-import { doc, getDoc, setDoc, query, collection, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, setDoc, deleteDoc, query, collection, where, getDocs } from 'firebase/firestore';
 import { db } from './firebase';
 import { Podium } from '../types';
 import { getTeamLogoByName } from '../data/fixtures';
@@ -20,12 +20,14 @@ export async function getGroupPodium(groupId: string | null | undefined, userId:
       if (snap.exists()) {
         return snap.data() as Podium;
       }
+      return null;
     } catch (e) {
       console.warn("Could not fetch group podium:", e);
+      return null;
     }
   }
 
-  // Fallback to legacy single-user podium doc
+  // Only if no groupId is provided at all, check userId
   try {
     const legacySnap = await getDoc(doc(db, 'podiums', userId));
     if (legacySnap.exists()) {
@@ -36,6 +38,18 @@ export async function getGroupPodium(groupId: string | null | undefined, userId:
   }
 
   return null;
+}
+
+export async function deleteGroupPodium(groupId: string | null | undefined, userId: string): Promise<void> {
+  if (!userId) return;
+  try {
+    if (groupId && groupId !== 'default') {
+      await deleteDoc(doc(db, 'podiums', `${groupId}_${userId}`));
+    }
+    await deleteDoc(doc(db, 'podiums', userId)).catch(() => {});
+  } catch (e) {
+    console.warn("Error deleting group podium:", e);
+  }
 }
 
 export async function saveGroupPodium(groupId: string | null | undefined, userId: string, data: Partial<Podium>): Promise<void> {

@@ -149,6 +149,9 @@ service cloud.firestore {
       allow update: if isSignedIn() && isValidId(podiumId) && isValidPodium(incoming()) &&
                     incoming().userId == request.auth.uid &&
                     request.time < timestamp("2026-09-08T00:00:00Z");
+      allow delete: if isSignedIn() && isValidId(podiumId) && (
+        resource.data.userId == request.auth.uid || isAdmin()
+      );
     }
     function isValidGroup(data) {
       return data.keys().hasAll(['name', 'code', 'adminId', 'members', 'createdAt']) &&
