@@ -26,9 +26,28 @@ export const waitForElement = (selector: string, timeout = 3000): Promise<HTMLEl
 
 export const startInteractiveTutorial = async (options?: TutorialOptions) => {
   let completed = false;
+
+  let resizeObserver: ResizeObserver | null = null;
+  let scrollListener: (() => void) | null = null;
+
+  const mainEl = document.querySelector('main');
+
+  const cleanupSync = () => {
+    if (scrollListener) {
+      mainEl?.removeEventListener('scroll', scrollListener);
+      window.removeEventListener('scroll', scrollListener);
+      scrollListener = null;
+    }
+    if (resizeObserver) {
+      resizeObserver.disconnect();
+      resizeObserver = null;
+    }
+  };
+
   const finish = () => {
     if (completed) return;
     completed = true;
+    cleanupSync();
     options?.onComplete?.();
   };
 
@@ -39,8 +58,16 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
     if (closeChat) closeChat.click();
   };
 
+  // Reset scroll on <main> container to guarantee natural layout coordinates from top
+  if (mainEl) {
+    mainEl.scrollTo({ top: 0, behavior: 'instant' as any });
+  }
+  window.scrollTo(0, 0);
+
   // Wait for root card target to be fully mounted in the DOM
   await waitForElement('#tutorial-first-match-card', 3000);
+  // Allow two animation frames for React to finish rendering and DOM to settle
+  await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
   const driverObj = driver({
     showProgress: true,
@@ -53,6 +80,24 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
     onPopoverRender: (popover) => {
       const ghostPopovers = document.querySelectorAll('.driver-popover:not(:last-child)');
       ghostPopovers.forEach(el => el.remove());
+    },
+    onHighlightStarted: (element) => {
+      if (element && element.id !== 'driver-dummy-element') {
+        element.scrollIntoView({ behavior: 'instant', block: 'nearest' });
+        requestAnimationFrame(() => {
+          driverObj.refresh();
+        });
+        setTimeout(() => {
+          driverObj.refresh();
+        }, 100);
+      }
+    },
+    onHighlighted: (element) => {
+      if (element && element.id !== 'driver-dummy-element') {
+        requestAnimationFrame(() => {
+          driverObj.refresh();
+        });
+      }
     },
     steps: [
       // Paso 1 (Bienvenida): Sin elemento (align: 'center')
@@ -132,6 +177,13 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
           description: 'Usa estos filtros para navegar rápidamente entre los partidos disponibles y las jornadas del torneo.',
           side: 'bottom',
           align: 'center',
+          onPrevClick: () => {
+            const btn = document.querySelector<HTMLButtonElement>('#tutorial-group-predictions-btn');
+            if (btn) btn.click();
+            setTimeout(() => {
+              driverObj.movePrevious();
+            }, 350);
+          },
         },
       },
       // Paso 7 (FAB Chat): Elemento botón flotante del chat
@@ -204,15 +256,32 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
       },
     ],
     onDestroyStarted: () => {
+      cleanupSync();
       closeOpenModals();
       finish();
       driverObj.destroy();
     },
     onDestroyed: () => {
+      cleanupSync();
       closeOpenModals();
       finish();
     },
   });
+
+  // Attach continuous synchronization to <main> scroll and DOM resize shifts
+  scrollListener = () => {
+    driverObj.refresh();
+  };
+  mainEl?.addEventListener('scroll', scrollListener, { passive: true });
+  window.addEventListener('scroll', scrollListener, { passive: true });
+
+  resizeObserver = new ResizeObserver(() => {
+    driverObj.refresh();
+  });
+  if (mainEl) {
+    resizeObserver.observe(mainEl);
+  }
+  resizeObserver.observe(document.body);
 
   driverObj.drive();
   return driverObj;

@@ -87,6 +87,11 @@ export function Layout() {
   const runTutorial = () => {
     setActiveTab('predictions');
     setIsTutorialActive(true);
+    const mainEl = document.querySelector('main');
+    if (mainEl) {
+      mainEl.scrollTo({ top: 0, behavior: 'instant' as any });
+    }
+    window.scrollTo(0, 0);
     setTimeout(() => {
       startInteractiveTutorial({
         onComplete: () => {

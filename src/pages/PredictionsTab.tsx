@@ -449,9 +449,9 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         </div>
 
         {/* Jornadas Horizontal Scroller Denso */}
-        {groups.length > 1 && (
+        {((isTutorialActive && groups.length <= 1 ? ['All', 'Jornada 1', 'Jornada 2', 'Jornada 3'] : groups).length > 1) && (
           <div className="flex gap-1 overflow-x-auto pb-0.5 pt-0.5 scrollbar-none -mx-1 px-1">
-            {groups.map(g => (
+            {(isTutorialActive && groups.length <= 1 ? ['All', 'Jornada 1', 'Jornada 2', 'Jornada 3'] : groups).map(g => (
                <button 
                  key={g} 
                  onClick={() => setSelectedGroup(g)}
@@ -509,7 +509,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           return (
             <div 
               key={match.id} 
-              id={idx === 0 ? "tutorial-first-match-card" : undefined}
+              id={isTutorialItem ? "tutorial-first-match-card" : (idx === 0 && !isTutorialActive ? "tutorial-first-match-card" : undefined)}
               className={`bg-[#111114] border rounded-xl p-2 sm:p-3 shadow-sm transition-all ${
                 evalResult.type === 'exact'
                   ? 'border-emerald-500/50 bg-[#0a1712]'
