@@ -8,7 +8,7 @@ import { vibrateSuccess, vibrateError, vibratePop } from '../lib/haptics';
 import { cn } from '../lib/utils';
 
 import { usePlayers } from '../hooks/usePlayers';
-import { DEFAULT_PLAYERS } from '../data/players';
+import { DEFAULT_PLAYERS, formatNationality, normalizePlayerKey } from '../data/players';
 
 export const POPULAR_PLAYERS = DEFAULT_PLAYERS;
 
@@ -28,6 +28,33 @@ export function PodiumDisplay({
   isSaving = false
 }: PodiumDisplayProps) {
   const { players: dynamicPlayers } = usePlayers();
+
+  const championTeam = UCL_36_TEAMS.find(t => t.name.toLowerCase() === (podium?.champion || '').toLowerCase());
+  const runnerUpTeam = UCL_36_TEAMS.find(t => t.name.toLowerCase() === (podium?.runnerUp || '').toLowerCase());
+
+  const findPlayer = (name?: string) => {
+    if (!name || !name.trim()) return undefined;
+    const key = normalizePlayerKey(name);
+    if (!key) return undefined;
+    const exact = dynamicPlayers.find(p => normalizePlayerKey(p.name) === key);
+    if (exact) return exact;
+    const sub = dynamicPlayers.find(p => {
+      const pKey = normalizePlayerKey(p.name);
+      return pKey.includes(key) || key.includes(pKey);
+    });
+    if (sub) return sub;
+    const words = name.trim().split(/\s+/);
+    const lastName = words[words.length - 1].toLowerCase();
+    if (lastName.length > 3) {
+      return dynamicPlayers.find(p => p.name.toLowerCase().includes(lastName));
+    }
+    return undefined;
+  };
+
+  const topScorerPlayer = findPlayer(podium?.topScorer);
+  const mostAssistsPlayer = findPlayer(podium?.mostAssists);
+  const mvpPlayer = findPlayer(podium?.mvp);
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<number>(1);
   const [searchTerm, setSearchTerm] = useState('');
@@ -98,7 +125,9 @@ export function PodiumDisplay({
 
   const filteredPlayers = dynamicPlayers.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
+    (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (p.nationality && p.nationality.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (p.position && p.position.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
   const showCustomPlayer = searchTerm.trim().length > 0 && !dynamicPlayers.some(
@@ -192,6 +221,11 @@ export function PodiumDisplay({
                   <span className="text-[11px] font-bold text-white text-center leading-tight line-clamp-2 w-full">
                     {podium.runnerUp || 'Sin definir'}
                   </span>
+                  {runnerUpTeam?.country && (
+                    <span className="text-[9px] text-zinc-400 font-medium truncate block mt-0.5">
+                      {formatNationality(runnerUpTeam.country)}
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -221,6 +255,11 @@ export function PodiumDisplay({
                   <span className="text-xs font-black text-white text-center leading-tight uppercase drop-shadow line-clamp-2 w-full">
                     {podium.champion || 'Sin definir'}
                   </span>
+                  {championTeam?.country && (
+                    <span className="text-[9px] text-yellow-200/90 font-medium truncate block mt-0.5 drop-shadow">
+                      {formatNationality(championTeam.country)}
+                    </span>
+                  )}
                 </div>
               </div>
             </div>
@@ -240,6 +279,11 @@ export function PodiumDisplay({
                 <p className="text-[11px] sm:text-xs font-bold text-emerald-100 truncate pl-0.5" title={podium.topScorer}>
                   {podium.topScorer || 'Sin definir'}
                 </p>
+                {topScorerPlayer?.nationality && (
+                  <span className="text-[10px] text-emerald-300/90 font-medium truncate pl-0.5 block mt-0.5">
+                    {formatNationality(topScorerPlayer.nationality)}
+                  </span>
+                )}
               </div>
 
               {/* Most Assists / Asistidor */}
@@ -255,6 +299,11 @@ export function PodiumDisplay({
                 <p className="text-[11px] sm:text-xs font-bold text-blue-100 truncate pl-0.5" title={podium.mostAssists}>
                   {podium.mostAssists || 'Sin definir'}
                 </p>
+                {mostAssistsPlayer?.nationality && (
+                  <span className="text-[10px] text-blue-300/90 font-medium truncate pl-0.5 block mt-0.5">
+                    {formatNationality(mostAssistsPlayer.nationality)}
+                  </span>
+                )}
               </div>
 
               {/* MVP del Torneo */}
@@ -270,6 +319,11 @@ export function PodiumDisplay({
                 <p className="text-[11px] sm:text-xs font-bold text-indigo-100 truncate pl-0.5" title={podium.mvp}>
                   {podium.mvp || 'Sin definir'}
                 </p>
+                {mvpPlayer?.nationality && (
+                  <span className="text-[10px] text-indigo-300/90 font-medium truncate pl-0.5 block mt-0.5">
+                    {formatNationality(mvpPlayer.nationality)}
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -357,7 +411,7 @@ export function PodiumDisplay({
                           <TeamBadge src={`https://img.sofascore.com/api/v1/team/${team.id}/image`} teamName={team.name} size="md" />
                           <div className="flex flex-col flex-1 min-w-0">
                             <span className={cn("text-xs font-bold truncate", isSelected ? "text-blue-400" : "text-white")}>{team.name}</span>
-                            <span className="text-[10px] text-zinc-500 font-medium">{team.country}</span>
+                            <span className="text-[10px] text-zinc-400 font-medium">{formatNationality(team.country)}</span>
                           </div>
                           {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
                         </button>
@@ -422,9 +476,19 @@ export function PodiumDisplay({
                             />
                             <div className="flex-1 min-w-0">
                               <span className={cn("text-xs font-bold truncate block", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
-                              {player.team && (
-                                <span className="text-[10px] text-zinc-500 font-medium truncate block">{player.team}</span>
-                              )}
+                              <div className="flex items-center gap-1.5 text-[10px] text-zinc-400 font-medium truncate mt-0.5">
+                                {player.team && <span>{player.team}</span>}
+                                {player.nationality && (
+                                  <span className="text-zinc-300 font-semibold bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700/50">
+                                    {formatNationality(player.nationality)}
+                                  </span>
+                                )}
+                                {player.position && (
+                                  <span className="text-zinc-500">
+                                    ({player.position})
+                                  </span>
+                                )}
+                              </div>
                             </div>
                             {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
                           </button>

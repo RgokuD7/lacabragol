@@ -17,217 +17,217 @@ export const UCL_36_TEAMS = [
     "id": 3250,
     "name": "AEK Athens",
     "short": "AEK",
-    "country": "Greece"
+    "country": "Grecia 🇬🇷"
   },
   {
     "id": 2702,
     "name": "AS Roma",
     "short": "Roma",
-    "country": "Italy"
+    "country": "Italia 🇮🇹"
   },
   {
     "id": 42,
     "name": "Arsenal",
     "short": "Arsenal",
-    "country": "England"
+    "country": "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     "id": 40,
     "name": "Aston Villa",
     "short": "Aston Villa",
-    "country": "England"
+    "country": "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     "id": 2836,
     "name": "Atlético Madrid",
     "short": "Atl. Madrid",
-    "country": "Spain"
+    "country": "España 🇪🇸"
   },
   {
     "id": 656,
     "name": "Bodø/Glimt",
     "short": "Bodø/Glimt",
-    "country": "Norway"
+    "country": "Noruega 🇳🇴"
   },
   {
     "id": 2673,
     "name": "Borussia Dortmund",
     "short": "Dortmund",
-    "country": "Germany"
+    "country": "Alemania 🇩🇪"
   },
   {
     "id": 2888,
     "name": "Club Brugge KV",
     "short": "Club Brugge",
-    "country": "Belgium"
+    "country": "Bélgica 🇧🇪"
   },
   {
     "id": 2704,
     "name": "Como",
     "short": "Como",
-    "country": "Italy"
+    "country": "Italia 🇮🇹"
   },
   {
     "id": 2817,
     "name": "FC Barcelona",
     "short": "Barcelona",
-    "country": "Spain"
+    "country": "España 🇪🇸"
   },
   {
     "id": 2672,
     "name": "FC Bayern München",
     "short": "Bayern",
-    "country": "Germany"
+    "country": "Alemania 🇩🇪"
   },
   {
     "id": 3002,
     "name": "FC Porto",
     "short": "Porto",
-    "country": "Portugal"
+    "country": "Portugal 🇵🇹"
   },
   {
     "id": 3052,
     "name": "Fenerbahçe",
     "short": "Fenerbahçe",
-    "country": "Türkiye"
+    "country": "Turquía 🇹🇷"
   },
   {
     "id": 2959,
     "name": "Feyenoord",
     "short": "Feyenoord",
-    "country": "Netherlands"
+    "country": "Países Bajos 🇳🇱"
   },
   {
     "id": 3061,
     "name": "Galatasaray",
     "short": "Galatasaray",
-    "country": "Türkiye"
+    "country": "Turquía 🇹🇷"
   },
   {
     "id": 2697,
     "name": "Inter",
     "short": "Inter",
-    "country": "Italy"
+    "country": "Italia 🇮🇹"
   },
   {
     "id": 2058,
     "name": "LASK",
     "short": "LASK",
-    "country": "Austria"
+    "country": "Austria 🇦🇹"
   },
   {
     "id": 1643,
     "name": "Lille",
     "short": "Lille",
-    "country": "France"
+    "country": "Francia 🇫🇷"
   },
   {
     "id": 44,
     "name": "Liverpool FC",
     "short": "Liverpool",
-    "country": "England"
+    "country": "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     "id": 17,
     "name": "Manchester City",
     "short": "Man City",
-    "country": "England"
+    "country": "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     "id": 35,
     "name": "Manchester United",
     "short": "Man Utd",
-    "country": "England"
+    "country": "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     "id": 2952,
     "name": "PSV Eindhoven",
     "short": "PSV",
-    "country": "Netherlands"
+    "country": "Países Bajos 🇳🇱"
   },
   {
     "id": 1644,
     "name": "Paris Saint-Germain",
     "short": "PSG",
-    "country": "France"
+    "country": "Francia 🇫🇷"
   },
   {
     "id": 36360,
     "name": "RB Leipzig",
     "short": "Leipzig",
-    "country": "Germany"
+    "country": "Alemania 🇩🇪"
   },
   {
     "id": 1648,
     "name": "RC Lens",
     "short": "Lens",
-    "country": "France"
+    "country": "Francia 🇫🇷"
   },
   {
     "id": 2816,
     "name": "Real Betis",
     "short": "Real Betis",
-    "country": "Spain"
+    "country": "España 🇪🇸"
   },
   {
     "id": 2829,
     "name": "Real Madrid",
     "short": "Real Madrid",
-    "country": "Spain"
+    "country": "España 🇪🇸"
   },
   {
     "id": 2216,
     "name": "SK Slavia Praha",
     "short": "Slavia Praha",
-    "country": "Czechia"
+    "country": "República Checa 🇨🇿"
   },
   {
     "id": 2714,
     "name": "SSC Napoli",
     "short": "Napoli",
-    "country": "Italy"
+    "country": "Italia 🇮🇹"
   },
   {
     "id": 267828,
     "name": "Sabah FK",
     "short": "Sabah",
-    "country": "Azerbaijan"
+    "country": "Azerbaiyán 🇦🇿"
   },
   {
     "id": 3313,
     "name": "Shakhtar Donetsk",
     "short": "Shakhtar",
-    "country": "Ukraine"
+    "country": "Ucrania 🇺🇦"
   },
   {
     "id": 3001,
     "name": "Sporting CP",
     "short": "Sporting",
-    "country": "Portugal"
+    "country": "Portugal 🇵🇹"
   },
   {
     "id": 2677,
     "name": "VfB Stuttgart",
     "short": "Stuttgart",
-    "country": "Germany"
+    "country": "Alemania 🇩🇪"
   },
   {
     "id": 1164,
     "name": "Viking FK",
     "short": "Viking",
-    "country": "Norway"
+    "country": "Noruega 🇳🇴"
   },
   {
     "id": 2819,
     "name": "Villarreal",
     "short": "Villarreal",
-    "country": "Spain"
+    "country": "España 🇪🇸"
   },
   {
     "id": 2404,
     "name": "ŠK Slovan Bratislava",
     "short": "Slovan",
-    "country": "Slovakia"
+    "country": "Eslovaquia 🇸🇰"
   }
 ];
 

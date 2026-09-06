@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { DEFAULT_PLAYERS, PlayerItem } from '../data/players';
+import { DEFAULT_PLAYERS, PlayerItem, deduplicatePlayers, formatNationality, formatPosition } from '../data/players';
 
 export function usePlayers() {
   const [players, setPlayers] = useState<PlayerItem[]>(DEFAULT_PLAYERS);
@@ -12,7 +12,13 @@ export function usePlayers() {
       if (snap.exists()) {
         const data = snap.data();
         if (Array.isArray(data?.players) && data.players.length > 0) {
-          setPlayers(data.players as PlayerItem[]);
+          const firestoreFormatted: PlayerItem[] = data.players.map((p: any) => ({
+            ...p,
+            nationality: formatNationality(p.nationality),
+            position: formatPosition(p.position)
+          }));
+          const { merged } = deduplicatePlayers(DEFAULT_PLAYERS, firestoreFormatted);
+          setPlayers(merged);
           setLoading(false);
           return;
         }

@@ -16,6 +16,7 @@ import { getGroupPodium, saveGroupPodium, findAnyUserPodium } from '../lib/podiu
 import { TeamBadge } from '../components/TeamBadge';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
 import { usePlayers } from '../hooks/usePlayers';
+import { formatNationality } from '../data/players';
 
 interface Props {
   forcePodiumStep?: boolean;
@@ -198,7 +199,9 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
   const filteredTeams = UCL_36_TEAMS.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.country.toLowerCase().includes(searchTerm.toLowerCase()));
   const filteredPlayers = dynamicPlayers.filter(p => 
     p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-    (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
+    (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (p.nationality && p.nationality.toLowerCase().includes(searchTerm.toLowerCase())) ||
+    (p.position && p.position.toLowerCase().includes(searchTerm.toLowerCase()))
   );
   const showCustomPlayer = searchTerm.trim().length > 0 && !dynamicPlayers.some(p => p.name.toLowerCase() === searchTerm.toLowerCase());
 
@@ -417,9 +420,9 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
                       )}
                     >
                       <TeamBadge src={`https://img.sofascore.com/api/v1/team/${team.id}/image`} teamName={team.name} size="md" />
-                      <div className="flex flex-col flex-1">
-                        <span className={cn("text-base font-bold", isSelected ? "text-blue-400" : "text-white")}>{team.name}</span>
-                        <span className="text-xs text-zinc-500 font-medium">{team.country}</span>
+                      <div className="flex flex-col flex-1 min-w-0">
+                        <span className={cn("text-base font-bold truncate", isSelected ? "text-blue-400" : "text-white")}>{team.name}</span>
+                        <span className="text-xs text-zinc-400 font-medium">{formatNationality(team.country)}</span>
                       </div>
                       {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
                     </button>
@@ -449,9 +452,17 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
                           alt={player.name} 
                           className="w-12 h-12 rounded-full object-cover shrink-0 border border-zinc-700/50" 
                         />
-                        <div className="flex flex-col flex-1">
-                          <span className={cn("text-base font-bold", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
-                          {player.team && <span className="text-xs text-zinc-500 font-medium">{player.team}</span>}
+                        <div className="flex flex-col flex-1 min-w-0">
+                          <span className={cn("text-base font-bold truncate", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
+                          <div className="flex items-center gap-2 text-xs text-zinc-400 font-medium truncate mt-0.5">
+                            {player.team && <span>{player.team}</span>}
+                            {player.nationality && (
+                              <span className="text-zinc-300 font-semibold bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/50">
+                                {formatNationality(player.nationality)}
+                              </span>
+                            )}
+                            {player.position && <span className="text-zinc-500">({player.position})</span>}
+                          </div>
                         </div>
                         {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
                       </button>

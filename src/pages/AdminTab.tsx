@@ -7,7 +7,7 @@ import { Match, Prediction, User, Setting } from '../types';
 import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
-import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey } from '../data/players';
+import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
 import { cn } from '../lib/utils';
 
 export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => void }) {
@@ -67,7 +67,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
     const unsubPlayers = onSnapshot(doc(db, 'system', 'players'), snap => {
       if (snap.exists() && Array.isArray(snap.data()?.players) && snap.data().players.length > 0) {
-        setPodiumPlayers(snap.data().players);
+        const firestoreFormatted: PlayerItem[] = snap.data().players.map((p: any) => ({
+          ...p,
+          nationality: formatNationality(p.nationality),
+          position: formatPosition(p.position)
+        }));
+        const { merged } = deduplicatePlayers(DEFAULT_PLAYERS, firestoreFormatted);
+        setPodiumPlayers(merged);
       } else {
         setPodiumPlayers(DEFAULT_PLAYERS);
       }
@@ -400,8 +406,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     const incoming: PlayerItem = {
       name: newPlayerName.trim(),
       team: newPlayerTeam.trim() || undefined,
-      position: newPlayerPosition.trim() || undefined,
-      nationality: newPlayerNationality.trim() || undefined,
+      position: formatPosition(newPlayerPosition.trim()) || undefined,
+      nationality: formatNationality(newPlayerNationality.trim()) || undefined,
       id: Math.floor(100000 + Math.random() * 900000)
     };
     const { merged, addedCount, updatedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
@@ -925,8 +931,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           </span>
                         )}
                         {player.nationality && (
-                          <span className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-medium">
-                            {player.nationality}
+                          <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium border border-zinc-700/50">
+                            {formatNationality(player.nationality)}
                           </span>
                         )}
                       </div>

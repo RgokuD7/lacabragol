@@ -79,7 +79,18 @@ export const NATIONALITY_TRANSLATIONS: Record<string, string> = {
   'venezuela': 'Venezuela 🇻🇪',
   'paraguay': 'Paraguay 🇵🇾',
   'canada': 'Canadá 🇨🇦',
-  'canadá': 'Canadá 🇨🇦'
+  'canadá': 'Canadá 🇨🇦',
+  'greece': 'Grecia 🇬🇷',
+  'grecia': 'Grecia 🇬🇷',
+  'czechia': 'República Checa 🇨🇿',
+  'republica checa': 'República Checa 🇨🇿',
+  'república checa': 'República Checa 🇨🇿',
+  'azerbaijan': 'Azerbaiyán 🇦🇿',
+  'azerbaiyan': 'Azerbaiyán 🇦🇿',
+  'azerbaiyán': 'Azerbaiyán 🇦🇿',
+  'slovakia': 'Eslovaquia 🇸🇰',
+  'eslovaquia': 'Eslovaquia 🇸🇰',
+  'türkiye': 'Turquía 🇹🇷'
 };
 
 export const POSITION_TRANSLATIONS: Record<string, string> = {
