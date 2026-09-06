@@ -214,9 +214,6 @@ export function ProfileTab() {
             localStorage.removeItem(`hasSeenTutorial_${user.uid}`);
           }
           window.dispatchEvent(new CustomEvent('restart-tutorial'));
-          setTimeout(() => {
-            window.dispatchEvent(new CustomEvent('start-lacabragol-tutorial'));
-          }, 250);
         }}
         className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-2xl font-black uppercase tracking-widest text-xs transition-colors border border-blue-500/30 shadow-sm"
       >

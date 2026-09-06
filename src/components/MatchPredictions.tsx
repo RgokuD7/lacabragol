@@ -315,7 +315,7 @@ export function MatchPredictions({
         <div className="mt-2 border-t border-zinc-800/50 pt-2 flex items-center justify-between">
           {!isMatchOpen ? (
             <button 
-              id="tutorial-group-predictions-btn"
+              id={isTutorialMatch ? "tutorial-group-predictions-btn" : undefined}
               onClick={() => { setExpanded(true); if (isJackpot) vibrateJackpot(); else vibratePop(); }}
               className="flex-1 flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer"
             >
@@ -332,7 +332,7 @@ export function MatchPredictions({
       )}
 
       <BaseBottomSheet
-        id="tutorial-predictions-sheet"
+        id={isTutorialMatch ? "tutorial-predictions-sheet" : undefined}
         closeButtonId="close-predictions-modal-btn"
         isOpen={expanded}
         onClose={() => setExpanded(false)}

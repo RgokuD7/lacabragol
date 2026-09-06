@@ -5,6 +5,21 @@ export interface TutorialOptions {
   onComplete?: () => void;
 }
 
+let activeDriverInstance: ReturnType<typeof driver> | null = null;
+
+export const destroyActiveTutorial = () => {
+  if (activeDriverInstance) {
+    try {
+      activeDriverInstance.destroy();
+    } catch (e) {
+      console.warn("Error destroying driver instance:", e);
+    }
+    activeDriverInstance = null;
+  }
+  document.querySelectorAll('.driver-overlay, .driver-popover, #driver-dummy-element').forEach(el => el.remove());
+  document.body.classList.remove('driver-active', 'driver-fade', 'driver-simple', 'driver-no-scroll');
+};
+
 export const waitForElement = (selector: string, timeout = 3000): Promise<HTMLElement | null> => {
   return new Promise((resolve) => {
     const el = document.querySelector<HTMLElement>(selector);
@@ -25,9 +40,9 @@ export const waitForElement = (selector: string, timeout = 3000): Promise<HTMLEl
 };
 
 export const startInteractiveTutorial = async (options?: TutorialOptions) => {
-  let completed = false;
+  destroyActiveTutorial();
 
-  let resizeObserver: ResizeObserver | null = null;
+  let completed = false;
   let scrollListener: (() => void) | null = null;
 
   const mainEl = document.querySelector('main');
@@ -36,11 +51,8 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
     if (scrollListener) {
       mainEl?.removeEventListener('scroll', scrollListener);
       window.removeEventListener('scroll', scrollListener);
+      window.removeEventListener('resize', scrollListener);
       scrollListener = null;
-    }
-    if (resizeObserver) {
-      resizeObserver.disconnect();
-      resizeObserver = null;
     }
   };
 
@@ -60,7 +72,7 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
 
   // Reset scroll on <main> container to guarantee natural layout coordinates from top
   if (mainEl) {
-    mainEl.scrollTo({ top: 0, behavior: 'instant' as any });
+    mainEl.scrollTo({ top: 0, behavior: 'auto' });
   }
   window.scrollTo(0, 0);
 
@@ -69,10 +81,25 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
   // Allow two animation frames for React to finish rendering and DOM to settle
   await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
+  const enforceSolidOverlayIfDummy = (element?: Element | null) => {
+    if (!element || element.id === 'driver-dummy-element') {
+      const overlayPath = document.querySelector<SVGPathElement>('.driver-overlay path');
+      if (overlayPath) {
+        overlayPath.setAttribute(
+          'd',
+          `M${window.innerWidth},0L0,0L0,${window.innerHeight}L${window.innerWidth},${window.innerHeight}Z`
+        );
+      }
+    }
+  };
+
   const driverObj = driver({
     showProgress: true,
-    animate: true,
+    animate: false, // Critical: Instant accurate element transitions without stale __activeElement animation delays
     allowClose: true,
+    stagePadding: 10,
+    stageRadius: 8,
+    popoverOffset: 12,
     nextBtnText: 'Siguiente →',
     prevBtnText: '← Anterior',
     doneBtnText: '¡Entendido!',
@@ -82,20 +109,29 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
       ghostPopovers.forEach(el => el.remove());
     },
     onHighlightStarted: (element) => {
-      if (element && element.id !== 'driver-dummy-element') {
-        element.scrollIntoView({ behavior: 'instant', block: 'nearest' });
-        requestAnimationFrame(() => {
-          driverObj.refresh();
-        });
-        setTimeout(() => {
-          driverObj.refresh();
-        }, 100);
+      if (!element || element.id === 'driver-dummy-element') {
+        enforceSolidOverlayIfDummy(element);
+        return;
       }
+
+      // If highlighting real element, clean up any previous dummy element
+      document.getElementById('driver-dummy-element')?.remove();
+
+      element.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+      requestAnimationFrame(() => {
+        if (driverObj.isActive()) {
+          driverObj.refresh();
+        }
+      });
     },
     onHighlighted: (element) => {
-      if (element && element.id !== 'driver-dummy-element') {
+      if (!element || element.id === 'driver-dummy-element') {
+        enforceSolidOverlayIfDummy(element);
+      } else {
         requestAnimationFrame(() => {
-          driverObj.refresh();
+          if (driverObj.isActive()) {
+            driverObj.refresh();
+          }
         });
       }
     },
@@ -259,29 +295,27 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
       cleanupSync();
       closeOpenModals();
       finish();
-      driverObj.destroy();
+      destroyActiveTutorial();
     },
     onDestroyed: () => {
       cleanupSync();
       closeOpenModals();
       finish();
+      destroyActiveTutorial();
     },
   });
 
-  // Attach continuous synchronization to <main> scroll and DOM resize shifts
+  activeDriverInstance = driverObj;
+
+  // Attach continuous synchronization to <main> scroll and window resize
   scrollListener = () => {
-    driverObj.refresh();
+    if (driverObj.isActive()) {
+      driverObj.refresh();
+    }
   };
   mainEl?.addEventListener('scroll', scrollListener, { passive: true });
   window.addEventListener('scroll', scrollListener, { passive: true });
-
-  resizeObserver = new ResizeObserver(() => {
-    driverObj.refresh();
-  });
-  if (mainEl) {
-    resizeObserver.observe(mainEl);
-  }
-  resizeObserver.observe(document.body);
+  window.addEventListener('resize', scrollListener, { passive: true });
 
   driverObj.drive();
   return driverObj;

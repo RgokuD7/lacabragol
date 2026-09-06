@@ -32,7 +32,7 @@ import { doc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRem
 import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { GroupChat } from './GroupChat';
-import { startInteractiveTutorial } from '../lib/driver';
+import { startInteractiveTutorial, destroyActiveTutorial } from '../lib/driver';
 import { User as UserIcon } from 'lucide-react';
 
 export function Layout() {
@@ -85,11 +85,12 @@ export function Layout() {
   };
   
   const runTutorial = () => {
+    destroyActiveTutorial();
     setActiveTab('predictions');
     setIsTutorialActive(true);
     const mainEl = document.querySelector('main');
     if (mainEl) {
-      mainEl.scrollTo({ top: 0, behavior: 'instant' as any });
+      mainEl.scrollTo({ top: 0, behavior: 'auto' });
     }
     window.scrollTo(0, 0);
     setTimeout(() => {
@@ -124,17 +125,19 @@ export function Layout() {
   }, [user, activeGroupId, profile]);
 
   useEffect(() => {
+    let restartTimer: NodeJS.Timeout | null = null;
     const handleRestart = () => {
+      destroyActiveTutorial();
+      if (restartTimer) clearTimeout(restartTimer);
       setActiveTab('predictions');
-      setTimeout(() => {
+      restartTimer = setTimeout(() => {
         runTutorial();
-      }, 300);
+      }, 250);
     };
     window.addEventListener('restart-tutorial', handleRestart);
-    window.addEventListener('start-lacabragol-tutorial', handleRestart);
     return () => {
+      if (restartTimer) clearTimeout(restartTimer);
       window.removeEventListener('restart-tutorial', handleRestart);
-      window.removeEventListener('start-lacabragol-tutorial', handleRestart);
     };
   }, [user]);
 
