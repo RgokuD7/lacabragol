@@ -2,16 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
-import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc } from 'firebase/firestore';
+import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
 import { Match, Prediction, User, Setting } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2 } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
+import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey } from '../data/players';
+import { cn } from '../lib/utils';
 
 export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => void }) {
   const { user, profile } = useAuth();
   const { groups, activeGroupId } = useGroups();
-  const [adminTab, setAdminTab] = useState<'actions' | 'scores' | 'users'>('actions');
+  const [adminTab, setAdminTab] = useState<'actions' | 'scores' | 'users' | 'players'>('actions');
 
   const [matches, setMatches] = useState<Match[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -29,6 +31,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isRestoringOfficial, setIsRestoringOfficial] = useState(false);
   const [isGeneratingTests, setIsGeneratingTests] = useState(false);
+
+  // Podium Players management state
+  const [podiumPlayers, setPodiumPlayers] = useState<PlayerItem[]>(DEFAULT_PLAYERS);
+  const [playerSearch, setPlayerSearch] = useState('');
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [newPlayerTeam, setNewPlayerTeam] = useState('');
+  const [newPlayerPosition, setNewPlayerPosition] = useState('');
+  const [newPlayerNationality, setNewPlayerNationality] = useState('');
+  const [jsonInput, setJsonInput] = useState('');
+  const [showJsonInput, setShowJsonInput] = useState(false);
+  const [isSavingPlayers, setIsSavingPlayers] = useState(false);
+  const [isResettingPlayers, setIsResettingPlayers] = useState(false);
 
   useEffect(() => {
     const unsubMatches = onSnapshot(query(collection(db, 'matches')), snap => {
@@ -51,9 +65,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       setUsers(snap.docs.map(d => d.data() as User));
     });
 
+    const unsubPlayers = onSnapshot(doc(db, 'system', 'players'), snap => {
+      if (snap.exists() && Array.isArray(snap.data()?.players) && snap.data().players.length > 0) {
+        setPodiumPlayers(snap.data().players);
+      } else {
+        setPodiumPlayers(DEFAULT_PLAYERS);
+      }
+    });
+
     return () => {
       unsubMatches();
       unsubUsers();
+      unsubPlayers();
     };
   }, []);
 
@@ -79,6 +102,14 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const filteredUsers = users.filter(u => {
     const q = userSearch.toLowerCase();
     return (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+  });
+
+  const filteredPodiumPlayers = podiumPlayers.filter(p => {
+    const q = playerSearch.toLowerCase();
+    return p.name.toLowerCase().includes(q) || 
+      (p.team && p.team.toLowerCase().includes(q)) ||
+      (p.position && p.position.toLowerCase().includes(q)) ||
+      (p.nationality && p.nationality.toLowerCase().includes(q));
   });
 
   const handleMatchScoreChange = (matchId: string, field: 'home' | 'away' | 'status', value: string) => {
@@ -346,6 +377,101 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }
   };
 
+  const handleSavePlayers = async (updatedList: PlayerItem[], message: string) => {
+    setIsSavingPlayers(true);
+    try {
+      await setDoc(doc(db, 'system', 'players'), {
+        players: updatedList,
+        updatedAt: Date.now(),
+        updatedBy: user?.email || 'admin'
+      });
+      setFeedback({ type: 'success', text: message });
+    } catch (e: any) {
+      console.error(e);
+      setFeedback({ type: 'error', text: `Error al guardar jugadores: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsSavingPlayers(false);
+    }
+  };
+
+  const handleAddSinglePlayer = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newPlayerName.trim()) return;
+    const incoming: PlayerItem = {
+      name: newPlayerName.trim(),
+      team: newPlayerTeam.trim() || undefined,
+      position: newPlayerPosition.trim() || undefined,
+      nationality: newPlayerNationality.trim() || undefined,
+      id: Math.floor(100000 + Math.random() * 900000)
+    };
+    const { merged, addedCount, updatedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
+    await handleSavePlayers(
+      merged, 
+      addedCount > 0 
+        ? `Jugador "${incoming.name}" agregado con éxito.` 
+        : `Jugador "${incoming.name}" ya existía y fue actualizado sin duplicar.`
+    );
+    setNewPlayerName('');
+    setNewPlayerTeam('');
+    setNewPlayerPosition('');
+    setNewPlayerNationality('');
+  };
+
+  const handleDeletePlayer = async (player: PlayerItem) => {
+    if (!window.confirm(`¿Estás seguro de eliminar a "${player.name}" de la lista de candidatos?`)) return;
+    const keyToDelete = normalizePlayerKey(player.name);
+    const updated = podiumPlayers.filter(p => normalizePlayerKey(p.name) !== keyToDelete);
+    await handleSavePlayers(updated, `Jugador "${player.name}" eliminado de la lista.`);
+  };
+
+  const handleImportJson = async () => {
+    if (!jsonInput.trim()) return;
+    try {
+      const parsed = JSON.parse(jsonInput);
+      let incomingList: PlayerItem[] = [];
+      if (Array.isArray(parsed)) {
+        incomingList = parsed;
+      } else if (Array.isArray(parsed.top_players)) {
+        incomingList = parsed.top_players;
+      } else if (Array.isArray(parsed.players)) {
+        incomingList = parsed.players;
+      } else {
+        throw new Error('El JSON debe contener una lista o la propiedad "top_players" / "players".');
+      }
+
+      if (incomingList.length === 0) {
+        throw new Error('No se encontraron jugadores en el JSON.');
+      }
+
+      const { merged, addedCount, updatedCount } = deduplicatePlayers(podiumPlayers, incomingList);
+      await handleSavePlayers(
+        merged, 
+        `¡Fusión exitosa! Se añadieron ${addedCount} nuevos jugadores y se actualizaron ${updatedCount} existentes (0 duplicados). Total en lista: ${merged.length}`
+      );
+      setJsonInput('');
+      setShowJsonInput(false);
+    } catch (e: any) {
+      console.error(e);
+      setFeedback({ type: 'error', text: `Error al procesar JSON: ${e?.message || 'Formato JSON inválido'}` });
+    }
+  };
+
+  const handleResetToDefaultPlayers = async () => {
+    if (!window.confirm(`¿Deseas restaurar la lista oficial 2026/27 predeterminada (${DEFAULT_PLAYERS.length} jugadores estrella de Champions)? Esto reemplazará la lista en Firestore.`)) return;
+    setIsResettingPlayers(true);
+    try {
+      await setDoc(doc(db, 'system', 'players'), {
+        players: DEFAULT_PLAYERS,
+        updatedAt: Date.now(),
+        updatedBy: user?.email || 'admin'
+      });
+      setFeedback({ type: 'success', text: `Lista oficial 2026/27 restaurada con éxito (${DEFAULT_PLAYERS.length} jugadores).` });
+    } catch (e: any) {
+      setFeedback({ type: 'error', text: `Error al restaurar lista: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsResettingPlayers(false);
+    }
+  };
 
   return (
     <div className={`font-sans text-[#e4e4e7] mx-auto max-w-4xl ${inline ? "space-y-3" : "p-3 sm:p-6 md:p-8 space-y-6 pb-[120px]"}`}>
@@ -427,6 +553,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           }`}
         >
           Usuarios
+        </button>
+        <button
+          onClick={() => setAdminTab('players')}
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+            adminTab === 'players'
+              ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
+              : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
+          }`}
+        >
+          Jugadores Podio ({podiumPlayers.length})
         </button>
       </div>
 
@@ -617,6 +753,203 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 </div>
               ))}
             </div>
+          </div>
+        </div>
+      )}
+
+      {adminTab === 'players' && (
+        <div className="space-y-6">
+          {/* Action Bar */}
+          <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+              <div>
+                <div className="flex items-center gap-2">
+                  <Users className="w-5 h-5 text-amber-400" />
+                  <h3 className="text-base font-bold text-white">Jugadores para Podio / Candidatos</h3>
+                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-0.5 rounded-full font-black">
+                    {podiumPlayers.length}
+                  </span>
+                </div>
+                <p className="text-xs text-zinc-400 mt-1">
+                  Controla la lista de estrellas disponibles para que los participantes elijan Goleador, Asistente y MVP.
+                </p>
+              </div>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <button
+                  onClick={() => setShowJsonInput(!showJsonInput)}
+                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
+                >
+                  <FileCode className="w-4 h-4 text-blue-400" />
+                  {showJsonInput ? 'Ocultar JSON' : 'Importar JSON'}
+                </button>
+                <button
+                  onClick={handleResetToDefaultPlayers}
+                  disabled={isResettingPlayers || isSavingPlayers}
+                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
+                  title="Restablece la lista a las estrellas oficiales 2026/27 (con Olise, sin Lewandowski)"
+                >
+                  <RotateCcw className={cn("w-4 h-4 text-amber-400", isResettingPlayers && "animate-spin")} />
+                  Restaurar 2026/27
+                </button>
+              </div>
+            </div>
+
+            {/* JSON Importer Panel */}
+            {showJsonInput && (
+              <div className="bg-zinc-900/90 border border-blue-500/30 rounded-xl p-4 space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    Pegar JSON de Jugadores (Fusión Inteligente sin Duplicados)
+                  </span>
+                  <span className="text-[10px] text-zinc-400">Acepta arreglo o {`{"top_players": [...]}`}</span>
+                </div>
+                <textarea
+                  value={jsonInput}
+                  onChange={(e) => setJsonInput(e.target.value)}
+                  rows={6}
+                  placeholder={`{\n  "top_players": [\n    {\n      "name": "Michael Olise",\n      "team": "Bayern Munich",\n      "position": "Forward",\n      "nationality": "France"\n    }\n  ]\n}`}
+                  className="w-full bg-black/60 border border-zinc-700 rounded-lg p-3 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500 custom-scrollbar"
+                />
+                <div className="flex items-center justify-between gap-2 flex-wrap">
+                  <span className="text-[11px] text-zinc-400">
+                    ℹ️ Los jugadores existentes se actualizarán y los nuevos se agregarán sin repetir nombres.
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setShowJsonInput(false)}
+                      className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleImportJson}
+                      disabled={isSavingPlayers || !jsonInput.trim()}
+                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow transition-all flex items-center gap-1.5"
+                    >
+                      {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                      Procesar y Guardar
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Quick Add Form */}
+            <form onSubmit={handleAddSinglePlayer} className="space-y-3 bg-black/30 border border-zinc-800/80 rounded-xl p-3">
+              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                <UserPlus className="w-4 h-4 text-emerald-400" />
+                Agregar Jugador Manualmente
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                <input
+                  type="text"
+                  placeholder="Nombre Completo *"
+                  value={newPlayerName}
+                  onChange={(e) => setNewPlayerName(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Equipo (Ej: Real Madrid)"
+                  value={newPlayerTeam}
+                  onChange={(e) => setNewPlayerTeam(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                />
+                <input
+                  type="text"
+                  placeholder="Posición (Ej: Delantero)"
+                  value={newPlayerPosition}
+                  onChange={(e) => setNewPlayerPosition(e.target.value)}
+                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                />
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="Nacionalidad (Ej: Francia)"
+                    value={newPlayerNationality}
+                    onChange={(e) => setNewPlayerNationality(e.target.value)}
+                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSavingPlayers || !newPlayerName.trim()}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors shrink-0 flex items-center gap-1"
+                  >
+                    {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    Agregar
+                  </button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          {/* Player Search and List */}
+          <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="relative flex-1">
+                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  value={playerSearch}
+                  onChange={(e) => setPlayerSearch(e.target.value)}
+                  placeholder="Buscar jugador por nombre, equipo, nacionalidad..."
+                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
+                />
+              </div>
+              <span className="text-xs text-zinc-500 whitespace-nowrap">
+                Mostrando {filteredPodiumPlayers.length} de {podiumPlayers.length}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+              {filteredPodiumPlayers.map((player) => (
+                <div
+                  key={player.id || player.name}
+                  className="bg-zinc-900/80 border border-zinc-800/90 hover:border-zinc-700 rounded-xl p-3 flex items-center justify-between gap-3 group transition-all"
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <img
+                      src={`https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=80&bold=true`}
+                      alt={player.name}
+                      className="w-9 h-9 rounded-full object-cover shrink-0 border border-zinc-700/50"
+                    />
+                    <div className="min-w-0">
+                      <p className="text-xs font-bold text-white truncate">{player.name}</p>
+                      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                        {player.team && (
+                          <span className="text-[10px] text-zinc-400 truncate max-w-[120px]">
+                            {player.team}
+                          </span>
+                        )}
+                        {player.nationality && (
+                          <span className="text-[9px] bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded font-medium">
+                            {player.nationality}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => handleDeletePlayer(player)}
+                    disabled={isSavingPlayers}
+                    className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0 disabled:opacity-30"
+                    title={`Eliminar a ${player.name}`}
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {filteredPodiumPlayers.length === 0 && (
+              <div className="text-center py-8 text-zinc-500 text-xs">
+                No se encontraron jugadores que coincidan con "{playerSearch}".
+              </div>
+            )}
           </div>
         </div>
       )}

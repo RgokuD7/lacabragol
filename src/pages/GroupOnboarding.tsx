@@ -15,6 +15,7 @@ import { getGroupPodium, saveGroupPodium, findAnyUserPodium } from '../lib/podiu
 
 import { TeamBadge } from '../components/TeamBadge';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
+import { usePlayers } from '../hooks/usePlayers';
 
 interface Props {
   forcePodiumStep?: boolean;
@@ -22,22 +23,10 @@ interface Props {
   targetGroupId?: string;
 }
 
-const POPULAR_PLAYERS = [
-  { name: 'K. Mbappé', id: 351860 },
-  { name: 'E. Haaland', id: 839956 },
-  { name: 'V. Júnior', id: 843926 },
-  { name: 'H. Kane', id: 170323 },
-  { name: 'J. Bellingham', id: 954060 },
-  { name: 'M. Salah', id: 159665 },
-  { name: 'R. Lewandowski', id: 66986 },
-  { name: 'L. Yamal', id: 1478144 },
-  { name: 'F. Wirtz', id: 981995 },
-  { name: 'K. De Bruyne', id: 104523 }
-];
-
 export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, targetGroupId }: Props = {}) {
   const { groups, loadingGroups, activeGroupId, setActiveGroupId } = useGroups();
   const { user, profile, logout } = useAuth();
+  const { players: dynamicPlayers } = usePlayers();
 
   const [createdGroupId, setCreatedGroupId] = useState<string | null>(null);
   const effectiveGroupId = createdGroupId || targetGroupId || activeGroupId || (groups.length > 0 ? groups[0].id : null);
@@ -207,8 +196,11 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
   }
 
   const filteredTeams = UCL_36_TEAMS.filter(t => t.name.toLowerCase().includes(searchTerm.toLowerCase()) || t.country.toLowerCase().includes(searchTerm.toLowerCase()));
-  const filteredPlayers = POPULAR_PLAYERS.filter(p => p.name.toLowerCase().includes(searchTerm.toLowerCase()));
-  const showCustomPlayer = searchTerm.trim().length > 0 && !POPULAR_PLAYERS.some(p => p.name.toLowerCase() === searchTerm.toLowerCase());
+  const filteredPlayers = dynamicPlayers.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
+  );
+  const showCustomPlayer = searchTerm.trim().length > 0 && !dynamicPlayers.some(p => p.name.toLowerCase() === searchTerm.toLowerCase());
 
   return (
     <div className="h-[100dvh] overflow-hidden flex flex-col bg-[#0a0a0b] font-sans text-zinc-200">
@@ -457,8 +449,9 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
                           alt={player.name} 
                           className="w-12 h-12 rounded-full object-cover shrink-0 border border-zinc-700/50" 
                         />
-                        <div className="flex-1">
+                        <div className="flex flex-col flex-1">
                           <span className={cn("text-base font-bold", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
+                          {player.team && <span className="text-xs text-zinc-500 font-medium">{player.team}</span>}
                         </div>
                         {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
                       </button>

@@ -7,23 +7,10 @@ import { TeamBadge } from './TeamBadge';
 import { vibrateSuccess, vibrateError, vibratePop } from '../lib/haptics';
 import { cn } from '../lib/utils';
 
-export const POPULAR_PLAYERS = [
-  { name: 'K. Mbappé', id: 351860 },
-  { name: 'E. Haaland', id: 839956 },
-  { name: 'V. Júnior', id: 843926 },
-  { name: 'H. Kane', id: 170323 },
-  { name: 'J. Bellingham', id: 954060 },
-  { name: 'M. Salah', id: 159665 },
-  { name: 'R. Lewandowski', id: 66986 },
-  { name: 'L. Yamal', id: 1478144 },
-  { name: 'F. Wirtz', id: 981995 },
-  { name: 'K. De Bruyne', id: 104523 },
-  { name: 'Rodri', id: 839955 },
-  { name: 'P. Foden', id: 883506 },
-  { name: 'B. Saka', id: 934389 },
-  { name: 'L. Martínez', id: 825700 },
-  { name: 'A. Griezmann', id: 41856 }
-];
+import { usePlayers } from '../hooks/usePlayers';
+import { DEFAULT_PLAYERS } from '../data/players';
+
+export const POPULAR_PLAYERS = DEFAULT_PLAYERS;
 
 interface PodiumDisplayProps {
   podium: Partial<Podium> | null;
@@ -40,6 +27,7 @@ export function PodiumDisplay({
   title = "Podio de la Temporada",
   isSaving = false
 }: PodiumDisplayProps) {
+  const { players: dynamicPlayers } = usePlayers();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [wizardStep, setWizardStep] = useState<number>(1);
   const [searchTerm, setSearchTerm] = useState('');
@@ -64,8 +52,10 @@ export function PodiumDisplay({
   );
 
   const openEdit = () => {
-    if (isLocked) return;
-    vibratePop();
+    if (isLocked) {
+      vibrateError();
+      return;
+    }
     setLocalData({
       champion: podium?.champion || '',
       runnerUp: podium?.runnerUp || '',
@@ -106,18 +96,19 @@ export function PodiumDisplay({
     t.country.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
-  const filteredPlayers = POPULAR_PLAYERS.filter(p => 
-    p.name.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredPlayers = dynamicPlayers.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+    (p.team && p.team.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
-  const showCustomPlayer = searchTerm.trim().length > 0 && !POPULAR_PLAYERS.some(
+  const showCustomPlayer = searchTerm.trim().length > 0 && !dynamicPlayers.some(
     p => p.name.toLowerCase() === searchTerm.toLowerCase()
   );
 
   const currentSelectedPlayer = wizardStep === 3 
     ? localData.topScorer 
     : (wizardStep === 4 ? localData.mostAssists : localData.mvp);
-  const isCustomAlreadySelected = !!currentSelectedPlayer && !POPULAR_PLAYERS.some(
+  const isCustomAlreadySelected = !!currentSelectedPlayer && !dynamicPlayers.some(
     p => p.name.toLowerCase() === currentSelectedPlayer.toLowerCase()
   );
 
@@ -401,13 +392,13 @@ export function PodiumDisplay({
                         </button>
                       )}
 
-                      {filteredPlayers.map(player => {
+                      {filteredPlayers.map((player, pIdx) => {
                         const isSelected = (wizardStep === 3 && localData.topScorer === player.name) ||
                                            (wizardStep === 4 && localData.mostAssists === player.name) ||
                                            (wizardStep === 5 && localData.mvp === player.name);
                         return (
                           <button
-                            key={player.id}
+                            key={player.id || `${player.name}_${pIdx}`}
                             type="button"
                             onClick={() => {
                               vibratePop();
@@ -430,7 +421,10 @@ export function PodiumDisplay({
                               className="w-10 h-10 rounded-full object-cover shrink-0 border border-zinc-700/50" 
                             />
                             <div className="flex-1 min-w-0">
-                              <span className={cn("text-xs font-bold truncate", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
+                              <span className={cn("text-xs font-bold truncate block", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
+                              {player.team && (
+                                <span className="text-[10px] text-zinc-500 font-medium truncate block">{player.team}</span>
+                              )}
                             </div>
                             {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
                           </button>
