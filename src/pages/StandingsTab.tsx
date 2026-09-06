@@ -345,8 +345,8 @@ export function StandingsTab() {
           const t1Name = p1?.team?.name || 'Por determinar';
           const t2Name = p2?.team?.name || 'Por determinar';
 
-          const t1Logo = p1?.team?.logo || (p1?.team?.id ? `/api/team-image/${p1.team.id}` : '');
-          const t2Logo = p2?.team?.logo || (p2?.team?.id ? `/api/team-image/${p2.team.id}` : '');
+          const t1Logo = p1?.team?.logo || (p1?.team?.id ? `https://img.sofascore.com/api/v1/team/${p1.team.id}/image` : '');
+          const t2Logo = p2?.team?.logo || (p2?.team?.id ? `https://img.sofascore.com/api/v1/team/${p2.team.id}/image` : '');
 
           const score1 = block.homeTeamScore !== undefined && block.homeTeamScore !== '' ? block.homeTeamScore : '-';
           const score2 = block.awayTeamScore !== undefined && block.awayTeamScore !== '' ? block.awayTeamScore : '-';

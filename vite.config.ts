@@ -89,6 +89,20 @@ export default defineConfig(() => {
                   statuses: [0, 200]
                 }
               }
+            },
+            {
+              urlPattern: /^https:\/\/img\.sofascore\.com\/.*/i,
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'sofascore-images-cache',
+                expiration: {
+                  maxEntries: 100,
+                  maxAgeSeconds: 60 * 60 * 24 * 30
+                },
+                cacheableResponse: {
+                  statuses: [0, 200]
+                }
+              }
             }
           ]
         },

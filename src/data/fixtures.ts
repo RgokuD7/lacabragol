@@ -1891,7 +1891,7 @@ export function getTeamLogoByName(teamName?: string): string {
     t.name.toLowerCase().includes(clean)
   );
   if (team?.id) {
-    return `/api/team-image/${team.id}`;
+    return `https://img.sofascore.com/api/v1/team/${team.id}/image`;
   }
   return '';
 }

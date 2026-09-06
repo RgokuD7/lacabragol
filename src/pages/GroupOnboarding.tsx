@@ -336,7 +336,7 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Prop
                           : "bg-[#121215] border-zinc-800/50 hover:bg-zinc-900/80 hover:border-zinc-700"
                       )}
                     >
-                      <TeamBadge src={`/api/team-image/${team.id}`} teamName={team.name} size="md" />
+                      <TeamBadge src={`https://img.sofascore.com/api/v1/team/${team.id}/image`} teamName={team.name} size="md" />
                       <div className="flex flex-col flex-1">
                         <span className={cn("text-base font-bold", isSelected ? "text-blue-400" : "text-white")}>{team.name}</span>
                         <span className="text-xs text-zinc-500 font-medium">{team.country}</span>

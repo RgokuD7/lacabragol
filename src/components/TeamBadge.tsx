@@ -37,6 +37,11 @@ export function TeamBadge({ src, teamName, className = '', size = 'md' }: TeamBa
     return name.slice(0, 3).toUpperCase();
   };
 
+  // Reset error state if src changes
+  React.useEffect(() => {
+    setImageError(false);
+  }, [src]);
+
   // Check if src is a valid image URL
   const isValidUrl = (url?: string): boolean => {
     if (!url) return false;
@@ -52,19 +57,21 @@ export function TeamBadge({ src, teamName, className = '', size = 'md' }: TeamBa
     return true;
   };
 
-  // Normalize URL or convert Sofascore ID/URL to internal proxy
+  // Normalize URL or convert Sofascore ID/URL to direct CDN URL
   const getNormalizedUrl = (url?: string): string => {
     if (!url) return '';
     const trimmed = url.trim();
     
+    // Extract team ID from proxy path: /api/team-image/123
+    const apiMatch = trimmed.match(/\/api\/team-image\/(\d+)/);
+    if (apiMatch && apiMatch[1]) {
+      return `https://img.sofascore.com/api/v1/team/${apiMatch[1]}/image`;
+    }
+
     // If it contains a Sofascore team ID like /team/2888/image or similar
     const teamIdMatch = trimmed.match(/\/team\/(\d+)\/image/);
     if (teamIdMatch && teamIdMatch[1]) {
-      return `/api/team-image/${teamIdMatch[1]}`;
-    }
-
-    if (trimmed.startsWith('/api/team-image/')) {
-      return trimmed;
+      return `https://img.sofascore.com/api/v1/team/${teamIdMatch[1]}/image`;
     }
 
     if (trimmed.includes('api.sofascore.app')) {
@@ -74,8 +81,8 @@ export function TeamBadge({ src, teamName, className = '', size = 'md' }: TeamBa
     return trimmed;
   };
 
-  const valid = isValidUrl(src) && !imageError;
   const normalizedSrc = getNormalizedUrl(src);
+  const valid = isValidUrl(normalizedSrc) && !imageError;
 
   const sizeClasses = {
     sm: 'w-6 h-6 text-[9px]',
