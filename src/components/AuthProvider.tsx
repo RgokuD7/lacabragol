@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { User as FirebaseUser } from 'firebase/auth';
 import { auth, db } from '../lib/firebase';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc, onSnapshot } from 'firebase/firestore';
 import { User } from '../types';
 
 interface AuthContextType {
@@ -29,63 +29,82 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
+    let profileUnsub: (() => void) | null = null;
+
     const unsubscribe = auth.onAuthStateChanged(async (firebaseUser) => {
       setUser(firebaseUser);
+      if (profileUnsub) {
+        profileUnsub();
+        profileUnsub = null;
+      }
+
       if (firebaseUser) {
         const userRef = doc(db, 'users', firebaseUser.uid);
-        const userSnap = await getDoc(userRef);
-        if (userSnap.exists()) {
-          const data = userSnap.data() as User;
-          const updates: Partial<User> = {};
-          if (firebaseUser.email === 'richarddiaz0107@gmail.com' && !data.isAdmin) {
-            updates.isAdmin = true;
-            data.isAdmin = true;
-          }
-          if (firebaseUser.photoURL && data.photoURL !== firebaseUser.photoURL) {
-            updates.photoURL = firebaseUser.photoURL;
-            data.photoURL = firebaseUser.photoURL;
-          }
-          if (firebaseUser.displayName && data.displayName !== firebaseUser.displayName) {
-            updates.displayName = firebaseUser.displayName;
-            data.displayName = firebaseUser.displayName;
-          }
-          if (Object.keys(updates).length > 0) {
-            try {
-              await updateDoc(userRef, { ...updates, updatedAt: Date.now() });
-            } catch(e) {
-              console.error("Failed to update user profile info", e);
+        try {
+          const userSnap = await getDoc(userRef);
+          if (userSnap.exists()) {
+            const data = userSnap.data() as User;
+            const updates: Partial<User> = {};
+            if (firebaseUser.email === 'richarddiaz0107@gmail.com' && !data.isAdmin) {
+              updates.isAdmin = true;
             }
+            if (firebaseUser.photoURL && data.photoURL !== firebaseUser.photoURL) {
+              updates.photoURL = firebaseUser.photoURL;
+            }
+            if (firebaseUser.displayName && data.displayName !== firebaseUser.displayName) {
+              updates.displayName = firebaseUser.displayName;
+            }
+            if (Object.keys(updates).length > 0) {
+              await updateDoc(userRef, { ...updates, updatedAt: Date.now() }).catch(e => {
+                console.error("Failed to update user profile info", e);
+              });
+            }
+            setProfile(data);
+          } else {
+            // Create new user profile
+            const newProfile: User = {
+              uid: firebaseUser.uid,
+              displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Unknown',
+              email: firebaseUser.email || '',
+              photoURL: firebaseUser.photoURL || '',
+              points: 0,
+              exactMatches: 0,
+              paid: false,
+              isAdmin: firebaseUser.email === 'richarddiaz0107@gmail.com',
+              createdAt: Date.now(),
+              updatedAt: Date.now(),
+            };
+            await setDoc(userRef, newProfile).catch(e => {
+              console.error("Failed to create user profile", e);
+            });
+            setProfile(newProfile);
           }
-          setProfile(data);
-        } else {
-          // Create new user profile
-          const newProfile: User = {
-            uid: firebaseUser.uid,
-            displayName: firebaseUser.displayName || firebaseUser.email?.split('@')[0] || 'Unknown',
-            email: firebaseUser.email || '',
-            photoURL: firebaseUser.photoURL || '',
-            points: 0,
-            exactMatches: 0,
-            paid: false,
-            isAdmin: firebaseUser.email === 'richarddiaz0107@gmail.com',
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-          };
-          // Try creating
-          try {
-             await setDoc(userRef, newProfile);
-             setProfile(newProfile);
-          } catch(e) {
-             console.error("Failed to create user profile", e);
-          }
+        } catch (e) {
+          console.error("Error checking user doc:", e);
         }
+
+        // Realtime subscription so profile updates (like nickname) propagate instantly
+        profileUnsub = onSnapshot(userRef, (snap) => {
+          if (snap.exists()) {
+            setProfile(snap.data() as User);
+          } else {
+            setProfile(null);
+          }
+          setLoading(false);
+        }, (err) => {
+          console.error("Profile snapshot error:", err);
+          setLoading(false);
+        });
       } else {
         setProfile(null);
+        setLoading(false);
       }
-      setLoading(false);
     });
 
-    return () => unsubscribe();
+    return () => {
+      unsubscribe();
+      if (profileUnsub) profileUnsub();
+    };
   }, []);
 
   return (

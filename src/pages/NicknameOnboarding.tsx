@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { db } from '../lib/firebase';
-import { doc, updateDoc } from 'firebase/firestore';
+import { doc, setDoc } from 'firebase/firestore';
 import { Trophy, ArrowRight, Save, LogOut } from 'lucide-react';
 
 export function NicknameOnboarding() {
@@ -20,28 +20,29 @@ export function NicknameOnboarding() {
       return;
     }
     
-    // Check if nickname is already taken? (Let's skip global uniqueness for now, or assume it's fine)
-    
     try {
       setSaving(true);
       setError('');
-      await updateDoc(doc(db, 'users', user.uid), {
+      await setDoc(doc(db, 'users', user.uid), {
         nickname: nickname.trim(),
         updatedAt: Date.now()
-      });
-      // Need to reload page or profile object will be updated by AuthProvider listener?
-      // Wait, AuthProvider uses onAuthStateChanged, which doesn't trigger on firestore updates.
-      // So we force a reload or manually update the profile context.
-      window.location.reload();
-    } catch (err) {
-      console.error(err);
-      setError('Error al guardar el apodo. Intenta de nuevo.');
+      }, { merge: true });
+      
+      // Fallback reload if snapshot takes more than 800ms
+      setTimeout(() => {
+        if (!profile?.nickname) {
+          window.location.reload();
+        }
+      }, 800);
+    } catch (err: any) {
+      console.error("Error guardando apodo:", err);
+      setError(err?.message || 'Error al guardar el apodo. Intenta de nuevo.');
       setSaving(false);
     }
   };
 
   return (
-    <div className="min-h-[100dvh] flex flex-col bg-[#0a0a0b] font-sans text-zinc-200">
+    <div className="min-h-[100dvh] flex flex-col bg-[#0a0a0b] font-sans text-zinc-200 pt-[env(safe-area-inset-top,0px)] pb-[env(safe-area-inset-bottom,0px)]">
       <div className="flex-1 flex items-center justify-center p-4">
         <div className="w-full max-w-md bg-[#121215] border border-zinc-800 rounded-3xl p-6 shadow-2xl relative overflow-hidden">
           
