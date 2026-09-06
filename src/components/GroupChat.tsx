@@ -293,7 +293,7 @@ export function GroupChat({
     <div className="fixed inset-0 z-[100] bg-[#0a0a0b] flex flex-col h-[100dvh] overflow-hidden">
       <div className="flex-1 relative flex flex-col max-w-4xl mx-auto w-full h-full overflow-hidden">
         {/* Header */}
-        <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#111114]/90 backdrop-blur-sm z-10 sticky top-0 flex items-center justify-between shrink-0">
+        <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#111114]/90 backdrop-blur-sm z-10 sticky top-0 flex items-center justify-between shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
             <h1 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-blue-500" />
               <span>Chat del Grupo</span>

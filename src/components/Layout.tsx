@@ -228,7 +228,7 @@ export function Layout() {
   return (
     <div className="flex flex-col h-[100dvh] bg-[#09090b] text-[#e4e4e7] font-sans overflow-hidden">
       {/* Top Navbar Compacto para Teléfono */}
-      <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0">
+      <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">
           {/* Logo & Brand Info */}
           <div className="flex items-center gap-3 min-w-0">
@@ -280,7 +280,7 @@ export function Layout() {
       </header>
 
       {/* Main Content Area */}
-      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col !pb-0' : 'overflow-y-auto !pb-[140px] scrollbar-thin scrollbar-thumb-zinc-800'}`}>
+      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col pb-[calc(56px+max(env(safe-area-inset-bottom),20px))]' : 'overflow-y-auto pb-[140px] scrollbar-thin scrollbar-thumb-zinc-800'}`}>
         <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'h-full'}`}>
           {activeTab === 'predictions' && <PredictionsTab />}
           {activeTab === 'standings' && <StandingsTab />}

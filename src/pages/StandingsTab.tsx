@@ -466,8 +466,7 @@ export function StandingsTab() {
 
   return (
     <div 
-      className="w-full flex-1 flex flex-col overflow-hidden max-w-4xl mx-auto font-sans text-[#e4e4e7] px-2 sm:px-4 pt-2"
-      style={{ height: 'calc(100dvh - 58px)' }}
+      className="w-full flex-1 flex flex-col min-h-0 overflow-hidden max-w-4xl mx-auto font-sans text-[#e4e4e7] px-2 sm:px-4 pt-1 h-full"
     >
       {/* Title & Search bar: Flex-shrink 0 */}
       <div className="flex-shrink-0 space-y-2 pb-2">
@@ -588,11 +587,8 @@ export function StandingsTab() {
         </table>
       </div>
 
-      {/* Footer Legend: flex-shrink: 0; padding-bottom: max(env(safe-area-inset-bottom), 80px) */}
-      <div 
-        className="flex-shrink-0 pt-2 pb-1"
-        style={{ paddingBottom: 'max(env(safe-area-inset-bottom, 0px), 80px)' }}
-      >
+      {/* Footer Legend: flex-shrink: 0 */}
+      <div className="flex-shrink-0 pt-2 pb-1">
         <div className="bg-[#121215] border border-zinc-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-400 shadow-md">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded bg-emerald-400"></span>
