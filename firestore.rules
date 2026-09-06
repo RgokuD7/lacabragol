@@ -39,6 +39,7 @@ service cloud.firestore {
              (!('nickname' in data) || (data.nickname is string && data.nickname.size() <= 60)) &&
              (!('photoURL' in data) || (data.photoURL is string && data.photoURL.size() <= 1000)) &&
              (!('hasSeenTutorial' in data) || data.hasSeenTutorial is bool) &&
+             (!('hasSeenPlayersUpdateTutorial' in data) || data.hasSeenPlayersUpdateTutorial is bool) &&
              (!('title' in data) || data.title == null || data.title is string) &&
              (!('medallas' in data) || data.medallas is list) &&
              data.email is string && data.email.size() <= 200 &&
@@ -62,9 +63,9 @@ service cloud.firestore {
                     incoming().paid == false &&
                     (incoming().isAdmin == false || request.auth.token.email == 'richarddiaz0107@gmail.com');
       allow update: if isSignedIn() && isValidId(userId) && isValidUser(incoming()) && (
-        (userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'nickname', 'photoURL', 'hasSeenTutorial', 'updatedAt'])) ||
+        (userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'nickname', 'photoURL', 'hasSeenTutorial', 'hasSeenPlayersUpdateTutorial', 'updatedAt'])) ||
         (userId == request.auth.uid && request.auth.token.email == 'richarddiaz0107@gmail.com' && incoming().diff(existing()).affectedKeys().hasOnly(['isAdmin', 'updatedAt'])) ||
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['paid', 'points', 'exactMatches', 'isAdmin', 'updatedAt', 'nickname', 'displayName', 'photoURL', 'hasSeenTutorial', 'medallas', 'title', 'streak_normal', 'streak_pleno', 'streak_falla', 'streak_ausente', 'max_streak_normal', 'max_streak_pleno', 'max_streak_falla', 'max_streak_ausente']))
+        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['paid', 'points', 'exactMatches', 'isAdmin', 'updatedAt', 'nickname', 'displayName', 'photoURL', 'hasSeenTutorial', 'hasSeenPlayersUpdateTutorial', 'medallas', 'title', 'streak_normal', 'streak_pleno', 'streak_falla', 'streak_ausente', 'max_streak_normal', 'max_streak_pleno', 'max_streak_falla', 'max_streak_ausente']))
       );
     }
 

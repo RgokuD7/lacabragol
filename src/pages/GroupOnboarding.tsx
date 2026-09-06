@@ -461,9 +461,9 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, target
                     <button
                       onClick={() => setPodium(p => {
                         const val = searchTerm.trim();
-                        if (wizardStep === 3) return { ...p, topScorer: val };
-                        if (wizardStep === 4) return { ...p, mostAssists: val };
-                        return { ...p, mvp: val };
+                        if (wizardStep === 3) return { ...p, topScorer: val, hasCustomPlayer: true };
+                        if (wizardStep === 4) return { ...p, mostAssists: val, hasCustomPlayer: true };
+                        return { ...p, mvp: val, hasCustomPlayer: true };
                       })}
                       className={cn(
                         "w-full flex items-center gap-4 p-4 rounded-2xl border transition-all text-left bg-zinc-900 border-zinc-700 hover:border-blue-500/50"

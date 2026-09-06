@@ -34,7 +34,9 @@ import { doc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRem
 import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { GroupChat } from './GroupChat';
-import { startInteractiveTutorial, destroyActiveTutorial } from '../lib/driver';
+import { startInteractiveTutorial, destroyActiveTutorial, startPlayersUpdateTutorial } from '../lib/driver';
+import { getGroupPodium, findAnyUserPodium } from '../lib/podium';
+import { hasUserCustomPlayer } from '../data/players';
 import { User as UserIcon } from 'lucide-react';
 
 export function Layout() {
@@ -127,6 +129,55 @@ export function Layout() {
       return () => clearTimeout(timer);
     }
   }, [user, activeGroupId, profile]);
+
+  // Auto-launch Player Update notice for users who previously chose a custom player
+  useEffect(() => {
+    if (!user || !activeGroupId || isTutorialActive) return;
+
+    // Wait until main onboarding tutorial is done
+    const mainSeenLocal = localStorage.getItem(`hasSeenTutorial_${user.uid}`) === 'true';
+    const mainSeenFirestore = (profile as any)?.hasSeenTutorial === true;
+    if (!mainSeenLocal && !mainSeenFirestore) return;
+
+    // Check if already seen players update notice
+    const updateKey = `hasSeenPlayersUpdate_${user.uid}`;
+    const seenUpdateLocal = localStorage.getItem(updateKey) === 'true';
+    const seenUpdateFirestore = (profile as any)?.hasSeenPlayersUpdateTutorial === true;
+    if (seenUpdateLocal || seenUpdateFirestore) return;
+
+    const checkCustomPodium = async () => {
+      try {
+        let userPodium = await getGroupPodium(activeGroupId, user.uid);
+        if (!userPodium) {
+          userPodium = await findAnyUserPodium(user.uid);
+        }
+
+        if (userPodium && hasUserCustomPlayer(userPodium)) {
+          const timer = setTimeout(() => {
+            startPlayersUpdateTutorial({
+              onGoToProfile: () => setActiveTab('profile'),
+              onComplete: () => {
+                localStorage.setItem(updateKey, 'true');
+                try {
+                  updateDoc(doc(db, 'users', user.uid), {
+                    hasSeenPlayersUpdateTutorial: true,
+                    updatedAt: Date.now()
+                  }).catch(() => {});
+                } catch (e) {
+                  console.warn("Could not save hasSeenPlayersUpdateTutorial:", e);
+                }
+              }
+            });
+          }, 800);
+          return () => clearTimeout(timer);
+        }
+      } catch (err) {
+        console.warn("Error checking custom podium for tutorial:", err);
+      }
+    };
+
+    checkCustomPodium();
+  }, [user, activeGroupId, profile, isTutorialActive]);
 
   useEffect(() => {
     let restartTimer: NodeJS.Timeout | null = null;

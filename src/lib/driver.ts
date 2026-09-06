@@ -320,3 +320,59 @@ export const startInteractiveTutorial = async (options?: TutorialOptions) => {
   driverObj.drive();
   return driverObj;
 };
+
+export interface PlayersUpdateTutorialOptions {
+  onGoToProfile?: () => void;
+  onComplete?: () => void;
+}
+
+export const startPlayersUpdateTutorial = async (options?: PlayersUpdateTutorialOptions) => {
+  destroyActiveTutorial();
+
+  let completed = false;
+  const finish = () => {
+    if (completed) return;
+    completed = true;
+    options?.onComplete?.();
+  };
+
+  const navProfileEl = await waitForElement('#nav-profile', 1500);
+
+  const driverObj = driver({
+    showProgress: false,
+    animate: false,
+    allowClose: true,
+    stagePadding: 8,
+    stageRadius: 12,
+    popoverOffset: 12,
+    doneBtnText: 'Revisar Mi Podio ✨',
+    steps: [
+      {
+        element: navProfileEl ? '#nav-profile' : undefined,
+        popover: {
+          title: '⚽ ¡Actualizamos la Lista de Jugadores!',
+          description: 'Añadimos más de 50 nuevas estrellas de la Champions con sus banderas y clubes oficiales (Olise, Luis Díaz, Rodrygo, Julián Álvarez, Gavi, Endrick, Gyökeres, etc.).\n\nComo registraste candidatos personalizados anteriormente, te invitamos a revisar tu Podio en tu Perfil para comprobar si tus favoritos ya están disponibles en la lista oficial.',
+          side: 'top',
+          align: 'center',
+          onDoneClick: () => {
+            options?.onGoToProfile?.();
+            driverObj.destroy();
+          }
+        }
+      }
+    ],
+    onDestroyStarted: () => {
+      finish();
+      destroyActiveTutorial();
+    },
+    onDestroyed: () => {
+      finish();
+      destroyActiveTutorial();
+    }
+  });
+
+  activeDriverInstance = driverObj;
+  driverObj.drive();
+  return driverObj;
+};
+

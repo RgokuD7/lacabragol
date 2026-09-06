@@ -31,6 +31,8 @@ export interface User {
   max_streak_pleno?: number;
   max_streak_falla?: number;
   max_streak_ausente?: number;
+  hasSeenTutorial?: boolean;
+  hasSeenPlayersUpdateTutorial?: boolean;
 }
 
 export interface Setting {
@@ -88,5 +90,6 @@ export interface Podium {
   mostAssists?: string;
   bestKeeper?: string;
   mvp?: string;
+  hasCustomPlayer?: boolean;
   updatedAt: number;
 }
