@@ -12,6 +12,7 @@ import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { GroupMembersList } from '../components/GroupMembersList';
 import { FooterVersion } from '../components/FooterVersion';
 import { isCabraSuprema } from '../lib/utils';
+import { vibrateSuccess, vibrateError } from '../lib/haptics';
 
 
 function ReadOnlyRules({ settings }: { settings: any }) {
@@ -141,19 +142,85 @@ export function SettingsTab() {
   const [settingsSuccess, setSettingsSuccess] = useState(false);
   const [isEditingRules, setIsEditingRules] = useState(false);
 
+  // State for editing group name
+  const [isEditingGroupName, setIsEditingGroupName] = useState(false);
+  const [editGroupNameValue, setEditGroupNameValue] = useState('');
+  const [savingGroupName, setSavingGroupName] = useState(false);
+  const [groupNameSuccess, setGroupNameSuccess] = useState(false);
+  const [groupNameError, setGroupNameError] = useState('');
+
   const canEditRules = Boolean(
     user && activeGroup && (
       activeGroup.adminId === user.uid ||
       activeGroup.ownerId === user.uid ||
       activeGroup.coAdmins?.includes(user.uid) ||
       profile?.isAdmin ||
-      profile?.role === 'admin'
+      profile?.role === 'admin' ||
+      isCabraSuprema(profile, user?.email)
+    )
+  );
+
+  const canEditGroupName = Boolean(
+    user && activeGroup && (
+      activeGroup.adminId === user.uid ||
+      activeGroup.ownerId === user.uid ||
+      activeGroup.coAdmins?.includes(user.uid) ||
+      profile?.isAdmin ||
+      profile?.role === 'admin' ||
+      isCabraSuprema(profile, user?.email) ||
+      !activeGroup.adminId
     )
   );
 
   React.useEffect(() => {
     setIsEditingRules(false);
+    setIsEditingGroupName(false);
+    setGroupNameError('');
   }, [activeGroupId]);
+
+  const startEditingGroupName = (initialName?: string) => {
+    if (!activeGroup) return;
+    setEditGroupNameValue(initialName || activeGroup.name);
+    setGroupNameError('');
+    setIsEditingGroupName(true);
+  };
+
+  const handleSaveGroupName = async () => {
+    if (!activeGroup || !user) return;
+    const trimmed = editGroupNameValue.trim();
+    if (!trimmed) {
+      setGroupNameError('El nombre no puede estar vacío');
+      vibrateError();
+      return;
+    }
+    if (trimmed.length > 60) {
+      setGroupNameError('Máximo 60 caracteres');
+      vibrateError();
+      return;
+    }
+    setSavingGroupName(true);
+    setGroupNameError('');
+    try {
+      await updateDoc(doc(db, 'groups', activeGroup.id), {
+        name: trimmed
+      });
+      await updateDoc(doc(db, 'settings', activeGroup.id), {
+        groupName: trimmed,
+        updatedAt: Date.now()
+      }).catch(() => {});
+
+      vibrateSuccess();
+      setGroupNameSuccess(true);
+      setTimeout(() => setGroupNameSuccess(false), 3000);
+      setIsEditingGroupName(false);
+    } catch (err: any) {
+      console.error("Error al actualizar nombre del grupo:", err);
+      setGroupNameError(err.message || 'Error al guardar el nuevo nombre');
+      vibrateError();
+    } finally {
+      setSavingGroupName(false);
+    }
+  };
 
   React.useEffect(() => {
     if (settings) {
@@ -340,36 +407,62 @@ export function SettingsTab() {
             )}
 
             <div className="space-y-2">
-              {groups.map(g => (
-                <div key={g.id} className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg p-2">
-                  <div className="flex flex-col">
-                    <span className="font-bold text-xs text-white">{g.name}</span>
-                    <div className="flex items-center gap-1 mt-0.5">
-                      <Hash className="w-3 h-3 text-zinc-500" />
-                      <span className="text-[9px] text-zinc-400 uppercase tracking-widest font-mono">{g.code}</span>
+              {groups.map(g => {
+                const canEditThisGroup = Boolean(
+                  user && (
+                    g.adminId === user.uid ||
+                    (g as any).ownerId === user.uid ||
+                    g.coAdmins?.includes(user.uid) ||
+                    profile?.isAdmin ||
+                    profile?.role === 'admin' ||
+                    isCabraSuprema(profile, user?.email) ||
+                    !g.adminId
+                  )
+                );
+                return (
+                  <div key={g.id} className="flex items-center justify-between bg-zinc-900 border border-zinc-800 rounded-lg p-2">
+                    <div className="flex flex-col">
+                      <span className="font-bold text-xs text-white">{g.name}</span>
+                      <div className="flex items-center gap-1 mt-0.5">
+                        <Hash className="w-3 h-3 text-zinc-500" />
+                        <span className="text-[9px] text-zinc-400 uppercase tracking-widest font-mono">{g.code}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {canEditThisGroup && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setActiveGroupId(g.id);
+                            startEditingGroupName(g.name);
+                          }}
+                          className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-blue-400 rounded-md transition-colors cursor-pointer"
+                          title={`Cambiar nombre de ${g.name}`}
+                        >
+                          <Edit3 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+                      {g.id !== activeGroupId ? (
+                        <button
+                          onClick={() => setActiveGroupId(g.id)}
+                          className="text-[10px] font-bold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 px-2 py-1 rounded-md transition-colors cursor-pointer"
+                        >
+                          Activar
+                        </button>
+                      ) : (
+                        <span className="text-[9px] font-black text-blue-400 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20 uppercase">
+                          Activo
+                        </span>
+                      )}
+                      {g.adminId !== user?.uid && (
+                        <button onClick={() => handleLeaveGroup(g)} className="text-red-400 hover:text-red-300 p-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors cursor-pointer">
+                          <LogOut className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    {g.id !== activeGroupId ? (
-                      <button
-                        onClick={() => setActiveGroupId(g.id)}
-                        className="text-[10px] font-bold text-zinc-400 hover:text-white bg-zinc-800 hover:bg-zinc-700 px-2 py-1 rounded-md transition-colors"
-                      >
-                        Activar
-                      </button>
-                    ) : (
-                      <span className="text-[9px] font-black text-blue-400 bg-blue-500/10 px-2 py-1 rounded border border-blue-500/20 uppercase">
-                        Activo
-                      </span>
-                    )}
-                    {g.adminId !== user?.uid && (
-                      <button onClick={() => handleLeaveGroup(g)} className="text-red-400 hover:text-red-300 p-1.5 bg-red-500/10 hover:bg-red-500/20 rounded-md transition-colors">
-                        <LogOut className="w-3.5 h-3.5" />
-                      </button>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
 
@@ -380,14 +473,83 @@ export function SettingsTab() {
           
           {activeGroup ? (
             <div className="bg-[#121215] border border-blue-500/30 rounded-lg p-3 shadow-sm space-y-3 relative overflow-hidden">
-              <div className="absolute top-0 right-0 p-4 opacity-5 text-blue-500">
+              <div className="absolute top-0 right-0 p-4 opacity-5 text-blue-500 pointer-events-none">
                 <Users className="w-24 h-24" />
               </div>
               <div className="relative z-10 border-b border-zinc-800/50 pb-3">
-                <h2 className="text-sm font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
-                  Grupo Activo
-                </h2>
-                <p className="text-lg font-black text-white mt-1">{activeGroup.name}</p>
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-sm font-black text-blue-400 uppercase tracking-widest flex items-center gap-2">
+                    Grupo Activo
+                  </h2>
+                  {canEditGroupName && !isEditingGroupName && (
+                    <button
+                      type="button"
+                      onClick={() => startEditingGroupName(activeGroup.name)}
+                      className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white border border-zinc-700/60 transition-colors shadow-sm cursor-pointer"
+                      title="Cambiar nombre del grupo"
+                    >
+                      <Edit3 className="w-3 h-3 text-blue-400" />
+                      <span>Cambiar Nombre</span>
+                    </button>
+                  )}
+                </div>
+
+                {isEditingGroupName ? (
+                  <div className="mt-2 space-y-2 animate-in fade-in duration-200">
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={editGroupNameValue}
+                        onChange={e => setEditGroupNameValue(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleSaveGroupName();
+                          } else if (e.key === 'Escape') {
+                            setIsEditingGroupName(false);
+                          }
+                        }}
+                        placeholder="Nuevo nombre del grupo..."
+                        maxLength={60}
+                        autoFocus
+                        className="flex-1 bg-black border-2 border-blue-500/60 rounded-xl px-3 py-1.5 text-sm font-bold text-white outline-none focus:border-blue-400 shadow-inner"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleSaveGroupName}
+                        disabled={savingGroupName || !editGroupNameValue.trim()}
+                        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-sm flex items-center gap-1 cursor-pointer"
+                      >
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        <span>{savingGroupName ? '...' : 'Guardar'}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingGroupName(false)}
+                        disabled={savingGroupName}
+                        className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-xl transition-colors cursor-pointer"
+                        title="Cancelar"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {groupNameError && (
+                      <p className="text-[11px] text-rose-400 font-bold flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                        {groupNameError}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 mt-1">
+                    <p className="text-lg font-black text-white tracking-tight">{activeGroup.name}</p>
+                    {groupNameSuccess && (
+                      <span className="text-[10px] font-black uppercase tracking-wider text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full border border-emerald-500/20 flex items-center gap-1 animate-in fade-in">
+                        <CheckCircle2 className="w-3 h-3" /> ¡Actualizado!
+                      </span>
+                    )}
+                  </div>
+                )}
               </div>
 
               <div className="relative z-10 grid grid-cols-2 gap-3">

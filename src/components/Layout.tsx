@@ -240,7 +240,7 @@ export function Layout() {
   ];
 
   return (
-    <div className="flex flex-col h-[100dvh] bg-[#09090b] text-[#e4e4e7] font-sans overflow-hidden">
+    <div className="flex flex-col h-full w-full bg-[#09090b] text-[#e4e4e7] font-sans overflow-hidden">
       {/* Top Navbar Compacto para Teléfono */}
       <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">
