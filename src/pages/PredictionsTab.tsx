@@ -74,6 +74,15 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     awayScore: 0
   });
   const [isCrossGroupSaving, setIsCrossGroupSaving] = useState(false);
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
+  // Keep live match minutes and lock states reactive in real-time
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 30000); // Re-evaluate every 30 seconds
+    return () => clearInterval(timer);
+  }, []);
 
   // Helper to detect corrupt, test, or legacy season matches
   const isCorruptMatch = (m: Match) => {
@@ -198,8 +207,57 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     }));
   };
 
+  const isMatchLocked = (matchDateStr: string) => {
+    const matchTime = new Date(matchDateStr).getTime();
+    const lockMins = settings?.blockMinutesBeforeMatch ?? 15;
+    return currentTime >= (matchTime - (lockMins * 60 * 1000));
+  };
+
+  const getMatchLiveInfo = (match: Match) => {
+    if (match.status === 'finished') {
+      return { isLive: false, label: 'Finalizado' };
+    }
+    
+    const matchTime = new Date(match.date).getTime();
+    const isStarted = currentTime >= matchTime;
+    
+    if (match.status === 'in_progress' || isStarted) {
+      const elapsedMinutes = Math.floor((currentTime - matchTime) / (60 * 1000));
+      
+      if (elapsedMinutes < 0) {
+        return { isLive: false, label: 'Por Jugar' };
+      }
+      
+      if (elapsedMinutes <= 45) {
+        return { isLive: true, label: `1T ${Math.max(1, elapsedMinutes)}'` };
+      } else if (elapsedMinutes <= 60) {
+        return { isLive: true, label: 'Entretiempo' };
+      } else if (elapsedMinutes <= 105) {
+        const secondHalfMin = 45 + (elapsedMinutes - 60);
+        return { isLive: true, label: `2T ${Math.min(90, secondHalfMin)}'` };
+      } else if (elapsedMinutes <= 125) {
+        return { isLive: true, label: '90+\'' };
+      } else {
+        return { isLive: true, label: 'Por Confirmar' };
+      }
+    }
+    
+    return { isLive: false, label: 'Por Jugar' };
+  };
+
   const savePrediction = async (matchId: string) => {
     if (!user) return;
+
+    const match = matches.find(m => m.id === matchId);
+    if (match) {
+      const isLocked = isMatchLocked(match.date);
+      const liveInfo = getMatchLiveInfo(match);
+      if (match.status === 'finished' || match.status === 'in_progress' || isLocked || liveInfo.isLive) {
+        console.warn("Partido bloqueado o en juego, no se puede pronosticar");
+        return;
+      }
+    }
+
     const scores = localScores[matchId] || { home: '', away: '' };
     
     // Si el usuario deja un input vacío y presiona guardar, el valor debe transformarse automáticamente en un 0
@@ -261,12 +319,20 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
   const handleConfirmCrossGroupSave = async (selectedGroupIds: string[]) => {
     if (!user || !crossGroupModal.match) return;
+    const match = crossGroupModal.match;
+    const isLocked = isMatchLocked(match.date);
+    const liveInfo = getMatchLiveInfo(match);
+    if (match.status === 'finished' || match.status === 'in_progress' || isLocked || liveInfo.isLive) {
+      console.warn("Partido bloqueado o en juego, no se puede pronosticar");
+      setCrossGroupModal(prev => ({ ...prev, isOpen: false }));
+      return;
+    }
+
     setIsCrossGroupSaving(true);
     try {
       const matchId = crossGroupModal.match.id;
       const homeVal = crossGroupModal.homeScore;
       const awayVal = crossGroupModal.awayScore;
-      const match = crossGroupModal.match;
 
       let calculatedPoints = 0;
       if (match.status === 'finished') {
@@ -290,10 +356,11 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         };
         batch.set(targetPredRef, data);
       }
+
       await batch.commit();
       vibrateSuccess();
       setCrossGroupModal(prev => ({ ...prev, isOpen: false }));
-    } catch (e) {
+    } catch(e) {
       console.error('Error saving predictions across groups:', e);
       vibrateError();
       alert('Error al guardar en los otros grupos');
@@ -302,26 +369,19 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     }
   };
 
-// PredictionsTab component
-
-  const isMatchLocked = (matchDateStr: string) => {
-    const matchTime = new Date(matchDateStr).getTime();
-    const lockMins = settings?.blockMinutesBeforeMatch ?? 15;
-    return Date.now() >= (matchTime - (lockMins * 60 * 1000));
-  };
-
-  const openMatchesCount = matches.filter(m => m.status === 'pending' && !isMatchLocked(m.date)).length;
-  const liveMatchesCount = matches.filter(m => m.status === 'in_progress').length;
+  const openMatchesCount = matches.filter(m => m.status === 'pending' && !isMatchLocked(m.date) && !getMatchLiveInfo(m).isLive).length;
+  const liveMatchesCount = matches.filter(m => getMatchLiveInfo(m).isLive).length;
   const finishedMatchesCount = matches.filter(m => m.status === 'finished').length;
   const totalMatchesCount = matches.length;
 
   const filteredMatches = matches.filter(match => {
+    const liveInfo = getMatchLiveInfo(match);
     if (statusFilter === 'open') {
       const isLocked = isMatchLocked(match.date);
-      if (match.status !== 'pending' || isLocked) return false;
+      if (match.status !== 'pending' || isLocked || liveInfo.isLive) return false;
     }
     if (statusFilter === 'live') {
-      if (match.status !== 'in_progress') return false;
+      if (!liveInfo.isLive) return false;
     }
     if (statusFilter === 'finished') {
       if (match.status !== 'finished') return false;
@@ -473,7 +533,8 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         {(isTutorialActive ? [TUTORIAL_MOCK_MATCH, ...filteredMatches.filter(m => m.id !== 'tutorial-mock-match')] : filteredMatches).map((match, idx) => {
           const isTutorialItem = match.id === 'tutorial-mock-match';
           const isFinished = match.status === 'finished';
-          const isInProgress = match.status === 'in_progress';
+          const liveInfo = getMatchLiveInfo(match);
+          const isInProgress = isTutorialItem ? false : (liveInfo.isLive || match.status === 'in_progress');
           const isScheduleLocked = isTutorialItem ? false : isMatchLocked(match.date);
           const locked = isTutorialItem ? false : (isFinished || isInProgress || isScheduleLocked);
           const pred = isTutorialItem
@@ -496,12 +557,16 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
             String(pred.awayScore) !== scores.away
           );
 
+          const effectiveStatus: 'pending' | 'in_progress' | 'finished' = isFinished
+            ? 'finished'
+            : (isInProgress ? 'in_progress' : 'pending');
+
           const evalResult = evaluatePrediction(
             match.homeScore,
             match.awayScore,
             pred?.homeScore ?? null,
             pred?.awayScore ?? null,
-            match.status,
+            effectiveStatus,
             locked,
             settings
           );
@@ -533,7 +598,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                     ) : isInProgress ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 flex items-center gap-1">
                         <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                        En Vivo
+                        {liveInfo.label === 'Por Confirmar' ? 'Por Confirmar' : `En Vivo · ${liveInfo.label}`}
                       </span>
                     ) : locked ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20">Cerrado</span>
@@ -658,7 +723,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
               <MatchPredictions 
                 matchId={match.id} 
                 locked={locked || isFinished} 
-                matchStatus={match.status} 
+                matchStatus={effectiveStatus} 
                 matchHomeTeam={match.homeTeam} 
                 matchAwayTeam={match.awayTeam} 
                 isJackpot={evalResult.type === 'exact'}
