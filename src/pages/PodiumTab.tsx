@@ -3,6 +3,9 @@ import { doc, onSnapshot, writeBatch } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Podium } from '../types';
 import { useAuth } from '../components/AuthProvider';
+import { useGroups } from '../components/GroupsProvider';
+import { getPodiumDocId, saveGroupPodium } from '../lib/podium';
+import { getDoc } from 'firebase/firestore';
 import { vibrateSuccess, vibrateError, vibratePop } from '../lib/haptics';
 import { Trophy, Save, Crown, AlertTriangle } from 'lucide-react';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
@@ -15,6 +18,7 @@ const CLUBS = [
 
 export function PodiumSection() {
   const { user } = useAuth();
+  const { activeGroupId } = useGroups();
   const [podium, setPodium] = useState<Podium>({ userId: '', updatedAt: 0 });
   const [saving, setSaving] = useState(false);
   const [localData, setLocalData] = useState<Partial<Podium>>({});
@@ -25,34 +29,39 @@ export function PodiumSection() {
   const isLocked = Date.now() > DEADLINE_TIMESTAMP;
 
   useEffect(() => {
-    if(!user) return;
-    const unsub = onSnapshot(doc(db, 'podiums', user.uid), (snap) => {
-      if(snap.exists()) {
+    if (!user) return;
+    const currentDocId = getPodiumDocId(activeGroupId, user.uid);
+    const unsub = onSnapshot(doc(db, 'podiums', currentDocId), async (snap) => {
+      if (snap.exists()) {
         const data = snap.data() as Podium;
         setPodium(data);
         setLocalData({ champion: data.champion, runnerUp: data.runnerUp });
       } else {
+        try {
+          const legSnap = await getDoc(doc(db, 'podiums', user.uid));
+          if (legSnap.exists()) {
+            const data = legSnap.data() as Podium;
+            setPodium(data);
+            setLocalData({ champion: data.champion, runnerUp: data.runnerUp });
+            return;
+          }
+        } catch (e) {}
+        setPodium({ userId: user.uid, updatedAt: 0 });
         setLocalData({});
       }
     });
     return () => unsub();
-  }, [user]);
+  }, [user, activeGroupId]);
 
   const handleSave = async () => {
-    if(!user || isLocked) return;
+    if (!user || isLocked) return;
     setSaving(true);
     
     try {
-      const batch = writeBatch(db);
-      const data: Podium = {
-        userId: user.uid,
+      await saveGroupPodium(activeGroupId, user.uid, {
         champion: localData.champion,
         runnerUp: localData.runnerUp,
-        updatedAt: Date.now()
-      };
-      
-      batch.set(doc(db, 'podiums', user.uid), data);
-      await batch.commit();
+      });
       vibrateSuccess();
       setIsModalOpen(false);
     } catch(e) {

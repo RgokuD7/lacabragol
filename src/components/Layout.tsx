@@ -25,6 +25,8 @@ import { ProfileTab } from '../pages/ProfileTab';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from './AuthProvider';
 import { useGroups } from './GroupsProvider';
+import { useSettings } from './SettingsProvider';
+import { useGroupScores } from '../hooks/useGroupScores';
 import { useUnpredictedCount } from '../hooks/useUnpredictedCount';
 import { QRCodeSVG } from 'qrcode.react';
 import { QuickQRScannerModal } from './QuickQRScannerModal';
@@ -52,6 +54,8 @@ export function Layout() {
   
   const { profile, logout, user } = useAuth();
   const { groups, activeGroupId, setActiveGroupId } = useGroups();
+  const { settings } = useSettings();
+  const { currentUserPoints } = useGroupScores(activeGroupId, user?.uid, settings?.pointsExactMatch || 3);
   
   const activeGroup = groups.find(g => g.id === activeGroupId);
   const inviteLink = `${window.location.origin}?invite=${activeGroup?.code || ''}`;
@@ -271,7 +275,7 @@ export function Layout() {
               >
                 <UserIcon className="w-4 h-4 text-zinc-400" />
                 <span className="text-blue-400 font-black text-xs">
-                  {profile.points || 0} <span className="font-bold opacity-80">puntos</span>
+                  {currentUserPoints || 0} <span className="font-bold opacity-80">puntos</span>
                 </span>
               </button>
             )}

@@ -6,14 +6,16 @@ import { Hash, Mail } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { User, Podium } from '../types';
+import { getGroupPodium } from '../lib/podium';
 
 interface UserProfileModalProps {
   user: User | null;
   isOpen: boolean;
   onClose: () => void;
+  groupId?: string | null;
 }
 
-export function UserProfileModal({ user, isOpen, onClose }: UserProfileModalProps) {
+export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfileModalProps) {
   const [podium, setPodium] = useState<Podium | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -22,19 +24,15 @@ export function UserProfileModal({ user, isOpen, onClose }: UserProfileModalProp
     const fetchPodium = async () => {
       setLoading(true);
       try {
-        const snap = await getDoc(doc(db, 'podiums', user.uid));
-        if (snap.exists()) {
-          setPodium(snap.data() as Podium);
-        } else {
-          setPodium(null);
-        }
+        const p = await getGroupPodium(groupId, user.uid);
+        setPodium(p);
       } catch (e) {
         console.error(e);
       }
       setLoading(false);
     };
     fetchPodium();
-  }, [user]);
+  }, [user, groupId]);
 
   if (!user) return null;
 

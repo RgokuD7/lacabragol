@@ -4,6 +4,9 @@ import { db } from '../lib/firebase';
 import { User, Podium } from '../types';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
+import { useSettings } from '../components/SettingsProvider';
+import { useGroupScores } from '../hooks/useGroupScores';
+import { getGroupPodium } from '../lib/podium';
 import { handleFirestoreError, OperationType } from '../lib/utils';
 import { 
   Search, 
@@ -25,6 +28,13 @@ import { UserProfileModal } from '../components/UserProfileModal';
 export function RankingTab() {
   const { profile } = useAuth();
   const { groups, activeGroupId } = useGroups();
+  const { settings } = useSettings();
+  const { memberScores, currentUserPoints, currentUserExactMatches } = useGroupScores(
+    activeGroupId,
+    profile?.uid,
+    settings?.pointsExactMatch || 3
+  );
+
   const [users, setUsers] = useState<User[]>([]);
   const [search, setSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
@@ -42,21 +52,25 @@ export function RankingTab() {
         u = u.filter(user => activeGroup.members.includes(user.uid));
       }
       
-      u.sort((a,b) => (b.points || 0) - (a.points || 0) || (b.exactMatches || 0) - (a.exactMatches || 0));
-      setUsers(u);
+      const uWithScores = u.map(user => ({
+        ...user,
+        points: memberScores[user.uid]?.points || 0,
+        exactMatches: memberScores[user.uid]?.exactMatches || 0,
+      }));
+
+      uWithScores.sort((a,b) => (b.points || 0) - (a.points || 0) || (b.exactMatches || 0) - (a.exactMatches || 0));
+      setUsers(uWithScores);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
     return () => unsub();
-  }, [activeGroup?.members]);
+  }, [activeGroup?.members, memberScores]);
 
   const handleUserClick = async (u: User) => {
     setSelectedUser(u);
     setSelectedUserPodium(null);
     setLoadingPodium(true);
     try {
-      const snap = await getDoc(doc(db, 'podiums', u.uid));
-      if (snap.exists()) {
-        setSelectedUserPodium(snap.data() as Podium);
-      }
+      const p = await getGroupPodium(activeGroupId, u.uid);
+      setSelectedUserPodium(p);
     } catch (e) {
       console.error(e);
     }
@@ -103,7 +117,7 @@ export function RankingTab() {
             <div className="leading-tight">
               <p className="text-[9px] text-zinc-400 font-bold uppercase">Tu Posición</p>
               <p className="text-[11px] font-bold text-emerald-400 font-mono">
-                {profile.exactMatches || 0} <span className="text-[9px] text-zinc-400 font-normal">exactos</span>
+                {currentUserExactMatches || 0} <span className="text-[9px] text-zinc-400 font-normal">exactos</span>
               </p>
             </div>
           </div>
@@ -310,7 +324,7 @@ export function RankingTab() {
         </div>
       </div>
 
-      <UserProfileModal user={selectedUser} isOpen={selectedUser !== null} onClose={() => setSelectedUser(null)} />
+      <UserProfileModal user={selectedUser} isOpen={selectedUser !== null} onClose={() => setSelectedUser(null)} groupId={activeGroupId} />
     </div>
   );
 }

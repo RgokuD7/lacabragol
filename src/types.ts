@@ -79,6 +79,7 @@ export interface Prediction {
 
 export interface Podium {
   userId: string;
+  groupId?: string;
   champion?: string;
   championLogo?: string;
   runnerUp?: string;

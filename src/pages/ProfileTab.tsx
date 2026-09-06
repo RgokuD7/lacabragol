@@ -1,10 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../components/AuthProvider';
+import { useGroups } from '../components/GroupsProvider';
+import { useSettings } from '../components/SettingsProvider';
+import { useGroupScores } from '../hooks/useGroupScores';
+import { getPodiumDocId, saveGroupPodium } from '../lib/podium';
 import { UserAvatar } from '../components/UserAvatar';
 import { PodiumDisplay } from '../components/PodiumDisplay';
 import { User as UserIcon, LogOut, Award, Hash, Mail, Check, AlertCircle, Trophy, Flame, HelpCircle } from 'lucide-react';
 import { db } from '../lib/firebase';
-import { doc, updateDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { doc, updateDoc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
 import { Podium } from '../types';
 import { getTeamLogoByName } from '../data/fixtures';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
@@ -12,6 +16,15 @@ import { FooterVersion } from '../components/FooterVersion';
 
 export function ProfileTab() {
   const { user, profile, logout } = useAuth();
+  const { groups, activeGroupId } = useGroups();
+  const { settings } = useSettings();
+  const { currentUserPoints, currentUserExactMatches } = useGroupScores(
+    activeGroupId,
+    user?.uid,
+    settings?.pointsExactMatch || 3
+  );
+
+  const activeGroup = groups.find(g => g.id === activeGroupId);
   const [nickname, setNickname] = useState(profile?.nickname || profile?.displayName || '');
   const [savingNickname, setSavingNickname] = useState(false);
   const [savedMsg, setSavedMsg] = useState('');
@@ -26,15 +39,23 @@ export function ProfileTab() {
 
   useEffect(() => {
     if (!user) return;
-    const unsub = onSnapshot(doc(db, 'podiums', user.uid), (snap) => {
+    const currentDocId = getPodiumDocId(activeGroupId, user.uid);
+    const unsub = onSnapshot(doc(db, 'podiums', currentDocId), async (snap) => {
       if (snap.exists()) {
         setPodium(snap.data() as Podium);
       } else {
+        try {
+          const legacySnap = await getDoc(doc(db, 'podiums', user.uid));
+          if (legacySnap.exists()) {
+            setPodium(legacySnap.data() as Podium);
+            return;
+          }
+        } catch (e) {}
         setPodium(null);
       }
     });
     return () => unsub();
-  }, [user]);
+  }, [user, activeGroupId]);
 
   const handleSaveNickname = async () => {
     if (!user || !nickname.trim()) return;
@@ -59,17 +80,11 @@ export function ProfileTab() {
     if (!user) return;
     setSavingPodium(true);
     try {
-      const payload: Podium = {
-        userId: user.uid,
-        champion: data.champion || '',
-        championLogo: data.championLogo || getTeamLogoByName(data.champion),
-        runnerUp: data.runnerUp || '',
-        runnerUpLogo: data.runnerUpLogo || getTeamLogoByName(data.runnerUp),
-        topScorer: data.topScorer || '',
-        mostAssists: data.mostAssists || '',
-        updatedAt: Date.now(),
-      };
-      await setDoc(doc(db, 'podiums', user.uid), payload);
+      await saveGroupPodium(activeGroupId, user.uid, data);
+      vibrateSuccess();
+    } catch (e) {
+      console.error(e);
+      vibrateError();
     } finally {
       setSavingPodium(false);
     }
@@ -147,6 +162,22 @@ export function ProfileTab() {
             Este nombre se mostrará en la tabla de posiciones y en el chat del grupo.
           </p>
         </div>
+
+        {/* Estadísticas del Grupo Activo */}
+        <div className="pt-2 border-t border-zinc-800/60 grid grid-cols-2 gap-2">
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-2.5 flex flex-col items-center text-center">
+            <span className="text-[10px] uppercase font-bold text-zinc-400 truncate max-w-full">
+              Puntos en {activeGroup?.name || 'este grupo'}
+            </span>
+            <span className="text-base font-mono font-black text-blue-400 mt-0.5">{currentUserPoints || 0} PTS</span>
+          </div>
+          <div className="bg-zinc-900/60 border border-zinc-800 rounded-xl p-2.5 flex flex-col items-center text-center">
+            <span className="text-[10px] uppercase font-bold text-zinc-400 truncate max-w-full">
+              Exactos en {activeGroup?.name || 'este grupo'}
+            </span>
+            <span className="text-base font-mono font-black text-emerald-400 mt-0.5">{currentUserExactMatches || 0}</span>
+          </div>
+        </div>
       </div>
 
       {/* Podio de la Temporada (Campeón, Subcampeón, Goleador y Asistidor) */}
@@ -155,7 +186,7 @@ export function ProfileTab() {
           podium={podium}
           canEdit={true}
           onSave={handleSavePodium}
-          title="Mi Podio de la Temporada"
+          title={activeGroup ? `Mi Podio en ${activeGroup.name}` : "Mi Podio de la Temporada"}
           isSaving={savingPodium}
         />
       </div>

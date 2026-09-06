@@ -3,7 +3,7 @@ import { useGroups } from '../components/GroupsProvider';
 import { useAuth } from '../components/AuthProvider';
 import { db } from '../lib/firebase';
 import { doc, getDoc, setDoc, updateDoc, arrayUnion, collection, query, where, getDocs, writeBatch } from 'firebase/firestore';
-import { Trophy, Crown, Medal, Flame, Zap, UserCheck, ArrowRight, Save, LogOut, Scan, X, Search, CheckCircle2 } from 'lucide-react';
+import { Trophy, Crown, Medal, Flame, Zap, UserCheck, ArrowRight, Save, LogOut, Scan, X, Search, CheckCircle2, Sparkles, CopyCheck } from 'lucide-react';
 import { handleFirestoreError, OperationType, cn, isCabraSuprema } from '../lib/utils';
 import { auth } from '../lib/firebase';
 import { signOut } from 'firebase/auth';
@@ -11,12 +11,14 @@ import { Podium } from '../types';
 import { QuickQRScannerModal } from '../components/QuickQRScannerModal';
 import { FooterVersion } from '../components/FooterVersion';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
+import { getGroupPodium, saveGroupPodium, findAnyUserPodium } from '../lib/podium';
 
 import { TeamBadge } from '../components/TeamBadge';
 
 interface Props {
   forcePodiumStep?: boolean;
   onPodiumSaved?: () => void;
+  targetGroupId?: string;
 }
 
 const POPULAR_PLAYERS = [
@@ -32,9 +34,12 @@ const POPULAR_PLAYERS = [
   { name: 'K. De Bruyne', id: 104523 }
 ];
 
-export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Props = {}) {
-  const { groups, loadingGroups } = useGroups();
+export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved, targetGroupId }: Props = {}) {
+  const { groups, loadingGroups, setActiveGroupId } = useGroups();
   const { user, profile, logout } = useAuth();
+
+  const effectiveGroupId = targetGroupId || (groups.length > 0 ? groups[0].id : null);
+  const targetGroup = groups.find(g => g.id === effectiveGroupId);
   
   // 0: Welcome, 1: Join Group, 2: Predictions Wizard
   const [step, setStep] = useState<0 | 1 | 2>(forcePodiumStep ? 0 : 1);
@@ -63,23 +68,32 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Prop
   const [podium, setPodium] = useState<Partial<Podium>>({});
   const [savingPodium, setSavingPodium] = useState(false);
   const [hasPodium, setHasPodium] = useState(false);
+  const [existingPodium, setExistingPodium] = useState<Podium | null>(null);
 
   useEffect(() => {
     if (!user) return;
     const checkPodium = async () => {
       try {
-        const snap = await getDoc(doc(db, 'podiums', user.uid));
-        if (snap.exists()) {
-          setHasPodium(true);
+        if (effectiveGroupId) {
+          const p = await getGroupPodium(effectiveGroupId, user.uid);
+          if (p && (p.champion || p.runnerUp)) {
+            setHasPodium(true);
+            return;
+          }
+        }
+        // Check if user has any existing podium in another group to offer 1-click copy
+        const anyPodium = await findAnyUserPodium(user.uid);
+        if (anyPodium && (anyPodium.champion || anyPodium.runnerUp)) {
+          setExistingPodium(anyPodium);
         }
       } catch (e) {
         console.error(e);
       }
     };
     checkPodium();
-  }, [user]);
+  }, [user, effectiveGroupId]);
 
-  // If they have groups, but no podium, jump to step 2
+  // If they have groups, but no podium, jump to step 0
   useEffect(() => {
     if (groups.length > 0 && !hasPodium) {
       setStep(0);
@@ -104,7 +118,8 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Prop
       await updateDoc(groupDoc.ref, {
         members: arrayUnion(user.uid)
       });
-      // Context will automatically update since it listens to groups where array-contains uid
+      setActiveGroupId(groupDoc.id);
+      setStep(0);
     } catch (e: any) {
       setErrorMsg(e.message);
       setJoining(false);
@@ -124,9 +139,27 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Prop
         members: [user.uid],
         createdAt: Date.now()
       });
+      setActiveGroupId(newRef.id);
+      setStep(0);
     } catch (e: any) {
       console.error(e);
       setCreating(false);
+    }
+  };
+
+  const handleCopyExistingPodium = async () => {
+    if (!user || !existingPodium) return;
+    setSavingPodium(true);
+    try {
+      await saveGroupPodium(effectiveGroupId, user.uid, existingPodium);
+      if (onPodiumSaved) {
+        onPodiumSaved();
+      } else {
+        window.location.reload();
+      }
+    } catch (e: any) {
+      console.error("Error copying podium:", e);
+      setSavingPodium(false);
     }
   };
 
@@ -134,25 +167,14 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Prop
     if (!user) return;
     setSavingPodium(true);
     try {
-      const data: Podium = {
-        userId: user.uid,
-        champion: (podium.champion || '').trim(),
-        championLogo: getTeamLogoByName(podium.champion),
-        runnerUp: (podium.runnerUp || '').trim(),
-        runnerUpLogo: getTeamLogoByName(podium.runnerUp),
-        topScorer: (podium.topScorer || '').trim(),
-        mostAssists: (podium.mostAssists || '').trim(),
-        mvp: (podium.mvp || '').trim(),
-        updatedAt: Date.now()
-      };
-      await setDoc(doc(db, 'podiums', user.uid), data);
+      await saveGroupPodium(effectiveGroupId, user.uid, podium);
       if (onPodiumSaved) {
         onPodiumSaved();
       } else {
-        window.location.reload(); // Refresh to enter app
+        window.location.reload();
       }
     } catch (e: any) {
-      console.error(e);
+      console.error("Error saving podium:", e);
       setSavingPodium(false);
     }
   };
@@ -170,20 +192,46 @@ export function GroupOnboarding({ forcePodiumStep = false, onPodiumSaved }: Prop
       
       {/* STEP 0: WELCOME */}
       {step === 0 && (
-        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500">
-          <img src="/logo.png" alt="La Cabra Gol Logo" className="w-32 h-32 object-contain mb-6 drop-shadow-[0_0_25px_rgba(59,130,246,0.2)]" />
-          <h1 className="text-3xl font-black text-white mb-2 tracking-tight">¡Bienvenido!</h1>
-          <p className="text-sm text-zinc-400 max-w-sm mb-12 leading-relaxed">
-            Antes de ver los partidos y la tabla de posiciones, necesitamos que elijas a tus candidatos para ganar el torneo. Esto te dará puntos extra al final.
+        <div className="flex-1 flex flex-col items-center justify-center p-6 text-center animate-in fade-in zoom-in-95 duration-500 max-w-md mx-auto w-full">
+          <img src="/logo.png" alt="La Cabra Gol Logo" className="w-24 h-24 sm:w-28 sm:h-28 object-contain mb-4 drop-shadow-[0_0_25px_rgba(59,130,246,0.2)]" />
+          <h1 className="text-2xl sm:text-3xl font-black text-white mb-2 tracking-tight">
+            {targetGroup ? `¡Candidatos para ${targetGroup.name}!` : '¡Bienvenido!'}
+          </h1>
+          <p className="text-xs sm:text-sm text-zinc-400 max-w-sm mb-6 leading-relaxed">
+            Elige a tus candidatos para ganar el torneo en este grupo. Esto te dará puntos extra al final de la temporada.
           </p>
+
+          {existingPodium && (
+            <div className="w-full bg-gradient-to-r from-blue-950/40 via-[#121215] to-indigo-950/40 border border-blue-500/30 rounded-2xl p-4 mb-4 text-left shadow-lg">
+              <div className="flex items-center justify-between gap-2 mb-2">
+                <div className="flex items-center gap-1.5 text-blue-400 font-black text-xs uppercase tracking-wider">
+                  <Sparkles className="w-4 h-4 text-amber-400" />
+                  <span>¿Usar tus candidatos anteriores?</span>
+                </div>
+                <span className="text-[9px] font-bold text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded-full">RÁPIDO</span>
+              </div>
+              <p className="text-xs text-zinc-300 mb-3">
+                Ya elegiste a <strong className="text-white">{existingPodium.champion}</strong> (Campeón) y <strong className="text-white">{existingPodium.runnerUp}</strong> (Subcampeón).
+              </p>
+              <button
+                onClick={handleCopyExistingPodium}
+                disabled={savingPodium}
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold py-3 px-4 rounded-xl text-xs uppercase tracking-wider flex items-center justify-center gap-2 transition-all shadow-md active:scale-98 cursor-pointer"
+              >
+                <CopyCheck className="w-4 h-4" />
+                <span>{savingPodium ? 'Copiando...' : 'Copiar Candidatos a este Grupo'}</span>
+              </button>
+            </div>
+          )}
+
           <button 
             onClick={() => {
               setStep(2);
               setSearchTerm('');
             }} 
-            className="w-full max-w-xs bg-blue-600 hover:bg-blue-500 text-white font-black text-sm uppercase tracking-widest py-4 rounded-2xl shadow-[0_0_20px_rgba(59,130,246,0.3)] transition-all flex items-center justify-center gap-2"
+            className="w-full bg-[#18181b] hover:bg-zinc-800 text-white font-black text-xs uppercase tracking-widest py-3.5 rounded-2xl border border-zinc-700 transition-all flex items-center justify-center gap-2 shadow-sm cursor-pointer"
           >
-            Elegir Candidatos <ArrowRight className="w-5 h-5" />
+            {existingPodium ? 'Personalizar Nuevos Candidatos' : 'Elegir Candidatos'} <ArrowRight className="w-4 h-4" />
           </button>
         </div>
       )}
