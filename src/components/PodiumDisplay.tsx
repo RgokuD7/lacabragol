@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Trophy, Crown, Medal, Flame, Zap, AlertTriangle, Save, Edit3, Search, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Trophy, Crown, Medal, Flame, Zap, AlertTriangle, Save, Edit3, Search, CheckCircle2, ArrowRight, UserCheck } from 'lucide-react';
 import { Podium } from '../types';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { BaseBottomSheet } from './BaseBottomSheet';
@@ -48,13 +48,20 @@ export function PodiumDisplay({
     runnerUp: podium?.runnerUp || '',
     topScorer: podium?.topScorer || '',
     mostAssists: podium?.mostAssists || '',
+    mvp: podium?.mvp || '',
   });
 
   // Sep 7, 2026, 23:59:59 UTC
   const DEADLINE_TIMESTAMP = new Date('2026-09-07T23:59:59Z').getTime();
   const isLocked = Date.now() > DEADLINE_TIMESTAMP;
 
-  const hasSelections = !!(podium?.champion || podium?.runnerUp || podium?.topScorer || podium?.mostAssists);
+  const hasSelections = !!(
+    podium?.champion ||
+    podium?.runnerUp ||
+    podium?.topScorer ||
+    podium?.mostAssists ||
+    podium?.mvp
+  );
 
   const openEdit = () => {
     if (isLocked) return;
@@ -64,6 +71,7 @@ export function PodiumDisplay({
       runnerUp: podium?.runnerUp || '',
       topScorer: podium?.topScorer || '',
       mostAssists: podium?.mostAssists || '',
+      mvp: podium?.mvp || '',
     });
     setWizardStep(1);
     setSearchTerm('');
@@ -80,6 +88,7 @@ export function PodiumDisplay({
         runnerUpLogo: getTeamLogoByName(localData.runnerUp),
         topScorer: (localData.topScorer || '').trim(),
         mostAssists: (localData.mostAssists || '').trim(),
+        mvp: (localData.mvp || '').trim(),
       });
       vibrateSuccess();
       setIsModalOpen(false);
@@ -105,7 +114,9 @@ export function PodiumDisplay({
     p => p.name.toLowerCase() === searchTerm.toLowerCase()
   );
 
-  const currentSelectedPlayer = wizardStep === 3 ? localData.topScorer : localData.mostAssists;
+  const currentSelectedPlayer = wizardStep === 3 
+    ? localData.topScorer 
+    : (wizardStep === 4 ? localData.mostAssists : localData.mvp);
   const isCustomAlreadySelected = !!currentSelectedPlayer && !POPULAR_PLAYERS.some(
     p => p.name.toLowerCase() === currentSelectedPlayer.toLowerCase()
   );
@@ -124,7 +135,7 @@ export function PodiumDisplay({
               </div>
               <div className="flex flex-col">
                 <span className="text-sm font-black text-amber-400 uppercase tracking-wider">¡Elige tu Podio!</span>
-                <span className="text-[11px] text-zinc-400 font-medium">Campeón, Subcampeón, Goleador y Asistidor</span>
+                <span className="text-[11px] text-zinc-400 font-medium">Campeón, Subcampeón, Goleador, Asistidor y MVP</span>
               </div>
             </div>
             <span className="text-xs font-black text-white bg-amber-500/20 border border-amber-500/40 px-3 py-1.5 rounded-lg flex items-center gap-1 group-hover:bg-amber-500/30">
@@ -223,35 +234,50 @@ export function PodiumDisplay({
               </div>
             </div>
 
-            {/* Individual Awards: Goleador y Asistidor */}
-            <div className="grid grid-cols-2 gap-2 mt-4 pt-3 border-t border-zinc-800/80">
+            {/* Individual Awards: Goleador, Asistidor y MVP */}
+            <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mt-4 pt-3 border-t border-zinc-800/80">
               {/* Top Scorer / Goleador */}
-              <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-3 flex flex-col justify-between">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30">
+              <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
+                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30 shrink-0">
                     <Flame className="w-3 h-3 text-emerald-400" />
                   </div>
-                  <span className="text-[10px] font-black text-emerald-400 uppercase tracking-wider">
+                  <span className="text-[9px] sm:text-[10px] font-black text-emerald-400 uppercase tracking-wider truncate">
                     Goleador
                   </span>
                 </div>
-                <p className="text-xs font-bold text-emerald-100 truncate pl-0.5">
+                <p className="text-[11px] sm:text-xs font-bold text-emerald-100 truncate pl-0.5" title={podium.topScorer}>
                   {podium.topScorer || 'Sin definir'}
                 </p>
               </div>
 
               {/* Most Assists / Asistidor */}
-              <div className="bg-blue-500/10 border border-blue-500/25 rounded-xl p-3 flex flex-col justify-between">
-                <div className="flex items-center gap-1.5 mb-1.5">
-                  <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-400/30">
+              <div className="bg-blue-500/10 border border-blue-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
+                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                  <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-400/30 shrink-0">
                     <Zap className="w-3 h-3 text-blue-400" />
                   </div>
-                  <span className="text-[10px] font-black text-blue-400 uppercase tracking-wider">
+                  <span className="text-[9px] sm:text-[10px] font-black text-blue-400 uppercase tracking-wider truncate">
                     Asistidor
                   </span>
                 </div>
-                <p className="text-xs font-bold text-blue-100 truncate pl-0.5">
+                <p className="text-[11px] sm:text-xs font-bold text-blue-100 truncate pl-0.5" title={podium.mostAssists}>
                   {podium.mostAssists || 'Sin definir'}
+                </p>
+              </div>
+
+              {/* MVP del Torneo */}
+              <div className="bg-indigo-500/10 border border-indigo-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
+                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                  <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center border border-indigo-400/30 shrink-0">
+                    <UserCheck className="w-3 h-3 text-indigo-400" />
+                  </div>
+                  <span className="text-[9px] sm:text-[10px] font-black text-indigo-400 uppercase tracking-wider truncate">
+                    MVP
+                  </span>
+                </div>
+                <p className="text-[11px] sm:text-xs font-bold text-indigo-100 truncate pl-0.5" title={podium.mvp}>
+                  {podium.mvp || 'Sin definir'}
                 </p>
               </div>
             </div>
@@ -278,13 +304,13 @@ export function PodiumDisplay({
                 <div className="shrink-0 space-y-3 pb-3">
                   <div className="flex items-center justify-between text-xs font-bold text-zinc-500">
                     <span className="uppercase tracking-widest">Tus Candidatos</span>
-                    <span>Paso {wizardStep} de 4</span>
+                    <span>Paso {wizardStep} de 5</span>
                   </div>
 
                   <div className="w-full bg-zinc-800/80 rounded-full h-1.5">
                     <div 
                       className="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out" 
-                      style={{ width: `${(wizardStep / 4) * 100}%` }}
+                      style={{ width: `${(wizardStep / 5) * 100}%` }}
                     />
                   </div>
 
@@ -293,12 +319,14 @@ export function PodiumDisplay({
                     {wizardStep === 2 && <Medal className="w-10 h-10 text-zinc-300 mx-auto drop-shadow-[0_0_15px_rgba(212,212,216,0.2)]" />}
                     {wizardStep === 3 && <Flame className="w-10 h-10 text-emerald-400 mx-auto drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />}
                     {wizardStep === 4 && <Zap className="w-10 h-10 text-blue-400 mx-auto drop-shadow-[0_0_15px_rgba(59,130,246,0.3)]" />}
+                    {wizardStep === 5 && <UserCheck className="w-10 h-10 text-indigo-400 mx-auto drop-shadow-[0_0_15px_rgba(99,102,241,0.3)]" />}
                     
                     <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
                       {wizardStep === 1 && '¿Quién crees que será campeón?'}
                       {wizardStep === 2 && '¿Quién será el Subcampeón?'}
                       {wizardStep === 3 && '¿Quién será el Máximo Goleador?'}
                       {wizardStep === 4 && '¿Quién dará Más Asistencias?'}
+                      {wizardStep === 5 && '¿Quién será el MVP del Torneo?'}
                     </h2>
                   </div>
 
@@ -352,7 +380,11 @@ export function PodiumDisplay({
                           type="button"
                           onClick={() => {
                             vibratePop();
-                            setLocalData(p => wizardStep === 3 ? { ...p, topScorer: currentSelectedPlayer } : { ...p, mostAssists: currentSelectedPlayer });
+                            setLocalData(p => {
+                              if (wizardStep === 3) return { ...p, topScorer: currentSelectedPlayer };
+                              if (wizardStep === 4) return { ...p, mostAssists: currentSelectedPlayer };
+                              return { ...p, mvp: currentSelectedPlayer };
+                            });
                           }}
                           className="w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left bg-blue-500/15 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
                         >
@@ -370,14 +402,20 @@ export function PodiumDisplay({
                       )}
 
                       {filteredPlayers.map(player => {
-                        const isSelected = (wizardStep === 3 && localData.topScorer === player.name) || (wizardStep === 4 && localData.mostAssists === player.name);
+                        const isSelected = (wizardStep === 3 && localData.topScorer === player.name) ||
+                                           (wizardStep === 4 && localData.mostAssists === player.name) ||
+                                           (wizardStep === 5 && localData.mvp === player.name);
                         return (
                           <button
                             key={player.id}
                             type="button"
                             onClick={() => {
                               vibratePop();
-                              setLocalData(p => wizardStep === 3 ? { ...p, topScorer: player.name } : { ...p, mostAssists: player.name });
+                              setLocalData(p => {
+                                if (wizardStep === 3) return { ...p, topScorer: player.name };
+                                if (wizardStep === 4) return { ...p, mostAssists: player.name };
+                                return { ...p, mvp: player.name };
+                              });
                             }}
                             className={cn(
                               "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
@@ -405,7 +443,11 @@ export function PodiumDisplay({
                           onClick={() => {
                             vibratePop();
                             const val = searchTerm.trim();
-                            setLocalData(p => wizardStep === 3 ? { ...p, topScorer: val } : { ...p, mostAssists: val });
+                            setLocalData(p => {
+                              if (wizardStep === 3) return { ...p, topScorer: val };
+                              if (wizardStep === 4) return { ...p, mostAssists: val };
+                              return { ...p, mvp: val };
+                            });
                           }}
                           className="w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left bg-zinc-900 border-zinc-700 hover:border-blue-500/50"
                         >
@@ -449,7 +491,7 @@ export function PodiumDisplay({
                     type="button"
                     onClick={() => {
                       vibratePop();
-                      if (wizardStep < 4) {
+                      if (wizardStep < 5) {
                         setWizardStep(w => w + 1);
                         setSearchTerm('');
                       } else {
@@ -461,12 +503,13 @@ export function PodiumDisplay({
                       (wizardStep === 1 && !localData.champion) ||
                       (wizardStep === 2 && !localData.runnerUp) ||
                       (wizardStep === 3 && !localData.topScorer) ||
-                      (wizardStep === 4 && !localData.mostAssists)
+                      (wizardStep === 4 && !localData.mostAssists) ||
+                      (wizardStep === 5 && !localData.mvp)
                     }
                     className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)] transition-all flex items-center justify-center gap-2"
                   >
-                    {wizardStep < 4 ? 'Siguiente' : (isSaving ? 'Guardando...' : 'Guardar Podio')}
-                    {wizardStep < 4 ? <ArrowRight className="w-4 h-4" /> : (!isSaving && <Save className="w-4 h-4" />)}
+                    {wizardStep < 5 ? 'Siguiente' : (isSaving ? 'Guardando...' : 'Guardar Podio')}
+                    {wizardStep < 5 ? <ArrowRight className="w-4 h-4" /> : (!isSaving && <Save className="w-4 h-4" />)}
                   </button>
                 </div>
               </div>

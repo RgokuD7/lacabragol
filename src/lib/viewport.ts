@@ -20,7 +20,7 @@ export function initViewportFixes() {
     }
   };
 
-  // 1. When any input / textarea / editable element blurs (keyboard dismisses), reset window scroll
+  // When any input / textarea / editable element blurs (keyboard dismisses), reset window scroll
   window.addEventListener('focusout', (e) => {
     const target = e.target as HTMLElement | null;
     if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
@@ -29,22 +29,6 @@ export function initViewportFixes() {
       setTimeout(resetWindowScroll, 250);
     }
   });
-
-  // 3. VisualViewport API integration for modern mobile browsers
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', () => {
-      // When keyboard dismisses, visualViewport height expands back
-      if (window.visualViewport && window.visualViewport.height >= window.innerHeight - 50) {
-        resetWindowScroll();
-      }
-    });
-
-    window.visualViewport.addEventListener('scroll', () => {
-      if (window.scrollY !== 0) {
-        resetWindowScroll();
-      }
-    });
-  }
 
   // Initial call to ensure pristine state
   resetWindowScroll();
