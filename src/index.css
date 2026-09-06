@@ -73,6 +73,7 @@ input[type="range"].dual-slider::-moz-range-thumb {
   border: 1px solid #27272a !important;
   border-radius: 12px !important;
   box-shadow: 0 10px 30px rgba(0,0,0,0.8) !important;
+  z-index: 100002 !important;
 }
 
 .driver-popover-title {

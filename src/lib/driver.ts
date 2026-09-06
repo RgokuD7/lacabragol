@@ -13,8 +13,12 @@ export const startInteractiveTutorial = (options?: TutorialOptions) => {
     options?.onComplete?.();
   };
 
-  const companionBtn = document.querySelector('#tutorial-group-predictions-btn');
-  const cardElement = document.querySelector('#tutorial-first-match-card');
+  const closeOpenModals = () => {
+    const closePred = document.querySelector<HTMLButtonElement>('#close-predictions-modal-btn');
+    if (closePred) closePred.click();
+    const closeChat = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
+    if (closeChat) closeChat.click();
+  };
 
   const driverObj = driver({
     showProgress: true,
@@ -24,34 +28,83 @@ export const startInteractiveTutorial = (options?: TutorialOptions) => {
     prevBtnText: '← Anterior',
     doneBtnText: '¡Entendido!',
     progressText: 'Paso {{current}} de {{total}}',
+    onPopoverRender: (popover) => {
+      const ghostPopovers = document.querySelectorAll('.driver-popover:not(:last-child)');
+      ghostPopovers.forEach(el => el.remove());
+    },
     steps: [
+      // Paso 1 (Bienvenida): Sin elemento (align: 'center')
       {
         popover: {
           title: '¡Bienvenido a LaCabraGol!',
-          description: '¡Bienvenido a LaCabraGol! Demuestra a tus amigos quién es el que más sabe de fútbol. A continuación un pequeño tutorial.',
+          description: 'Demuestra a tus amigos quién es el que más sabe de fútbol. A continuación un pequeño tutorial.',
           align: 'center',
         },
       },
+      // Paso 2 (Tarjeta - Ingresar Resultado): Elemento tarjeta del partido
       {
-        element: cardElement ? '#tutorial-first-match-card' : undefined,
+        element: '#tutorial-first-match-card',
         popover: {
-          title: 'Tarjeta de Partido',
-          description: 'Esta es la tarjeta de partido. Aquí ingresarás tus marcadores. Los partidos pasan por 3 fases: Abierto (puedes apostar), En Vivo (bloqueado, pero ves los resultados en tiempo real) y Finalizado (verás tus puntos).',
+          title: 'Tu Pronóstico',
+          description: 'Aquí pones tu resultado. Tienes hasta la hora límite para ingresarlo.',
           side: 'bottom',
           align: 'center',
         },
       },
+      // Paso 3 (Tarjeta - En Juego): Mismo elemento de la tarjeta
       {
-        element: companionBtn ? '#tutorial-group-predictions-btn' : (cardElement ? '#tutorial-first-match-card' : undefined),
+        element: '#tutorial-first-match-card',
+        popover: {
+          title: 'Partido En Juego',
+          description: 'Cuando el tiempo se agota, pasa a "En Juego". Ya no puedes apostar. Sabrás que el partido arrancó y el marcador se actualizará de vez en cuando.',
+          side: 'bottom',
+          align: 'center',
+        },
+      },
+      // Paso 4 (Ver Pronósticos): Elemento botón de ver pronósticos
+      {
+        element: '#tutorial-group-predictions-btn',
         popover: {
           title: 'Pronósticos de Compañeros',
-          description: 'Podrás ver los pronósticos de tus compañeros y reaccionar a ellos manteniendo presionado.',
+          description: 'Al estar en juego, puedes ver qué apostaron tus amigos.',
           side: 'bottom',
           align: 'center',
+          onNextClick: () => {
+            const btn = document.querySelector<HTMLButtonElement>('#tutorial-group-predictions-btn');
+            if (btn) btn.click();
+            setTimeout(() => {
+              driverObj.moveNext();
+            }, 300);
+          },
         },
       },
+      // Paso 5 (Reacciones y Puntos): Elemento modal de pronósticos recién abierto
       {
-        element: document.querySelector('#tutorial-filters-and-rounds') ? '#tutorial-filters-and-rounds' : undefined,
+        element: '#tutorial-predictions-sheet',
+        popover: {
+          title: '¡Reacciona!',
+          description: 'Si mantienes presionado el pronóstico de un compañero, podrás reaccionar con emojis. Cuando el partido termine, aquí mismo aparecerán los puntos ganados.',
+          side: 'top',
+          align: 'center',
+          onNextClick: () => {
+            const closeBtn = document.querySelector<HTMLButtonElement>('#close-predictions-modal-btn');
+            if (closeBtn) closeBtn.click();
+            setTimeout(() => {
+              driverObj.moveNext();
+            }, 300);
+          },
+          onPrevClick: () => {
+            const closeBtn = document.querySelector<HTMLButtonElement>('#close-predictions-modal-btn');
+            if (closeBtn) closeBtn.click();
+            setTimeout(() => {
+              driverObj.movePrevious();
+            }, 300);
+          },
+        },
+      },
+      // Paso 6 (Filtros): Elemento barra de filtros y jornadas
+      {
+        element: '#tutorial-filters-and-rounds',
         popover: {
           title: 'Filtros y Jornadas',
           description: 'Usa estos filtros para navegar rápidamente entre los partidos disponibles y las jornadas del torneo.',
@@ -59,41 +112,63 @@ export const startInteractiveTutorial = (options?: TutorialOptions) => {
           align: 'center',
         },
       },
+      // Paso 7 (FAB Chat): Elemento botón flotante del chat
       {
-        element: document.querySelector('#fab-group-chat') ? '#fab-group-chat' : undefined,
+        element: '#fab-group-chat',
         popover: {
           title: 'Chat del Grupo',
-          description: '¡El fútbol se vive debatiendo! Aquí está el chat del grupo. Mantén presionado un mensaje para reaccionar o usa el botón para responder.',
+          description: '¡El fútbol se vive debatiendo! Haz clic para abrir el chat.',
           side: 'top',
           align: 'end',
+          onNextClick: () => {
+            const fab = document.querySelector<HTMLButtonElement>('#fab-group-chat');
+            if (fab) fab.click();
+            setTimeout(() => {
+              driverObj.moveNext();
+            }, 300);
+          },
         },
       },
+      // Paso 8 (Dentro del Chat): Elemento contenedor de los mensajes del chat
       {
-        element: document.querySelector('#nav-standings') ? '#nav-standings' : undefined,
+        element: '#tutorial-chat-messages-container',
         popover: {
-          title: 'Tabla de Posiciones',
-          description: 'En la Tabla revisas tu posición general. Próximamente incluiremos las clasificaciones directas y playoffs.',
+          title: 'Interactúa en Vivo',
+          description: 'Aquí escribirás con tus amigos. Si mantienes presionado un mensaje podrás reaccionar, y con el botón lateral podrás responder rápidamente.',
           side: 'top',
           align: 'center',
-        },
-      },
-      {
-        element: document.querySelector('#nav-group-ranking-profile') ? '#nav-group-ranking-profile' : undefined,
-        popover: {
-          title: 'Ranking, Grupo y Perfil',
-          description: 'En Ranking verás los podios. En Grupo están las reglas de tu liga, y en Perfil puedes configurar tu apodo y elegir a tu Campeón.',
-          side: 'top',
-          align: 'center',
+          onNextClick: () => {
+            const closeBtn = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
+            if (closeBtn) closeBtn.click();
+            setTimeout(() => {
+              driverObj.moveNext();
+            }, 300);
+          },
+          onDoneClick: () => {
+            const closeBtn = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
+            if (closeBtn) closeBtn.click();
+            finish();
+            driverObj.destroy();
+          },
+          onPrevClick: () => {
+            const closeBtn = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
+            if (closeBtn) closeBtn.click();
+            setTimeout(() => {
+              driverObj.movePrevious();
+            }, 300);
+          },
         },
       },
     ],
     onDestroyStarted: () => {
+      closeOpenModals();
       finish();
       driverObj.destroy();
     },
     onDestroyed: () => {
+      closeOpenModals();
       finish();
-    }
+    },
   });
 
   driverObj.drive();
