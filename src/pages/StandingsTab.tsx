@@ -511,15 +511,18 @@ export function StandingsTab() {
           >
             <tr>
               {/* Sticky Pos */}
-              <th className="py-2.5 px-1.5 text-center w-8 sticky left-0 z-40 bg-[#18181b] border-r border-zinc-800/80">
+              <th className="py-2.5 px-1 text-center w-7 min-w-[28px] max-w-[28px] sticky left-0 z-40 bg-[#18181b] border-r border-zinc-800/80">
                 #
               </th>
               {/* Sticky Club */}
-              <th className="py-2.5 px-2.5 sticky left-8 z-40 bg-[#18181b] border-r border-zinc-800 min-w-[130px] sm:min-w-[170px]">
+              <th className="py-2.5 px-2.5 sticky left-[28px] z-40 bg-[#18181b] border-r border-zinc-800 w-[130px] min-w-[130px] max-w-[130px]">
                 Club
               </th>
+              {/* Sticky PTS */}
+              <th className="py-2.5 px-2 text-center w-12 min-w-[48px] max-w-[48px] font-black text-white bg-blue-950 border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-40">
+                PTS
+              </th>
               {/* Scrollable Stats */}
-              <th className="py-2.5 px-3 text-center w-12 font-black text-white bg-blue-950/80 border-r border-zinc-800/80">PTS</th>
               <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">PJ</th>
               <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">G</th>
               <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">E</th>
@@ -541,14 +544,14 @@ export function StandingsTab() {
                   className={`hover:bg-zinc-800/40 transition-colors ${rowBg}`}
                 >
                   {/* Sticky Position column */}
-                  <td className={`py-1.5 px-1 text-center sticky left-0 z-10 ${stickyBg} border-r border-zinc-800/60`}>
+                  <td className={`py-1.5 px-1 text-center sticky left-0 z-10 w-7 min-w-[28px] max-w-[28px] ${stickyBg} border-r border-zinc-800/60`}>
                     <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-black border ${badge.bg}`}>
                       {row.position}
                     </span>
                   </td>
 
                   {/* Sticky Club column */}
-                  <td className={`py-1.5 px-2.5 font-bold text-white sticky left-8 z-10 ${stickyBg} border-r border-zinc-800`}>
+                  <td className={`py-1.5 px-2.5 font-bold text-white sticky left-[28px] z-10 w-[130px] min-w-[130px] max-w-[130px] ${stickyBg} border-r border-zinc-800`}>
                     <div className="flex items-center gap-2">
                       <TeamBadge src={row.team.logo} teamName={row.team.name} size="sm" className="w-5 h-5 shrink-0" />
                       <span className="truncate text-xs" title={row.team.name}>
@@ -557,8 +560,8 @@ export function StandingsTab() {
                     </div>
                   </td>
 
-                  {/* Scrollable Stats */}
-                  <td className="py-1.5 px-3 text-center font-mono font-black text-xs text-white bg-blue-950/40 border-r border-zinc-800/60">
+                  {/* Sticky PTS column */}
+                  <td className="py-1.5 px-2 text-center font-mono font-black text-xs text-white bg-blue-950/95 backdrop-blur-sm border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-10 w-12 min-w-[48px] max-w-[48px]">
                     {row.points}
                   </td>
                   <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.matches}</td>

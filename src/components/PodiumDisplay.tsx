@@ -1,27 +1,28 @@
 import React, { useState } from 'react';
-import { Trophy, Crown, Medal, Flame, Zap, AlertTriangle, Save, Edit3 } from 'lucide-react';
+import { Trophy, Crown, Medal, Flame, Zap, AlertTriangle, Save, Edit3, Search, CheckCircle2, ArrowRight } from 'lucide-react';
 import { Podium } from '../types';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { TeamBadge } from './TeamBadge';
 import { vibrateSuccess, vibrateError, vibratePop } from '../lib/haptics';
+import { cn } from '../lib/utils';
 
 export const POPULAR_PLAYERS = [
-  'Kylian Mbappé',
-  'Erling Haaland',
-  'Vinícius Júnior',
-  'Harry Kane',
-  'Jude Bellingham',
-  'Mohamed Salah',
-  'Robert Lewandowski',
-  'Lamine Yamal',
-  'Florian Wirtz',
-  'Kevin De Bruyne',
-  'Rodri',
-  'Phil Foden',
-  'Bukayo Saka',
-  'Lautaro Martínez',
-  'Antoine Griezmann'
+  { name: 'K. Mbappé', id: 351860 },
+  { name: 'E. Haaland', id: 839956 },
+  { name: 'V. Júnior', id: 843926 },
+  { name: 'H. Kane', id: 170323 },
+  { name: 'J. Bellingham', id: 954060 },
+  { name: 'M. Salah', id: 159665 },
+  { name: 'R. Lewandowski', id: 66986 },
+  { name: 'L. Yamal', id: 1478144 },
+  { name: 'F. Wirtz', id: 981995 },
+  { name: 'K. De Bruyne', id: 104523 },
+  { name: 'Rodri', id: 839955 },
+  { name: 'P. Foden', id: 883506 },
+  { name: 'B. Saka', id: 934389 },
+  { name: 'L. Martínez', id: 825700 },
+  { name: 'A. Griezmann', id: 41856 }
 ];
 
 interface PodiumDisplayProps {
@@ -40,14 +41,14 @@ export function PodiumDisplay({
   isSaving = false
 }: PodiumDisplayProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [wizardStep, setWizardStep] = useState<number>(1);
+  const [searchTerm, setSearchTerm] = useState('');
   const [localData, setLocalData] = useState<Partial<Podium>>({
     champion: podium?.champion || '',
     runnerUp: podium?.runnerUp || '',
     topScorer: podium?.topScorer || '',
     mostAssists: podium?.mostAssists || '',
   });
-  const [customScorer, setCustomScorer] = useState('');
-  const [customAssists, setCustomAssists] = useState('');
 
   // Sep 7, 2026, 23:59:59 UTC
   const DEADLINE_TIMESTAMP = new Date('2026-09-07T23:59:59Z').getTime();
@@ -64,24 +65,21 @@ export function PodiumDisplay({
       topScorer: podium?.topScorer || '',
       mostAssists: podium?.mostAssists || '',
     });
-    setCustomScorer('');
-    setCustomAssists('');
+    setWizardStep(1);
+    setSearchTerm('');
     setIsModalOpen(true);
   };
 
   const handleSavePodium = async () => {
     if (!onSave || isLocked) return;
-    const finalScorer = (customScorer.trim() || localData.topScorer || '').trim();
-    const finalAssists = (customAssists.trim() || localData.mostAssists || '').trim();
-
     try {
       await onSave({
-        champion: localData.champion,
+        champion: (localData.champion || '').trim(),
         championLogo: getTeamLogoByName(localData.champion),
-        runnerUp: localData.runnerUp,
+        runnerUp: (localData.runnerUp || '').trim(),
         runnerUpLogo: getTeamLogoByName(localData.runnerUp),
-        topScorer: finalScorer,
-        mostAssists: finalAssists,
+        topScorer: (localData.topScorer || '').trim(),
+        mostAssists: (localData.mostAssists || '').trim(),
       });
       vibrateSuccess();
       setIsModalOpen(false);
@@ -91,10 +89,26 @@ export function PodiumDisplay({
     }
   };
 
-  // Team list sorted alphabetically
-  const teamsList = [...UCL_36_TEAMS].sort((a, b) => a.name.localeCompare(b.name));
   const championLogo = podium?.championLogo || getTeamLogoByName(podium?.champion);
   const runnerUpLogo = podium?.runnerUpLogo || getTeamLogoByName(podium?.runnerUp);
+
+  const filteredTeams = UCL_36_TEAMS.filter(t => 
+    t.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+    t.country.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const filteredPlayers = POPULAR_PLAYERS.filter(p => 
+    p.name.toLowerCase().includes(searchTerm.toLowerCase())
+  );
+
+  const showCustomPlayer = searchTerm.trim().length > 0 && !POPULAR_PLAYERS.some(
+    p => p.name.toLowerCase() === searchTerm.toLowerCase()
+  );
+
+  const currentSelectedPlayer = wizardStep === 3 ? localData.topScorer : localData.mostAssists;
+  const isCustomAlreadySelected = !!currentSelectedPlayer && !POPULAR_PLAYERS.some(
+    p => p.name.toLowerCase() === currentSelectedPlayer.toLowerCase()
+  );
 
   return (
     <div className="w-full">
@@ -245,147 +259,216 @@ export function PodiumDisplay({
         </div>
       )}
 
-      {/* Edit Podium Bottom Sheet Modal */}
+      {/* Edit Podium Bottom Sheet Wizard */}
       {canEdit && (
         <BaseBottomSheet
           isOpen={isModalOpen}
           onClose={() => setIsModalOpen(false)}
           title="Configurar tu Podio"
         >
-          <div className="space-y-4 pb-8 px-1">
+          <div className="pb-4">
             {isLocked ? (
               <div className="flex items-center gap-2 p-3 bg-amber-500/10 border border-amber-500/20 rounded-xl">
                 <AlertTriangle className="w-5 h-5 text-amber-500 shrink-0" />
                 <p className="text-xs text-amber-200">El tiempo límite para editar el podio ha finalizado.</p>
               </div>
             ) : (
-              <div className="space-y-4">
-                {/* Campeón Selection */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-yellow-500 uppercase tracking-widest flex items-center gap-1.5">
-                    <Crown className="w-3.5 h-3.5" />
-                    Campeón del Torneo
-                  </label>
-                  <select
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-bold outline-none focus:border-yellow-500 transition-colors"
-                    value={localData.champion || ''}
-                    onChange={(e) => setLocalData({ ...localData, champion: e.target.value })}
-                  >
-                    <option value="">Selecciona un equipo...</option>
-                    {teamsList.map((t) => (
-                      <option key={t.id} value={t.name}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+              <div className="flex flex-col h-[70vh]">
+                {/* Header & Steps */}
+                <div className="shrink-0 space-y-3 pb-3">
+                  <div className="flex items-center justify-between text-xs font-bold text-zinc-500">
+                    <span className="uppercase tracking-widest">Tus Candidatos</span>
+                    <span>Paso {wizardStep} de 4</span>
+                  </div>
 
-                {/* Subcampeón Selection */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <Medal className="w-3.5 h-3.5" />
-                    Subcampeón
-                  </label>
-                  <select
-                    className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2.5 text-xs text-white font-bold outline-none focus:border-zinc-500 transition-colors"
-                    value={localData.runnerUp || ''}
-                    onChange={(e) => setLocalData({ ...localData, runnerUp: e.target.value })}
-                  >
-                    <option value="">Selecciona un equipo...</option>
-                    {teamsList.map((t) => (
-                      <option key={t.id} value={t.name}>
-                        {t.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
+                  <div className="w-full bg-zinc-800/80 rounded-full h-1.5">
+                    <div 
+                      className="bg-blue-500 h-1.5 rounded-full transition-all duration-300 ease-out" 
+                      style={{ width: `${(wizardStep / 4) * 100}%` }}
+                    />
+                  </div>
 
-                {/* Goleador Selection / Free text */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-emerald-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <Flame className="w-3.5 h-3.5" />
-                    Goleador (Top Scorer)
-                  </label>
-                  <div className="space-y-1.5">
-                    <select
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-emerald-500 transition-colors"
-                      value={localData.topScorer || ''}
-                      onChange={(e) => {
-                        setLocalData({ ...localData, topScorer: e.target.value });
-                        setCustomScorer('');
-                      }}
-                    >
-                      <option value="">Selecciona un jugador sugerido...</option>
-                      {POPULAR_PLAYERS.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                      <option value="__other__">Otro jugador (escribir abajo)</option>
-                    </select>
+                  <div className="text-center space-y-1.5 pt-1">
+                    {wizardStep === 1 && <Crown className="w-10 h-10 text-amber-400 mx-auto drop-shadow-[0_0_15px_rgba(251,191,36,0.3)]" />}
+                    {wizardStep === 2 && <Medal className="w-10 h-10 text-zinc-300 mx-auto drop-shadow-[0_0_15px_rgba(212,212,216,0.2)]" />}
+                    {wizardStep === 3 && <Flame className="w-10 h-10 text-emerald-400 mx-auto drop-shadow-[0_0_15px_rgba(16,185,129,0.3)]" />}
+                    {wizardStep === 4 && <Zap className="w-10 h-10 text-blue-400 mx-auto drop-shadow-[0_0_15px_rgba(59,130,246,0.3)]" />}
+                    
+                    <h2 className="text-base sm:text-lg font-black text-white tracking-tight">
+                      {wizardStep === 1 && '¿Quién crees que será campeón?'}
+                      {wizardStep === 2 && '¿Quién será el Subcampeón?'}
+                      {wizardStep === 3 && '¿Quién será el Máximo Goleador?'}
+                      {wizardStep === 4 && '¿Quién dará Más Asistencias?'}
+                    </h2>
+                  </div>
 
-                    {(localData.topScorer === '__other__' || (!POPULAR_PLAYERS.includes(localData.topScorer || '') && !!localData.topScorer)) && (
-                      <input
-                        type="text"
-                        value={customScorer || (localData.topScorer === '__other__' ? '' : localData.topScorer)}
-                        onChange={(e) => {
-                          setCustomScorer(e.target.value);
-                          setLocalData({ ...localData, topScorer: e.target.value });
-                        }}
-                        placeholder="Escribe el nombre del goleador..."
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-emerald-500 transition-colors"
-                      />
-                    )}
+                  {/* Search Bar */}
+                  <div className="relative">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      placeholder={wizardStep <= 2 ? "Buscar equipo (Ej: Real Madrid)..." : "Buscar o escribir jugador..."}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl pl-10 pr-4 py-2.5 text-xs font-semibold text-white placeholder:text-zinc-500 focus:border-blue-500 outline-none transition-colors"
+                    />
                   </div>
                 </div>
 
-                {/* Asistidor Selection / Free text */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-black text-blue-400 uppercase tracking-widest flex items-center gap-1.5">
-                    <Zap className="w-3.5 h-3.5" />
-                    Asistidor (Máximo Asistente)
-                  </label>
-                  <div className="space-y-1.5">
-                    <select
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-blue-500 transition-colors"
-                      value={localData.mostAssists || ''}
-                      onChange={(e) => {
-                        setLocalData({ ...localData, mostAssists: e.target.value });
-                        setCustomAssists('');
-                      }}
-                    >
-                      <option value="">Selecciona un jugador sugerido...</option>
-                      {POPULAR_PLAYERS.map((p) => (
-                        <option key={p} value={p}>
-                          {p}
-                        </option>
-                      ))}
-                      <option value="__other__">Otro jugador (escribir abajo)</option>
-                    </select>
+                {/* Scrollable List */}
+                <div className="flex-1 overflow-y-auto min-h-0 space-y-2 pr-1 custom-scrollbar">
+                  {wizardStep <= 2 ? (
+                    filteredTeams.map(team => {
+                      const isSelected = wizardStep === 1 ? localData.champion === team.name : localData.runnerUp === team.name;
+                      return (
+                        <button
+                          key={team.id}
+                          type="button"
+                          onClick={() => {
+                            vibratePop();
+                            setLocalData(p => wizardStep === 1 ? { ...p, champion: team.name } : { ...p, runnerUp: team.name });
+                          }}
+                          className={cn(
+                            "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
+                            isSelected 
+                              ? "bg-blue-500/15 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                              : "bg-[#141418] border-zinc-800/80 hover:bg-zinc-900/80 hover:border-zinc-700"
+                          )}
+                        >
+                          <TeamBadge src={`https://img.sofascore.com/api/v1/team/${team.id}/image`} teamName={team.name} size="md" />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className={cn("text-xs font-bold truncate", isSelected ? "text-blue-400" : "text-white")}>{team.name}</span>
+                            <span className="text-[10px] text-zinc-500 font-medium">{team.country}</span>
+                          </div>
+                          {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
+                        </button>
+                      );
+                    })
+                  ) : (
+                    <>
+                      {/* Show current custom choice if not in popular list */}
+                      {isCustomAlreadySelected && (!searchTerm.trim() || currentSelectedPlayer?.toLowerCase().includes(searchTerm.toLowerCase())) && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            vibratePop();
+                            setLocalData(p => wizardStep === 3 ? { ...p, topScorer: currentSelectedPlayer } : { ...p, mostAssists: currentSelectedPlayer });
+                          }}
+                          className="w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left bg-blue-500/15 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                        >
+                          <img 
+                            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(currentSelectedPlayer || '')}&background=27272a&color=3b82f6&size=128&bold=true`} 
+                            alt={currentSelectedPlayer} 
+                            className="w-10 h-10 rounded-full object-cover shrink-0 border border-blue-500/40" 
+                          />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="text-xs font-bold text-blue-400 truncate">{currentSelectedPlayer}</span>
+                            <span className="text-[10px] text-zinc-400 font-medium">Selección personalizada</span>
+                          </div>
+                          <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />
+                        </button>
+                      )}
 
-                    {(localData.mostAssists === '__other__' || (!POPULAR_PLAYERS.includes(localData.mostAssists || '') && !!localData.mostAssists)) && (
-                      <input
-                        type="text"
-                        value={customAssists || (localData.mostAssists === '__other__' ? '' : localData.mostAssists)}
-                        onChange={(e) => {
-                          setCustomAssists(e.target.value);
-                          setLocalData({ ...localData, mostAssists: e.target.value });
-                        }}
-                        placeholder="Escribe el nombre del asistente..."
-                        className="w-full bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-2 text-xs text-white font-bold outline-none focus:border-blue-500 transition-colors"
-                      />
-                    )}
-                  </div>
+                      {filteredPlayers.map(player => {
+                        const isSelected = (wizardStep === 3 && localData.topScorer === player.name) || (wizardStep === 4 && localData.mostAssists === player.name);
+                        return (
+                          <button
+                            key={player.id}
+                            type="button"
+                            onClick={() => {
+                              vibratePop();
+                              setLocalData(p => wizardStep === 3 ? { ...p, topScorer: player.name } : { ...p, mostAssists: player.name });
+                            }}
+                            className={cn(
+                              "w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left",
+                              isSelected 
+                                ? "bg-blue-500/15 border-blue-500/60 shadow-[0_0_15px_rgba(59,130,246,0.2)]"
+                                : "bg-[#141418] border-zinc-800/80 hover:bg-zinc-900/80 hover:border-zinc-700"
+                            )}
+                          >
+                            <img 
+                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=128&bold=true`} 
+                              alt={player.name} 
+                              className="w-10 h-10 rounded-full object-cover shrink-0 border border-zinc-700/50" 
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className={cn("text-xs font-bold truncate", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>
+                            </div>
+                            {isSelected && <CheckCircle2 className="w-5 h-5 text-blue-400 shrink-0" />}
+                          </button>
+                        );
+                      })}
+
+                      {showCustomPlayer && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            vibratePop();
+                            const val = searchTerm.trim();
+                            setLocalData(p => wizardStep === 3 ? { ...p, topScorer: val } : { ...p, mostAssists: val });
+                          }}
+                          className="w-full flex items-center gap-3 p-3 rounded-xl border transition-all text-left bg-zinc-900 border-zinc-700 hover:border-blue-500/50"
+                        >
+                          <img 
+                            src={`https://ui-avatars.com/api/?name=${encodeURIComponent(searchTerm.trim())}&background=27272a&color=3b82f6&size=128&bold=true`} 
+                            alt="Custom" 
+                            className="w-10 h-10 rounded-full object-cover shrink-0 border border-blue-500/30" 
+                          />
+                          <div className="flex flex-col flex-1 min-w-0">
+                            <span className="text-xs font-bold text-white truncate">{searchTerm.trim()}</span>
+                            <span className="text-[10px] text-blue-400 font-medium uppercase tracking-wider">Usar este nombre personalizado</span>
+                          </div>
+                        </button>
+                      )}
+                    </>
+                  )}
+
+                  {(wizardStep <= 2 ? filteredTeams.length === 0 : (filteredPlayers.length === 0 && !showCustomPlayer && !isCustomAlreadySelected)) && (
+                    <div className="text-center py-8">
+                      <p className="text-xs text-zinc-500 font-medium">No se encontraron resultados para "{searchTerm}"</p>
+                    </div>
+                  )}
                 </div>
 
-                <button
-                  disabled={isSaving || (!localData.champion && !localData.runnerUp && !localData.topScorer && !localData.mostAssists)}
-                  onClick={handleSavePodium}
-                  className="w-full mt-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-black text-xs uppercase tracking-widest py-3.5 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)] transition-all flex items-center justify-center gap-2"
-                >
-                  {isSaving ? 'Guardando...' : 'Guardar Podio'}
-                  {!isSaving && <Save className="w-4 h-4" />}
-                </button>
+                {/* Bottom Navigation Controls */}
+                <div className="pt-3 border-t border-zinc-800 flex gap-2 shrink-0">
+                  {wizardStep > 1 && (
+                    <button 
+                      type="button"
+                      onClick={() => {
+                        vibratePop();
+                        setWizardStep(w => w - 1);
+                        setSearchTerm('');
+                      }} 
+                      className="px-5 py-3 bg-[#141418] hover:bg-zinc-800 text-zinc-300 font-bold text-xs uppercase tracking-wider rounded-xl border border-zinc-700 transition-colors"
+                    >
+                      Atrás
+                    </button>
+                  )}
+                  <button 
+                    type="button"
+                    onClick={() => {
+                      vibratePop();
+                      if (wizardStep < 4) {
+                        setWizardStep(w => w + 1);
+                        setSearchTerm('');
+                      } else {
+                        handleSavePodium();
+                      }
+                    }} 
+                    disabled={
+                      isSaving ||
+                      (wizardStep === 1 && !localData.champion) ||
+                      (wizardStep === 2 && !localData.runnerUp) ||
+                      (wizardStep === 3 && !localData.topScorer) ||
+                      (wizardStep === 4 && !localData.mostAssists)
+                    }
+                    className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 disabled:hover:bg-blue-600 text-white font-black text-xs uppercase tracking-widest py-3 rounded-xl shadow-[0_0_15px_rgba(59,130,246,0.2)] transition-all flex items-center justify-center gap-2"
+                  >
+                    {wizardStep < 4 ? 'Siguiente' : (isSaving ? 'Guardando...' : 'Guardar Podio')}
+                    {wizardStep < 4 ? <ArrowRight className="w-4 h-4" /> : (!isSaving && <Save className="w-4 h-4" />)}
+                  </button>
+                </div>
               </div>
             )}
           </div>

@@ -32,7 +32,7 @@ import { doc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRem
 import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { GroupChat } from './GroupChat';
-import { startInteractiveTutorial } from '../lib/driver';
+import { TutorialPlayground } from './TutorialPlayground';
 import { User as UserIcon } from 'lucide-react';
 
 export function Layout() {
@@ -40,6 +40,7 @@ export function Layout() {
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
+  const [isTutorialActive, setIsTutorialActive] = useState(false);
   const [copied, setCopied] = useState(false);
   
   const [joinCode, setJoinCode] = useState('');
@@ -84,18 +85,19 @@ export function Layout() {
   };
   
   const runTutorial = () => {
-    startInteractiveTutorial({
-      onComplete: () => {
-        if (user) {
-          localStorage.setItem(`hasSeenTutorial_${user.uid}`, 'true');
-          try {
-            updateDoc(doc(db, 'users', user.uid), { hasSeenTutorial: true }).catch(() => {});
-          } catch (e) {
-            console.warn("Could not save hasSeenTutorial:", e);
-          }
-        }
+    setIsTutorialActive(true);
+  };
+
+  const handleFinishTutorial = () => {
+    setIsTutorialActive(false);
+    if (user) {
+      localStorage.setItem(`hasSeenTutorial_${user.uid}`, 'true');
+      try {
+        updateDoc(doc(db, 'users', user.uid), { hasSeenTutorial: true }).catch(() => {});
+      } catch (e) {
+        console.warn("Could not save hasSeenTutorial:", e);
       }
-    });
+    }
   };
 
   // Auto-launch tutorial for new users who haven't completed it
@@ -472,6 +474,11 @@ export function Layout() {
           </button>
         </div>
       </BaseBottomSheet>
+
+      {/* Tutorial Playground: Mock interactive tutorial that unmounts completely on finish/skip */}
+      {isTutorialActive && (
+        <TutorialPlayground onFinish={handleFinishTutorial} />
+      )}
     </div>
   );
 }

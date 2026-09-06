@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { Prediction, User } from '../types';
 import { useGroups } from './GroupsProvider';
 import { useAuth } from './AuthProvider';
-import { Users, Plus } from 'lucide-react';
+import { Users, Plus, Lock } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { EmojiPicker } from './EmojiPicker';
@@ -129,7 +129,14 @@ export function MatchPredictions({ matchId, locked, matchStatus, matchHomeTeam, 
     }
   };
 
+  const isMatchOpen = !locked && matchStatus !== 'in_progress' && matchStatus !== 'finished';
+
   const loadPredictions = () => {
+    if (isMatchOpen) {
+      setPredictions([]);
+      setLoading(false);
+      return;
+    }
     if (!activeGroup || !activeGroup.members || activeGroup.members.length === 0) return;
     setLoading(true);
     
@@ -186,27 +193,36 @@ export function MatchPredictions({ matchId, locked, matchStatus, matchHomeTeam, 
 
   useEffect(() => {
     let unsub;
-    if (expanded) {
+    if (expanded && !isMatchOpen) {
       unsub = loadPredictions();
     }
     return () => {
       if (unsub) unsub();
     }
-  }, [expanded, activeGroup]);
+  }, [expanded, activeGroup, isMatchOpen]);
 
   return (
     <>
       <div className="mt-2 border-t border-zinc-800/50 pt-2 flex items-center justify-between">
-        <button 
-          id="tutorial-group-predictions-btn"
-          onClick={() => { setExpanded(true); if (isJackpot) vibrateJackpot(); else vibratePop(); }}
-          className="flex-1 flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer"
-        >
-          <div className="flex items-center gap-1.5 font-bold uppercase tracking-widest">
-            <Users className="w-3.5 h-3.5" />
-            Ver Pronósticos del Grupo
+        {isMatchOpen ? (
+          <div className="flex-1 flex items-center justify-start text-[10px] text-zinc-500 py-1 select-none">
+            <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-zinc-500/80">
+              <Lock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
+              <span>Pronósticos ocultos hasta el inicio</span>
+            </div>
           </div>
-        </button>
+        ) : (
+          <button 
+            id="tutorial-group-predictions-btn"
+            onClick={() => { setExpanded(true); if (isJackpot) vibrateJackpot(); else vibratePop(); }}
+            className="flex-1 flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer"
+          >
+            <div className="flex items-center gap-1.5 font-bold uppercase tracking-widest">
+              <Users className="w-3.5 h-3.5" />
+              Ver Pronósticos del Grupo
+            </div>
+          </button>
+        )}
         {pointsNode}
       </div>
 
