@@ -83,11 +83,12 @@ export function RankingTab() {
   );
 
   const currentUserIndex = users.findIndex(u => u.uid === profile?.uid);
+  const hasAnyPoints = users.some(u => (u.points || 0) > 0);
   const top1 = users[0];
   const top2 = users[1];
   const top3 = users[2];
 
-    const renderStreakBadge = (u: User) => {
+  const renderStreakBadge = (u: User) => {
     if (u.streak_ausente && u.streak_ausente >= 4) return `👻 ${u.streak_ausente}`;
     if (u.streak_pleno && u.streak_pleno >= 2) return `🐐🔥 ${u.streak_pleno}`;
     if (u.streak_normal && u.streak_normal >= 3) return `🔥 ${u.streak_normal}`;
@@ -170,9 +171,14 @@ export function RankingTab() {
                 1
               </span>
             </div>
-            <p className="font-black text-xs text-amber-100 truncate max-w-full">
-              {top1?.displayName || 'Líder'}
-              {top1 && renderStreakBadge(top1) && <span className="text-[10px] ml-1 bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top1)}</span>}
+            <p className="font-black text-xs text-amber-100 truncate max-w-full flex items-center justify-center gap-1">
+              <span>{top1?.displayName || 'Líder'}</span>
+              {hasAnyPoints && (
+                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-black">
+                  🐐 Cabra
+                </span>
+              )}
+              {top1 && renderStreakBadge(top1) && <span className="text-[10px] bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top1)}</span>}
             </p>
             <span className="font-mono font-black text-amber-400 text-sm mt-0.5">
               {top1?.points || 0} <span className="text-[9px] font-bold text-amber-500/80">PTS</span>
@@ -275,12 +281,25 @@ export function RankingTab() {
                           className={isMe ? 'ring-1 ring-blue-500' : ''}
                         />
                         <div className="min-w-0">
-                          <div className="flex items-center gap-1">
-                            <p className={`font-bold truncate max-w-[140px] text-xs ${isMe ? 'text-blue-300' : 'text-white'}`}>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <p className={`font-bold truncate max-w-[130px] text-xs ${isMe ? 'text-blue-300' : 'text-white'}`}>
                               {u.title && <span className="mr-1">{u.title}</span>}
                               {u.displayName || 'Sin Nombre'}
-                              {renderStreakBadge(u) && <span className="text-[10px] ml-1 bg-zinc-800/80 px-1 py-0.5 rounded shadow-sm border border-zinc-700">{renderStreakBadge(u)}</span>}
                             </p>
+
+                            {/* Badges dinámicos de Líder y Último Lugar (sólo cuando la tabla suma puntos) */}
+                            {hasAnyPoints && index === 0 && (
+                              <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/50 px-1.5 py-0.2 rounded font-black tracking-wider inline-flex items-center gap-0.5 shadow-sm">
+                                🐐 Cabra
+                              </span>
+                            )}
+                            {hasAnyPoints && filteredUsers.length > 1 && index === filteredUsers.length - 1 && (
+                              <span className="text-[9px] bg-cyan-500/20 text-cyan-300 border border-cyan-500/50 px-1.5 py-0.2 rounded font-black tracking-wider inline-flex items-center gap-0.5 shadow-sm">
+                                🥶 Frío
+                              </span>
+                            )}
+
+                            {renderStreakBadge(u) && <span className="text-[10px] bg-zinc-800/80 px-1 py-0.5 rounded shadow-sm border border-zinc-700">{renderStreakBadge(u)}</span>}
                             {u.medallas && u.medallas.length > 0 && (
                               <div className="flex gap-0.5 mt-0.5" title={u.medallas.join(', ')}>
                                 {Array.from(new Set(u.medallas.map(m => Array.from(m)[0]))).map((emoji, i) => (

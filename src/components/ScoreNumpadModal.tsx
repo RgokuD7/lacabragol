@@ -138,19 +138,24 @@ export function ScoreNumpadModal({
           paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 16px)'
         }}
       >
-        {/* Top drag pill & close button */}
-        <div className="relative pt-2.5 pb-1 flex items-center justify-center">
+        {/* Top Close Button (X) - positioned securely top-4 right-4 z-20 without obstructing the teams */}
+        <button
+          type="button"
+          onClick={onClose}
+          onTouchStart={() => vibratePop()}
+          className="absolute top-4 right-4 z-20 p-2 rounded-full bg-zinc-800/80 hover:bg-zinc-700 text-zinc-400 hover:text-white transition-colors cursor-pointer border border-zinc-700/60 shadow-md"
+          title="Cerrar modal"
+        >
+          <X className="w-4 h-4" />
+        </button>
+
+        {/* Top drag handle pill */}
+        <div className="pt-3.5 pb-2 flex items-center justify-center">
           <div className="w-12 h-1.5 bg-zinc-700/60 rounded-full" />
-          <button
-            onClick={onClose}
-            className="absolute right-4 top-2 p-1.5 rounded-full bg-zinc-800/60 text-zinc-400 hover:text-white transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
         </div>
 
         {/* 1. Header (Marcador Global - Estilo TV) */}
-        <div className="mx-4 mt-1 mb-2 bg-[#0c0c0f] border border-zinc-800/90 rounded-2xl p-2.5 shadow-inner">
+        <div className="mx-4 mt-2 mb-2 bg-[#0c0c0f] border border-zinc-800/90 rounded-2xl p-2.5 shadow-inner">
           <div className="flex items-center justify-between gap-2">
             {/* Home Team (TV Left) */}
             <div 
@@ -158,30 +163,35 @@ export function ScoreNumpadModal({
                 vibratePop();
                 setActiveTeam('home');
               }}
+              onTouchStart={() => vibratePop()}
               className={cn(
-                "flex-1 flex items-center gap-1.5 p-1 rounded-xl cursor-pointer transition-all min-w-0",
+                "flex-1 flex items-center gap-2 p-1.5 rounded-xl cursor-pointer transition-all min-w-0",
                 activeTeam === 'home' 
-                  ? "bg-blue-500/10 border border-blue-500/40" 
+                  ? "bg-blue-500/15 border border-blue-500/40" 
                   : "hover:bg-zinc-800/40 border border-transparent"
               )}
             >
               <TeamBadge 
                 src={match.homeFlag} 
                 teamName={match.homeTeam} 
-                className="w-6 h-6 shrink-0 drop-shadow" 
+                className="w-7 h-7 shrink-0 drop-shadow" 
               />
-              <span className={cn(
-                "text-xs font-bold truncate leading-tight",
-                activeTeam === 'home' ? "text-blue-400" : "text-zinc-300"
-              )}>
-                {match.homeTeam}
-              </span>
+              <div className="flex flex-col min-w-0">
+                <span className="text-[8.5px] font-bold uppercase tracking-wider text-zinc-500">Local</span>
+                <span className={cn(
+                  "text-xs font-bold truncate leading-tight",
+                  activeTeam === 'home' ? "text-blue-400" : "text-zinc-300"
+                )}>
+                  {match.homeTeam}
+                </span>
+              </div>
             </div>
 
             {/* Center Scoreboard Display (Clickable for free navigation) */}
             <div className="flex items-center gap-1 shrink-0 px-1">
               <button
                 type="button"
+                onTouchStart={() => vibratePop()}
                 onClick={() => {
                   vibratePop();
                   setActiveTeam('home');
@@ -201,6 +211,7 @@ export function ScoreNumpadModal({
 
               <button
                 type="button"
+                onTouchStart={() => vibratePop()}
                 onClick={() => {
                   vibratePop();
                   setActiveTeam('away');
@@ -223,23 +234,27 @@ export function ScoreNumpadModal({
                 vibratePop();
                 setActiveTeam('away');
               }}
+              onTouchStart={() => vibratePop()}
               className={cn(
-                "flex-1 flex items-center justify-end gap-1.5 p-1 rounded-xl cursor-pointer transition-all min-w-0 text-right",
+                "flex-1 flex items-center justify-end gap-2 p-1.5 rounded-xl cursor-pointer transition-all min-w-0 text-right",
                 activeTeam === 'away' 
-                  ? "bg-blue-500/10 border border-blue-500/40" 
+                  ? "bg-blue-500/15 border border-blue-500/40" 
                   : "hover:bg-zinc-800/40 border border-transparent"
               )}
             >
-              <span className={cn(
-                "text-xs font-bold truncate leading-tight",
-                activeTeam === 'away' ? "text-blue-400" : "text-zinc-300"
-              )}>
-                {match.awayTeam}
-              </span>
+              <div className="flex flex-col min-w-0 text-right">
+                <span className="text-[8.5px] font-bold uppercase tracking-wider text-zinc-500">Visitante</span>
+                <span className={cn(
+                  "text-xs font-bold truncate leading-tight",
+                  activeTeam === 'away' ? "text-blue-400" : "text-zinc-300"
+                )}>
+                  {match.awayTeam}
+                </span>
+              </div>
               <TeamBadge 
                 src={match.awayFlag} 
                 teamName={match.awayTeam} 
-                className="w-6 h-6 shrink-0 drop-shadow" 
+                className="w-7 h-7 shrink-0 drop-shadow" 
               />
             </div>
           </div>
@@ -247,21 +262,24 @@ export function ScoreNumpadModal({
 
         {/* 2. Sección Central (Foco de Edición) */}
         <div className="flex flex-col items-center justify-center py-2 px-4">
-          <div className="relative mb-2">
-            <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-zinc-900/90 border-2 border-zinc-700/60 p-1 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.15)]">
-              <TeamBadge 
-                src={activeTeamFlag} 
-                teamName={activeTeamName} 
-                className="w-12 h-12 sm:w-16 sm:h-16 object-contain" 
-              />
-            </div>
+          {/* Logo del equipo en edición */}
+          <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-zinc-900/90 border-2 border-zinc-700/60 p-1.5 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.15)] shrink-0">
+            <TeamBadge 
+              src={activeTeamFlag} 
+              teamName={activeTeamName} 
+              className="w-12 h-12 sm:w-16 sm:h-16 object-contain" 
+            />
+          </div>
+
+          {/* Etiqueta del equipo separada con margen adecuado (no superpuesta al logo) */}
+          <div className="mt-2.5 mb-1">
             <span className={cn(
-              "absolute -bottom-1 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded-full text-[9px] font-black uppercase tracking-wider border shadow-md",
+              "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-md inline-flex items-center gap-1",
               isHome 
-                ? "bg-blue-500/20 text-blue-400 border-blue-500/50" 
-                : "bg-emerald-500/20 text-emerald-400 border-emerald-500/50"
+                ? "bg-blue-500/15 text-blue-400 border-blue-500/40" 
+                : "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
             )}>
-              {isHome ? 'Local' : 'Visitante'}
+              {isHome ? 'Equipo Local' : 'Equipo Visitante'}
             </span>
           </div>
 
@@ -293,6 +311,7 @@ export function ScoreNumpadModal({
               <button
                 key={num}
                 type="button"
+                onTouchStart={() => vibratePop()}
                 onClick={() => handleDigitPress(num)}
                 className="h-12 sm:h-13 bg-zinc-800/80 hover:bg-zinc-700/90 active:bg-zinc-600 active:scale-95 text-white font-mono font-black text-xl sm:text-2xl rounded-xl border border-zinc-700/60 shadow-sm transition-all flex items-center justify-center cursor-pointer select-none"
               >
@@ -303,6 +322,7 @@ export function ScoreNumpadModal({
             {/* Bottom row: Clear (C), 0, Backspace */}
             <button
               type="button"
+              onTouchStart={() => vibratePop()}
               onClick={handleClear}
               className="h-12 sm:h-13 bg-zinc-900/80 hover:bg-zinc-800 active:bg-zinc-700 active:scale-95 text-zinc-400 hover:text-white font-mono font-bold text-base sm:text-lg rounded-xl border border-zinc-800 transition-all flex items-center justify-center cursor-pointer select-none"
               title="Limpiar"
@@ -312,6 +332,7 @@ export function ScoreNumpadModal({
 
             <button
               type="button"
+              onTouchStart={() => vibratePop()}
               onClick={() => handleDigitPress('0')}
               className="h-12 sm:h-13 bg-zinc-800/80 hover:bg-zinc-700/90 active:bg-zinc-600 active:scale-95 text-white font-mono font-black text-xl sm:text-2xl rounded-xl border border-zinc-700/60 shadow-sm transition-all flex items-center justify-center cursor-pointer select-none"
             >
@@ -320,6 +341,7 @@ export function ScoreNumpadModal({
 
             <button
               type="button"
+              onTouchStart={() => vibratePop()}
               onClick={handleBackspace}
               className="h-12 sm:h-13 bg-zinc-900/80 hover:bg-zinc-800 active:bg-zinc-700 active:scale-95 text-zinc-400 hover:text-rose-400 rounded-xl border border-zinc-800 transition-all flex items-center justify-center cursor-pointer select-none"
               title="Borrar dígito"
@@ -333,6 +355,7 @@ export function ScoreNumpadModal({
         <div className="px-5 pt-3">
           <button
             type="button"
+            onTouchStart={() => vibratePop()}
             onClick={handleNextOrSave}
             disabled={isSaving}
             className={cn(

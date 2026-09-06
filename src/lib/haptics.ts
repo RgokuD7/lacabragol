@@ -1,21 +1,28 @@
-export const canVibrate = () => typeof navigator !== 'undefined' && 'vibrate' in navigator;
-
-export const vibratePop = () => {
-  if (canVibrate()) navigator.vibrate([50]);
+export const canVibrate = (): boolean => {
+  try {
+    return typeof window !== 'undefined' && 
+           typeof navigator !== 'undefined' && 
+           'vibrate' in navigator && 
+           typeof navigator.vibrate === 'function';
+  } catch {
+    return false;
+  }
 };
 
-export const vibrateTap = () => {
-  if (canVibrate()) navigator.vibrate([20]);
+export const vibrate = (pattern: number | number[]): boolean => {
+  try {
+    if (canVibrate()) {
+      return navigator.vibrate(pattern);
+    }
+  } catch (err) {
+    // Silently ignore if blocked by browser policy
+  }
+  return false;
 };
 
-export const vibrateSuccess = () => {
-  if (canVibrate()) navigator.vibrate([50, 50, 50]);
-};
+export const vibratePop = () => vibrate(15);
+export const vibrateTap = () => vibrate(10);
+export const vibrateSuccess = () => vibrate([35, 45, 35]);
+export const vibrateError = () => vibrate([80, 40, 80]);
+export const vibrateJackpot = () => vibrate([50, 40, 50, 40, 100]);
 
-export const vibrateError = () => {
-  if (canVibrate()) navigator.vibrate([200, 100, 200]);
-};
-
-export const vibrateJackpot = () => {
-  if (canVibrate()) navigator.vibrate([100, 50, 100, 50, 100]);
-};
