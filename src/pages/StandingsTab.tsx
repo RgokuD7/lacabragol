@@ -507,29 +507,28 @@ export function StandingsTab() {
         <table className="w-full text-left whitespace-nowrap text-xs border-collapse">
           <thead 
             className="bg-[#18181b] text-[10px] uppercase font-black text-zinc-400 border-b border-zinc-800 sticky top-0 z-30 shadow-md rounded-t-xl"
-            style={{ top: '-1px' }}
           >
             <tr>
               {/* Sticky Pos */}
-              <th className="py-2.5 px-1 text-center w-7 min-w-[28px] max-w-[28px] sticky left-0 z-40 bg-[#18181b] border-r border-zinc-800/80">
+              <th className="py-2.5 px-1 text-center w-7 min-w-[28px] max-w-[28px] sticky left-0 top-0 z-50 bg-[#18181b] border-r border-b border-zinc-800/80">
                 #
               </th>
               {/* Sticky Club */}
-              <th className="py-2.5 px-2.5 sticky left-[28px] z-40 bg-[#18181b] border-r border-zinc-800 w-[130px] min-w-[130px] max-w-[130px]">
+              <th className="py-2.5 px-2.5 sticky left-[28px] top-0 z-50 bg-[#18181b] border-r border-b border-zinc-800 w-[130px] min-w-[130px] max-w-[130px]">
                 Club
               </th>
               {/* Sticky PTS */}
-              <th className="py-2.5 px-2 text-center w-12 min-w-[48px] max-w-[48px] font-black text-white bg-blue-950 border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-40">
+              <th className="py-2.5 px-2 text-center w-12 min-w-[48px] max-w-[48px] font-black text-white bg-blue-950 border-r border-b border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] top-0 z-50">
                 PTS
               </th>
               {/* Scrollable Stats */}
-              <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">PJ</th>
-              <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">G</th>
-              <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">E</th>
-              <th className="py-2.5 px-2 text-center w-9 bg-[#18181b]">P</th>
-              <th className="py-2.5 px-2 text-center w-10 bg-[#18181b]">GF</th>
-              <th className="py-2.5 px-2 text-center w-10 bg-[#18181b]">GC</th>
-              <th className="py-2.5 px-2 text-center w-10 bg-[#18181b]">DG</th>
+              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">PJ</th>
+              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">G</th>
+              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">E</th>
+              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">P</th>
+              <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">GF</th>
+              <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">GC</th>
+              <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">DG</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-800/60 font-sans">

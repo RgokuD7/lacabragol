@@ -233,10 +233,10 @@ export function RankingTab() {
           <table className="w-full text-left whitespace-nowrap text-xs border-collapse">
             <thead className="bg-[#18181b] text-[10px] uppercase font-black text-zinc-400 border-b border-zinc-800 sticky top-0 z-20 shadow-sm">
               <tr>
-                <th className="px-2.5 py-2 text-center w-8">#</th>
-                <th className="px-2.5 py-2">Participante</th>
-                <th className="px-2.5 py-2 text-center">PTS</th>
-                <th className="px-2.5 py-2 text-center">Exactos</th>
+                <th className="px-2.5 py-2 text-center w-8 sticky top-0 z-30 bg-[#18181b] border-b border-zinc-800">#</th>
+                <th className="px-2.5 py-2 sticky top-0 z-30 bg-[#18181b] border-b border-zinc-800">Participante</th>
+                <th className="px-2.5 py-2 text-center sticky top-0 z-30 bg-[#18181b] border-b border-zinc-800">PTS</th>
+                <th className="px-2.5 py-2 text-center sticky top-0 z-30 bg-[#18181b] border-b border-zinc-800">Exactos</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-zinc-800/60 font-medium">
