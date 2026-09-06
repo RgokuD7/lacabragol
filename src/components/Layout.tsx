@@ -85,6 +85,7 @@ export function Layout() {
   };
   
   const runTutorial = () => {
+    setActiveTab('predictions');
     setIsTutorialActive(true);
     setTimeout(() => {
       startInteractiveTutorial({
@@ -296,11 +297,11 @@ export function Layout() {
       </main>
 
       {/* Floating Action Button for Chat */}
-      {activeGroupId && (
+      {(activeGroupId || isTutorialActive) && (
         <button
           id="fab-group-chat"
           onClick={openChat}
-          className="fixed bottom-20 right-5 z-40 w-14 h-14 bg-blue-600 hover:bg-blue-500 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform active:scale-90 border border-blue-400/30"
+          className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+80px)] right-5 z-40 w-14 h-14 bg-blue-600 hover:bg-blue-500 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform active:scale-90 border border-blue-400/30"
           title="Chat del Grupo"
         >
           <MessageCircle className="w-6 h-6" />

@@ -347,7 +347,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     return `J${g}`.toUpperCase();
   };
 
-  if (loading) {
+  if (loading && !isTutorialActive) {
     return (
       <div className="flex flex-col items-center justify-center h-[50vh] space-y-4 text-zinc-400">
         <div className="w-8 h-8 rounded-full border-2 border-t-blue-500 border-zinc-800 animate-spin" />

@@ -1,16 +1,16 @@
 import { vibrateSuccess, vibrateError, vibrateTap, vibratePop } from '../lib/haptics';
 import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
-import { collection, query, where, orderBy, limit, onSnapshot, addDoc, getDocs, updateDoc, doc, documentId } from 'firebase/firestore';
+import { collection, query, where, orderBy, limit, onSnapshot, addDoc, getDocs, updateDoc, doc, documentId, writeBatch } from 'firebase/firestore';
 import { useAuth } from './AuthProvider';
-import { Send, MessageSquare, Reply, Plus, X } from 'lucide-react';
+import { Send, MessageSquare, Reply, Plus, X, Trash2 } from 'lucide-react';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { useGroups } from './GroupsProvider';
 import { EmojiPicker } from './EmojiPicker';
 import { ContextMenu } from './ContextMenu';
 import { useLongPress } from '../hooks/useLongPress';
 import { User } from '../types';
-import { cn } from '../lib/utils';
+import { cn, isCabraSuprema } from '../lib/utils';
 
 interface Message {
   id: string;
@@ -177,6 +177,40 @@ export function GroupChat({
   const [contextMenuPos, setContextMenuPos] = useState({ top: 0, left: 0 });
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
+  const canClearChat = isCabraSuprema(profile, user?.email) || activeGroup?.adminId === user?.uid;
+  const [isClearing, setIsClearing] = useState(false);
+
+  const handleClearChat = async () => {
+    if (!activeGroupId || !canClearChat) return;
+    const confirmed = window.confirm(
+      '¿Estás seguro de que deseas borrar todos los mensajes de este grupo? Esta acción no se puede deshacer.'
+    );
+    if (!confirmed) return;
+
+    try {
+      setIsClearing(true);
+      const q = query(collection(db, 'messages'), where('groupId', '==', activeGroupId));
+      const snap = await getDocs(q);
+      if (!snap.empty) {
+        const docs = snap.docs;
+        for (let i = 0; i < docs.length; i += 500) {
+          const batch = writeBatch(db);
+          docs.slice(i, i + 500).forEach(d => {
+            batch.delete(d.ref);
+          });
+          await batch.commit();
+        }
+      }
+      setMessages([]);
+      vibrateSuccess();
+    } catch (error) {
+      console.error('Error clearing chat:', error);
+      vibrateError();
+      alert('Error al vaciar los mensajes del chat.');
+    } finally {
+      setIsClearing(false);
+    }
+  };
 
   useEffect(() => {
     if (!activeGroup || !isOpen) return;
@@ -331,13 +365,25 @@ export function GroupChat({
               <MessageSquare className="w-5 h-5 text-blue-500" />
               <span>Chat del Grupo</span>
             </h1>
-            <button 
-              id="close-group-chat-btn"
-              onClick={onClose} 
-              className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
+            <div className="flex items-center gap-2">
+              {canClearChat && (
+                <button
+                  onClick={handleClearChat}
+                  disabled={isClearing}
+                  className="w-8 h-8 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
+                  title="Vaciar chat (Admin)"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              )}
+              <button 
+                id="close-group-chat-btn"
+                onClick={onClose} 
+                className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
         </div>
 
       {contextMenuMsgId && (

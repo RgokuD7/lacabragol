@@ -5,7 +5,26 @@ export interface TutorialOptions {
   onComplete?: () => void;
 }
 
-export const startInteractiveTutorial = (options?: TutorialOptions) => {
+export const waitForElement = (selector: string, timeout = 3000): Promise<HTMLElement | null> => {
+  return new Promise((resolve) => {
+    const el = document.querySelector<HTMLElement>(selector);
+    if (el) return resolve(el);
+    const observer = new MutationObserver(() => {
+      const found = document.querySelector<HTMLElement>(selector);
+      if (found) {
+        observer.disconnect();
+        resolve(found);
+      }
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    setTimeout(() => {
+      observer.disconnect();
+      resolve(document.querySelector<HTMLElement>(selector));
+    }, timeout);
+  });
+};
+
+export const startInteractiveTutorial = async (options?: TutorialOptions) => {
   let completed = false;
   const finish = () => {
     if (completed) return;
@@ -19,6 +38,9 @@ export const startInteractiveTutorial = (options?: TutorialOptions) => {
     const closeChat = document.querySelector<HTMLButtonElement>('#close-group-chat-btn');
     if (closeChat) closeChat.click();
   };
+
+  // Wait for root card target to be fully mounted in the DOM
+  await waitForElement('#tutorial-first-match-card', 3000);
 
   const driverObj = driver({
     showProgress: true,

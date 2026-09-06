@@ -5,7 +5,7 @@ import { db } from '../lib/firebase';
 import { Prediction, User } from '../types';
 import { useGroups } from './GroupsProvider';
 import { useAuth } from './AuthProvider';
-import { Users, Plus, Lock } from 'lucide-react';
+import { Users, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { EmojiPicker } from './EmojiPicker';
@@ -311,28 +311,25 @@ export function MatchPredictions({
 
   return (
     <>
-      <div className="mt-2 border-t border-zinc-800/50 pt-2 flex items-center justify-between">
-        {isMatchOpen ? (
-          <div className="flex-1 flex items-center justify-start text-[10px] text-zinc-500 py-1 select-none">
-            <div className="flex items-center gap-1.5 font-bold uppercase tracking-wider text-zinc-500/80">
-              <Lock className="w-3.5 h-3.5 text-zinc-600 shrink-0" />
-              <span>Pronósticos ocultos hasta el inicio</span>
-            </div>
-          </div>
-        ) : (
-          <button 
-            id="tutorial-group-predictions-btn"
-            onClick={() => { setExpanded(true); if (isJackpot) vibrateJackpot(); else vibratePop(); }}
-            className="flex-1 flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer"
-          >
-            <div className="flex items-center gap-1.5 font-bold uppercase tracking-widest">
-              <Users className="w-3.5 h-3.5" />
-              Ver Pronósticos del Grupo
-            </div>
-          </button>
-        )}
-        {pointsNode}
-      </div>
+      {(!isMatchOpen || pointsNode) && (
+        <div className="mt-2 border-t border-zinc-800/50 pt-2 flex items-center justify-between">
+          {!isMatchOpen ? (
+            <button 
+              id="tutorial-group-predictions-btn"
+              onClick={() => { setExpanded(true); if (isJackpot) vibrateJackpot(); else vibratePop(); }}
+              className="flex-1 flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer"
+            >
+              <div className="flex items-center gap-1.5 font-bold uppercase tracking-widest">
+                <Users className="w-3.5 h-3.5" />
+                Ver Pronósticos del Grupo
+              </div>
+            </button>
+          ) : (
+            <div className="flex-1" />
+          )}
+          {pointsNode}
+        </div>
+      )}
 
       <BaseBottomSheet
         id="tutorial-predictions-sheet"
