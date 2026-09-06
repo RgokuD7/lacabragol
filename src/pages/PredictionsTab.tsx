@@ -12,6 +12,7 @@ import { es } from 'date-fns/locale';
 import { TeamBadge } from '../components/TeamBadge';
 import { MatchPredictions } from '../components/MatchPredictions';
 import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionModal';
+import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
 import { 
@@ -75,6 +76,15 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   });
   const [isCrossGroupSaving, setIsCrossGroupSaving] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
+  const [scoreModal, setScoreModal] = useState<{
+    isOpen: boolean;
+    match: Match | null;
+    initialFocus: 'home' | 'away';
+  }>({
+    isOpen: false,
+    match: null,
+    initialFocus: 'home'
+  });
 
   // Keep live match minutes and lock states reactive in real-time
   useEffect(() => {
@@ -245,7 +255,22 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     return { isLive: false, label: 'Por Jugar' };
   };
 
-  const savePrediction = async (matchId: string) => {
+  const openScoreModal = (match: Match, focus: 'home' | 'away' = 'home') => {
+    const isLocked = isMatchLocked(match.date);
+    const liveInfo = getMatchLiveInfo(match);
+    if (match.status === 'finished' || match.status === 'in_progress' || isLocked || liveInfo.isLive) {
+      vibrateError();
+      return;
+    }
+    vibratePop();
+    setScoreModal({
+      isOpen: true,
+      match,
+      initialFocus: focus
+    });
+  };
+
+  const savePrediction = async (matchId: string, overrideHome?: number, overrideAway?: number) => {
     if (!user) return;
 
     const match = matches.find(m => m.id === matchId);
@@ -260,9 +285,13 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
     const scores = localScores[matchId] || { home: '', away: '' };
     
-    // Si el usuario deja un input vacío y presiona guardar, el valor debe transformarse automáticamente en un 0
-    const homeVal = scores.home === '' || isNaN(parseInt(scores.home, 10)) ? 0 : Math.max(0, parseInt(scores.home, 10));
-    const awayVal = scores.away === '' || isNaN(parseInt(scores.away, 10)) ? 0 : Math.max(0, parseInt(scores.away, 10));
+    // Si se especifican valores (desde el modal numpad), se usan directamente; sino, se transforman los inputs locales
+    const homeVal = overrideHome !== undefined
+      ? overrideHome
+      : (scores.home === '' || isNaN(parseInt(scores.home, 10)) ? 0 : Math.max(0, parseInt(scores.home, 10)));
+    const awayVal = overrideAway !== undefined
+      ? overrideAway
+      : (scores.away === '' || isNaN(parseInt(scores.away, 10)) ? 0 : Math.max(0, parseInt(scores.away, 10)));
 
     // Update local state immediately to reflect '0'
     setLocalScores(prev => ({
@@ -656,51 +685,43 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                     </>
                   ) : (
                     <>
-                      <div className="flex items-center justify-center gap-1">
-                        <input 
-                          type="number"
-                          min="0"
-                          onKeyDown={(e) => {
-                            if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
-                              e.preventDefault();
-                            }
-                          }}
-                          disabled={locked}
-                          value={scores.home}
-                          onChange={(e) => handleScoreChange(match.id, 'home', e.target.value)}
-                          placeholder="0"
-                          className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-900/20 border-2 border-blue-500/50 rounded-lg text-center text-sm sm:text-base font-black text-white focus:border-blue-400 outline-none font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
-                        <span className="text-zinc-500 font-bold text-[10px]">VS</span>
-                        <input 
-                          type="number"
-                          min="0"
-                          onKeyDown={(e) => {
-                            if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
-                              e.preventDefault();
-                            }
-                          }}
-                          disabled={locked}
-                          value={scores.away}
-                          onChange={(e) => handleScoreChange(match.id, 'away', e.target.value)}
-                          placeholder="0"
-                          className="w-7 h-7 sm:w-8 sm:h-8 bg-blue-900/20 border-2 border-blue-500/50 rounded-lg text-center text-sm sm:text-base font-black text-white focus:border-blue-400 outline-none font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                        />
+                      <div className="flex items-center justify-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => openScoreModal(match, 'home')}
+                          className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-900/30 hover:bg-blue-900/50 active:scale-95 border-2 border-blue-500/60 hover:border-blue-400 rounded-xl text-center text-sm sm:text-base font-black text-white font-mono flex items-center justify-center transition-all shadow-sm cursor-pointer select-none"
+                          title="Pronosticar goles Local"
+                        >
+                          {scores.home !== '' ? scores.home : (hasSaved ? pred.homeScore : '-')}
+                        </button>
+                        <span className="text-zinc-500 font-black text-[10px] select-none">VS</span>
+                        <button
+                          type="button"
+                          onClick={() => openScoreModal(match, 'away')}
+                          className="w-8 h-8 sm:w-9 sm:h-9 bg-blue-900/30 hover:bg-blue-900/50 active:scale-95 border-2 border-blue-500/60 hover:border-blue-400 rounded-xl text-center text-sm sm:text-base font-black text-white font-mono flex items-center justify-center transition-all shadow-sm cursor-pointer select-none"
+                          title="Pronosticar goles Visitante"
+                        >
+                          {scores.away !== '' ? scores.away : (hasSaved ? pred.awayScore : '-')}
+                        </button>
                       </div>
-                      <div className="flex items-center justify-center mt-1 min-h-[24px]">
-                        {hasChanges ? (
+                      <div className="flex items-center justify-center mt-1 min-h-[22px]">
+                        {hasSaved ? (
                           <button
-                            disabled={isSaving}
-                            onClick={() => savePrediction(match.id)}
-                            className="h-6 px-3 bg-blue-600 hover:bg-blue-500 text-white font-black text-[10px] uppercase rounded-lg transition-all shadow active:scale-95 flex items-center gap-1 cursor-pointer"
+                            type="button"
+                            onClick={() => openScoreModal(match, 'home')}
+                            className="text-[9px] text-emerald-400 hover:text-emerald-300 uppercase tracking-widest font-bold bg-emerald-500/10 hover:bg-emerald-500/20 px-2 py-0.5 rounded-lg border border-emerald-500/20 transition-all flex items-center gap-1 cursor-pointer select-none"
                           >
-                            <Save className="w-3 h-3" />
-                            <span>{isSaving ? '...' : 'Guardar'}</span>
+                            <Check className="w-2.5 h-2.5" />
+                            <span>Guardado</span>
                           </button>
-                        ) : hasSaved ? (
-                          <span className="text-[9px] text-emerald-500 uppercase tracking-widest font-bold bg-emerald-500/10 px-2 py-0.5 rounded-lg border border-emerald-500/20">Guardado</span>
                         ) : (
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold bg-zinc-900 px-2 py-0.5 rounded-lg border border-zinc-800">Tu Pronóstico</span>
+                          <button
+                            type="button"
+                            onClick={() => openScoreModal(match, 'home')}
+                            className="text-[9px] text-blue-400 hover:text-blue-300 uppercase tracking-widest font-bold bg-blue-500/10 hover:bg-blue-500/20 px-2 py-0.5 rounded-lg border border-blue-500/30 transition-all cursor-pointer select-none"
+                          >
+                            Tu Pronóstico
+                          </button>
                         )}
                       </div>
                     </>
@@ -757,6 +778,19 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         otherGroups={userCommunityGroups.filter(g => g.id !== (activeGroupId || 'default'))}
         onConfirm={handleConfirmCrossGroupSave}
         isSaving={isCrossGroupSaving}
+      />
+
+      <ScoreNumpadModal
+        isOpen={scoreModal.isOpen}
+        onClose={() => setScoreModal(prev => ({ ...prev, isOpen: false }))}
+        match={scoreModal.match}
+        initialHomeScore={scoreModal.match ? (localScores[scoreModal.match.id]?.home ?? (predictions[scoreModal.match.id]?.homeScore !== undefined ? String(predictions[scoreModal.match.id].homeScore) : '')) : ''}
+        initialAwayScore={scoreModal.match ? (localScores[scoreModal.match.id]?.away ?? (predictions[scoreModal.match.id]?.awayScore !== undefined ? String(predictions[scoreModal.match.id].awayScore) : '')) : ''}
+        initialFocus={scoreModal.initialFocus}
+        onSave={async (matchId, homeVal, awayVal) => {
+          await savePrediction(matchId, homeVal, awayVal);
+        }}
+        isSaving={savingId === scoreModal.match?.id}
       />
     </div>
   );

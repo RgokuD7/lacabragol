@@ -194,18 +194,18 @@ export function PodiumDisplay({
 
           {/* Visual Podium Pedestals: Champion (1st) & Runner-Up (2nd) */}
           <div className="bg-[#121215] border border-zinc-800/80 rounded-2xl p-4 shadow-sm">
-            <div className="flex items-end justify-center h-38 gap-3 sm:gap-4 max-w-sm mx-auto pt-2 pb-1">
+            <div className="flex items-end justify-center min-h-[176px] h-44 gap-3 sm:gap-4 max-w-sm mx-auto pt-2 pb-1">
               {/* Runner Up (2nd Place) */}
-              <div className="w-32 bg-gradient-to-t from-zinc-800/90 via-zinc-800/60 to-zinc-700/40 rounded-t-xl h-[80%] flex flex-col items-center justify-between p-2.5 border-t-2 border-l border-r border-zinc-600/60 shadow-lg relative">
-                <div className="flex flex-col items-center gap-1 w-full">
-                  <div className="w-6 h-6 rounded-full bg-zinc-400/20 flex items-center justify-center border border-zinc-400/40">
-                    <span className="text-[11px] font-black text-zinc-300">2</span>
+              <div className="w-32 bg-gradient-to-t from-zinc-800/90 via-zinc-800/60 to-zinc-700/40 rounded-t-xl h-[88%] flex flex-col items-center justify-between p-2 border-t-2 border-l border-r border-zinc-600/60 shadow-lg relative overflow-hidden">
+                <div className="flex flex-col items-center gap-0.5 w-full shrink-0">
+                  <div className="w-5 h-5 rounded-full bg-zinc-400/20 flex items-center justify-center border border-zinc-400/40">
+                    <span className="text-[10px] font-black text-zinc-300">2</span>
                   </div>
-                  <span className="text-[9px] font-black text-zinc-400 uppercase tracking-wider">Subcampeón</span>
+                  <span className="text-[8px] font-black text-zinc-400 uppercase tracking-wider">Subcampeón</span>
                 </div>
-                <div className="flex flex-col items-center w-full gap-1">
+                <div className="flex flex-col items-center w-full gap-0.5 my-auto">
                   {podium.runnerUp && (
-                    <div className="w-8 h-8 rounded-full bg-zinc-900/90 border border-zinc-600/80 p-0.5 flex items-center justify-center shadow-md overflow-hidden shrink-0">
+                    <div className="w-7 h-7 rounded-full bg-zinc-900/90 border border-zinc-600/80 p-0.5 flex items-center justify-center shadow-md overflow-hidden shrink-0">
                       {runnerUpLogo ? (
                         <img 
                           src={runnerUpLogo} 
@@ -214,15 +214,15 @@ export function PodiumDisplay({
                           onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
                         />
                       ) : (
-                        <TeamBadge teamName={podium.runnerUp} size="sm" className="w-5 h-5 shrink-0" />
+                        <TeamBadge teamName={podium.runnerUp} size="sm" className="w-4 h-4 shrink-0" />
                       )}
                     </div>
                   )}
-                  <span className="text-[11px] font-bold text-white text-center leading-tight line-clamp-2 w-full">
+                  <span className="text-[10px] font-bold text-white text-center leading-tight line-clamp-2 w-full">
                     {podium.runnerUp || 'Sin definir'}
                   </span>
                   {runnerUpTeam?.country && (
-                    <span className="text-[9px] text-zinc-400 font-medium truncate block mt-0.5">
+                    <span className="text-[8.5px] text-zinc-400 font-medium truncate block">
                       {formatNationality(runnerUpTeam.country)}
                     </span>
                   )}
@@ -230,16 +230,16 @@ export function PodiumDisplay({
               </div>
 
               {/* Champion (1st Place) */}
-              <div className="w-36 bg-gradient-to-t from-amber-600/90 via-amber-500/60 to-yellow-500/40 rounded-t-xl h-full flex flex-col items-center justify-between p-2.5 border-t-2 border-l border-r border-yellow-400/70 shadow-[0_-8px_24px_rgba(245,158,11,0.25)] relative z-10">
-                <div className="flex flex-col items-center gap-1 w-full">
-                  <div className="w-7 h-7 rounded-full bg-yellow-400/20 flex items-center justify-center border border-yellow-400/50 shadow-inner">
-                    <Crown className="w-4 h-4 text-yellow-300 drop-shadow-md animate-pulse" />
+              <div className="w-36 bg-gradient-to-t from-amber-600/90 via-amber-500/60 to-yellow-500/40 rounded-t-xl h-full flex flex-col items-center justify-between p-2.5 border-t-2 border-l border-r border-yellow-400/70 shadow-[0_-8px_24px_rgba(245,158,11,0.25)] relative z-10 overflow-hidden">
+                <div className="flex flex-col items-center gap-1 w-full shrink-0">
+                  <div className="w-6 h-6 rounded-full bg-yellow-400/20 flex items-center justify-center border border-yellow-400/50 shadow-inner">
+                    <Crown className="w-3.5 h-3.5 text-yellow-300 drop-shadow-md animate-pulse" />
                   </div>
                   <span className="text-[9px] font-black text-yellow-300 uppercase tracking-widest drop-shadow">Campeón</span>
                 </div>
-                <div className="flex flex-col items-center w-full gap-1">
+                <div className="flex flex-col items-center w-full gap-0.5 my-auto">
                   {podium.champion && (
-                    <div className="w-10 h-10 rounded-full bg-amber-950/80 border-2 border-yellow-400 p-0.5 flex items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.4)] overflow-hidden shrink-0">
+                    <div className="w-9 h-9 rounded-full bg-amber-950/80 border-2 border-yellow-400 p-0.5 flex items-center justify-center shadow-[0_0_12px_rgba(245,158,11,0.4)] overflow-hidden shrink-0">
                       {championLogo ? (
                         <img 
                           src={championLogo} 
@@ -248,15 +248,15 @@ export function PodiumDisplay({
                           onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
                         />
                       ) : (
-                        <TeamBadge teamName={podium.champion} size="md" className="w-7 h-7 shrink-0 drop-shadow" />
+                        <TeamBadge teamName={podium.champion} size="md" className="w-6 h-6 shrink-0 drop-shadow" />
                       )}
                     </div>
                   )}
-                  <span className="text-xs font-black text-white text-center leading-tight uppercase drop-shadow line-clamp-2 w-full">
+                  <span className="text-[11px] font-black text-white text-center leading-tight uppercase drop-shadow line-clamp-2 w-full">
                     {podium.champion || 'Sin definir'}
                   </span>
                   {championTeam?.country && (
-                    <span className="text-[9px] text-yellow-200/90 font-medium truncate block mt-0.5 drop-shadow">
+                    <span className="text-[9px] text-yellow-200/90 font-medium truncate block drop-shadow">
                       {formatNationality(championTeam.country)}
                     </span>
                   )}
