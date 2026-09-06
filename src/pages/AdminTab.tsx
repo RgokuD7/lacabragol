@@ -107,7 +107,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   const filteredUsers = users.filter(u => {
     const q = userSearch.toLowerCase();
-    return (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
+    return (u.nickname || '').toLowerCase().includes(q) || (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
   });
 
   const filteredPodiumPlayers = podiumPlayers.filter(p => {
@@ -749,7 +749,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
               {filteredUsers.map(u => (
                 <div key={u.uid} className="flex justify-between items-center bg-zinc-900 p-3 rounded-lg border border-zinc-800">
                   <div>
-                     <p className="text-sm font-bold text-white">{u.displayName}</p>
+                     <p className="text-sm font-bold text-white">
+                       {u.nickname ? (
+                         <span>{u.nickname} <span className="text-xs text-zinc-400 font-normal">({u.displayName})</span></span>
+                       ) : (
+                         u.displayName
+                       )}
+                     </p>
                      <p className="text-xs text-zinc-500">{u.email}</p>
                   </div>
                   <div className="flex gap-2">

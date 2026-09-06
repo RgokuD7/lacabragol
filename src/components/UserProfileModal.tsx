@@ -47,14 +47,15 @@ export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfile
       <div className="space-y-6 pb-6">
         {/* Header Profiling */}
         <div className="flex items-center gap-4 bg-zinc-900/50 p-4 rounded-2xl border border-zinc-800 shadow-sm">
-          <UserAvatar src={user.photoURL} name={user.displayName || ''} size="xl" />
+          <UserAvatar src={user.photoURL} name={user.nickname || user.displayName || ''} size="xl" />
           <div className="flex flex-col min-w-0">
-            <h3 className="text-lg font-black text-white truncate">{user.displayName}</h3>
+            <h3 className="text-lg font-black text-white truncate">{user.nickname || user.displayName}</h3>
             <div className="flex flex-col gap-1 mt-1">
-              <div className="flex items-center gap-1.5 text-xs text-zinc-400">
-                <Hash className="w-3.5 h-3.5 shrink-0" />
-                <span className="truncate">{user.nickname || 'Sin Alias'}</span>
-              </div>
+              {user.displayName && user.nickname && user.nickname !== user.displayName && (
+                <div className="flex items-center gap-1.5 text-xs text-zinc-500">
+                  <span className="truncate">Google: {user.displayName}</span>
+                </div>
+              )}
               <div className="flex items-center gap-1.5 text-xs text-zinc-400">
                 <Mail className="w-3.5 h-3.5 shrink-0" />
                 <span className="truncate max-w-full">{user.email || 'Oculto'}</span>

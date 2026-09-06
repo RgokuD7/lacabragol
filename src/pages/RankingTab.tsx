@@ -78,6 +78,7 @@ export function RankingTab() {
   };
 
   const filteredUsers = users.filter(u => 
+    (u.nickname || '').toLowerCase().includes(search.toLowerCase()) ||
     (u.displayName || '').toLowerCase().includes(search.toLowerCase()) ||
     (u.email || '').toLowerCase().includes(search.toLowerCase())
   );
@@ -134,14 +135,14 @@ export function RankingTab() {
             className="bg-[#121215] border border-zinc-700/80 rounded-xl p-2 text-center flex flex-col items-center order-1 shadow-sm cursor-pointer hover:bg-zinc-900/80 transition-colors"
           >
             <div className="relative mb-1">
-              <UserAvatar src={top2?.photoURL} name={top2?.displayName || ''} size="md" className="border-zinc-500" />
+              <UserAvatar src={top2?.photoURL} name={top2?.nickname || top2?.displayName || ''} size="md" className="border-zinc-500" />
               <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-zinc-700 text-zinc-200 border border-zinc-600 flex items-center justify-center font-black text-[8px]">
                 2
               </span>
             </div>
             <p className="font-bold text-xs text-white truncate max-w-full">
               {top2?.title && <span className="mr-1">{top2.title}</span>}
-              {top2?.displayName || 'Participante'}
+              {top2?.nickname || top2?.displayName || 'Participante'}
               {top2 && renderStreakBadge(top2) && <span className="text-[10px] ml-1 bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top2)}</span>}
             </p>
             {top2?.medallas && top2?.medallas.length > 0 && (
@@ -166,13 +167,13 @@ export function RankingTab() {
           >
             <Crown className="w-4 h-4 text-amber-400 mb-0.5 drop-shadow-sm" />
             <div className="relative mb-1">
-              <UserAvatar src={top1?.photoURL} name={top1?.displayName || ''} size="lg" className="border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.3)]" />
+              <UserAvatar src={top1?.photoURL} name={top1?.nickname || top1?.displayName || ''} size="lg" className="border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.3)]" />
               <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-amber-500 text-zinc-950 font-black text-[8px] flex items-center justify-center">
                 1
               </span>
             </div>
             <p className="font-black text-xs text-amber-100 truncate max-w-full flex items-center justify-center gap-1">
-              <span>{top1?.displayName || 'Líder'}</span>
+              <span>{top1?.nickname || top1?.displayName || 'Líder'}</span>
               {hasAnyPoints && (
                 <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-black">
                   🐐 Cabra
@@ -194,14 +195,14 @@ export function RankingTab() {
             className="bg-[#121215] border border-amber-800/40 rounded-xl p-2 text-center flex flex-col items-center order-3 shadow-sm cursor-pointer hover:bg-zinc-900/80 transition-colors"
           >
             <div className="relative mb-1">
-              <UserAvatar src={top3?.photoURL} name={top3?.displayName || ''} size="md" className="border-amber-700/80" />
+              <UserAvatar src={top3?.photoURL} name={top3?.nickname || top3?.displayName || ''} size="md" className="border-amber-700/80" />
               <span className="absolute -bottom-1 -right-1 w-4 h-4 rounded-full bg-amber-900 text-amber-300 border border-amber-800 flex items-center justify-center font-black text-[8px]">
                 3
               </span>
             </div>
             <p className="font-bold text-xs text-white truncate max-w-full">
               {top3?.title && <span className="mr-1">{top3.title}</span>}
-              {top3?.displayName || 'Participante'}
+              {top3?.nickname || top3?.displayName || 'Participante'}
               {top3 && renderStreakBadge(top3) && <span className="text-[10px] ml-1 bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top3)}</span>}
             </p>
             {top3?.medallas && top3?.medallas.length > 0 && (
@@ -276,15 +277,15 @@ export function RankingTab() {
                       <div className="flex items-center gap-2">
                         <UserAvatar 
                           src={u.photoURL} 
-                          name={u.displayName || 'Usuario'} 
+                          name={u.nickname || u.displayName || 'Usuario'} 
                           size="sm" 
                           className={isMe ? 'ring-1 ring-blue-500' : ''}
                         />
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5 flex-wrap">
-                            <p className={`font-bold truncate max-w-[130px] text-xs ${isMe ? 'text-blue-300' : 'text-white'}`}>
+                            <p className={`font-bold truncate max-w-[130px] text-xs ${isMe ? 'text-blue-300' : 'text-white'}`} title={u.nickname || u.displayName}>
                               {u.title && <span className="mr-1">{u.title}</span>}
-                              {u.displayName || 'Sin Nombre'}
+                              {u.nickname || u.displayName || 'Sin Nombre'}
                             </p>
 
                             {/* Badges dinámicos de Líder y Último Lugar (sólo cuando la tabla suma puntos) */}
