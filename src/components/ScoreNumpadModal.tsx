@@ -30,7 +30,7 @@ export function ScoreNumpadModal({
   const [homeScore, setHomeScore] = useState<string>('');
   const [awayScore, setAwayScore] = useState<string>('');
 
-  // Sync state whenever modal opens or match changes
+  // Sync state ONLY when modal opens or target match changes (avoids resetting to home during save)
   useEffect(() => {
     if (isOpen) {
       setHomeScore(initialHomeScore ?? '');
@@ -43,7 +43,7 @@ export function ScoreNumpadModal({
     return () => {
       document.body.style.overflow = '';
     };
-  }, [isOpen, initialHomeScore, initialAwayScore, initialFocus, match?.id]);
+  }, [isOpen, match?.id]);
 
   if (!isOpen || !match) return null;
 
@@ -113,9 +113,11 @@ export function ScoreNumpadModal({
       // Save prediction
       const finalHome = homeScore === '' ? 0 : parseInt(homeScore, 10);
       const finalAway = awayScore === '' ? 0 : parseInt(awayScore, 10);
+      const h = isNaN(finalHome) ? 0 : finalHome;
+      const a = isNaN(finalAway) ? 0 : finalAway;
       vibrateSuccess();
-      await onSave(match.id, isNaN(finalHome) ? 0 : finalHome, isNaN(finalAway) ? 0 : finalAway);
       onClose();
+      await onSave(match.id, h, a);
     }
   };
 
