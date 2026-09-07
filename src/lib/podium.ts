@@ -20,10 +20,8 @@ export async function getGroupPodium(groupId: string | null | undefined, userId:
       if (snap.exists()) {
         return snap.data() as Podium;
       }
-      return null;
     } catch (e) {
       console.warn("Could not fetch group podium:", e);
-      return null;
     }
   }
 

@@ -20,9 +20,10 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(true);
   const [activeGroupId, setActiveGroupId] = useState<string | null>(null);
-  const { user } = useAuth();
+  const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
+    if (authLoading) return;
     if (!user) {
       setGroups([]);
       setLoadingGroups(false);
@@ -45,7 +46,7 @@ export function GroupsProvider({ children }: { children: React.ReactNode }) {
     });
 
     return () => unsub();
-  }, [user]);
+  }, [user, authLoading]);
 
   return (
     <GroupsContext.Provider value={{ groups, loadingGroups, activeGroupId, setActiveGroupId }}>
