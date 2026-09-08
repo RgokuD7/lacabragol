@@ -2,7 +2,7 @@ import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Match, Setting } from '../types';
 import { syncMatchPredictionsAndPoints } from './sync';
-import { recalculateStandings } from './standings';
+import { recalculateStandings, findUclTeam, normalizeTeamStr } from './standings';
 
 export function getGeminiApiKey(): string {
   if (typeof window !== 'undefined') {
@@ -57,6 +57,7 @@ export interface GeminiPreviewResult {
   totalQueried: number;
   searchQueries?: string[];
   isGrounded?: boolean;
+  searchSummary?: string;
   error?: string;
 }
 
@@ -67,21 +68,37 @@ export interface GeminiCommitResult {
   error?: string;
 }
 
-function normalizeTeamName(name: string): string {
-  return (name || '')
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/[\u0300-\u036f]/g, "") // remove accents
-    .replace(/\b(fc|cf|as|ac|sk|fk|rb|sv|afc)\b/gi, '') // remove common acronyms
-    .replace(/[^a-z0-9]/g, '')
-    .trim();
-}
+const GEMINI_MODELS = [
+  'gemini-3.6-flash',
+  'gemini-3.5-flash',
+  'gemini-flash-latest',
+  'gemini-3.7-flash',
+  'gemini-2.5-flash'
+];
 
-function areTeamsEquivalent(nameA: string, nameB: string): boolean {
-  const normA = normalizeTeamName(nameA);
-  const normB = normalizeTeamName(nameB);
-  if (!normA || !normB) return false;
-  return normA === normB || normA.includes(normB) || normB.includes(normA);
+/**
+ * Robust check to determine if two team names refer to the same club.
+ * Checks official UCL registry first, then normalized string containment.
+ */
+export function areTeamsEquivalent(nameA: string, nameB: string): boolean {
+  if (!nameA || !nameB) return false;
+
+  // 1. Direct official UCL team ID comparison
+  const teamA = findUclTeam(nameA);
+  const teamB = findUclTeam(nameB);
+  if (teamA && teamB && teamA.id === teamB.id) {
+    return true;
+  }
+
+  // 2. Normalized string comparison
+  const normA = normalizeTeamStr(nameA);
+  const normB = normalizeTeamStr(nameB);
+  if (normA && normB) {
+    if (normA === normB) return true;
+    if (normA.includes(normB) || normB.includes(normA)) return true;
+  }
+
+  return false;
 }
 
 export function mapGeminiEstadoToStatus(estado: string): 'pending' | 'in_progress' | 'finished' {
@@ -96,8 +113,172 @@ export function mapGeminiEstadoToStatus(estado: string): 'pending' | 'in_progres
 }
 
 /**
- * Fetches match results from Gemini API with Google Search Grounding.
- * DOES NOT write to Firestore.
+ * PASO 1: Búsqueda Web con Google Search Grounding.
+ * Se llama a Gemini SIN responseMimeType="application/json".
+ * Esto permite que el modelo use plenamente la herramienta googleSearch en la web real.
+ */
+async function callGeminiStep1Search(
+  variablesPartidos: string,
+  apiKey: string
+): Promise<{ text: string; searchQueries: string[]; isGrounded: boolean }> {
+  const promptStep1 = `USANDO TU HERRAMIENTA DE BÚSQUEDA EN INTERNET (Google Search), busca en la web los resultados reales y actuales (en vivo o finalizados) de hoy de los siguientes partidos de fútbol de la UEFA Champions League:
+${variablesPartidos}
+
+Dame un resumen textual detallado con los resultados reales de hoy, indicando para cada partido:
+1. Equipo Local y Equipo Visitante
+2. Marcador exacto de goles (o 0-0 si aún no empieza)
+3. Estado del partido: "Finalizado", "En vivo (indicando minuto si está disponible)" o "No iniciado"
+4. Goleadores con el minuto de su gol y equipo
+5. Tarjetas amarillas y rojas con jugador y minuto
+
+IMPORTANTE: Consulta fuentes deportivas oficiales en la web en vivo. Si un partido no se ha jugado hoy o no ha iniciado, acláralo como "No iniciado" con 0-0.`;
+
+  let lastError: any = null;
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log(`[Gemini Paso 1] Intentando búsqueda web con modelo ${modelName}...`);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptStep1 }] }],
+          tools: [{ googleSearch: {} }],
+          generationConfig: {
+            temperature: 0.1
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const partText = candidate?.content?.parts?.[0]?.text;
+      const groundingMeta = candidate?.groundingMetadata;
+
+      const searchQueries: string[] = groundingMeta?.webSearchQueries || [];
+      const isGrounded = !!(searchQueries.length > 0 || groundingMeta?.groundingChunks?.length);
+
+      if (partText && partText.trim()) {
+        console.log(`[Gemini Paso 1] Éxito con ${modelName}. Grounded: ${isGrounded}, Consultas:`, searchQueries);
+        return {
+          text: partText.trim(),
+          searchQueries,
+          isGrounded
+        };
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Gemini Paso 1] Falló con ${modelName}:`, err.message);
+    }
+  }
+
+  throw new Error(`Paso 1 (Búsqueda Web en vivo) falló: ${lastError?.message || 'Sin respuesta del modelo'}`);
+}
+
+/**
+ * PASO 2: Conversión del resumen verificado a JSON estructurado estricto.
+ * Se llama a Gemini SIN herramientas de búsqueda y CON responseMimeType="application/json".
+ * Esto garantiza que no alucine (usa solo el texto del Paso 1) y devuelva un JSON perfectamente válido.
+ */
+async function callGeminiStep2ParseToJson(
+  step1Text: string,
+  variablesPartidos: string,
+  apiKey: string
+): Promise<string> {
+  const promptStep2 = `A partir del siguiente texto con información verificada de resultados de partidos de fútbol, extrae y convierte los datos al siguiente formato JSON estricto:
+
+{
+  "partidos": [
+    {
+      "local": "Nombre Exacto Equipo Local",
+      "goles_local": 0,
+      "visitante": "Nombre Exacto Equipo Visitante",
+      "goles_visitante": 0,
+      "estado": "Finalizado / En vivo / No iniciado",
+      "goleadores": [
+        {
+          "jugador": "Nombre Jugador",
+          "equipo": "Nombre Equipo",
+          "minuto": 45
+        }
+      ],
+      "tarjetas": [
+        {
+          "jugador": "Nombre Jugador",
+          "equipo": "Nombre Equipo",
+          "tipo": "Amarilla / Roja",
+          "minuto": 70
+        }
+      ]
+    }
+  ]
+}
+
+PARTIDOS A INCLUIR:
+${variablesPartidos}
+
+TEXTO VERIFICADO OBTENIDO EN EL PASO ANTERIOR:
+"""
+${step1Text}
+"""
+
+REGLAS ESTRICTAS:
+1. Extrae únicamente los resultados de los partidos solicitados basándote estrictamente en el texto anterior.
+2. Si un partido no tiene marcador o no ha comenzado, define goles_local: 0, goles_visitante: 0 y estado: "No iniciado".
+3. Si goles_local o goles_visitante no están especificados numéricamente, usa 0.
+4. Devuelve ÚNICAMENTE el objeto JSON sin bloques de código ni texto adicional.`;
+
+  let lastError: any = null;
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log(`[Gemini Paso 2] Convirtiendo texto a JSON con modelo ${modelName}...`);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptStep2 }] }],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const partText = candidate?.content?.parts?.[0]?.text;
+
+      if (partText && partText.trim()) {
+        console.log(`[Gemini Paso 2] Éxito convirtiendo JSON con ${modelName}.`);
+        return partText.trim();
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[Gemini Paso 2] Falló con ${modelName}:`, err.message);
+    }
+  }
+
+  throw new Error(`Paso 2 (Estructuración JSON) falló: ${lastError?.message || 'Sin respuesta del modelo'}`);
+}
+
+/**
+ * Proceso de 2 Pasos Infalible:
+ * 1. Búsqueda Web (Google Search Grounding) en texto libre.
+ * 2. Conversión del texto resultante a JSON estructurado estricto.
+ * NO guarda en Firestore; genera la vista previa para el modal de auditoría.
  */
 export async function fetchGeminiMatchesPreview(
   targetDateStr?: string,
@@ -123,7 +304,7 @@ export async function fetchGeminiMatchesPreview(
 
     const todayStr = targetDateStr || new Date().toISOString().split('T')[0];
 
-    // Filter matches for the given date, in_progress, or pending
+    // Filter candidate matches: date matches today, or in_progress, or pending
     let candidateMatches = allMatches.filter(m => {
       if (m.date && m.date.startsWith(todayStr)) return true;
       if (m.status === 'in_progress') return true;
@@ -150,126 +331,75 @@ export async function fetchGeminiMatchesPreview(
     }
 
     const variablesPartidos = candidateMatches.map(m => `${m.homeTeam} vs ${m.awayTeam}`).join(', ');
+    console.log(`[fetchGeminiMatchesPreview] Consultando partidos:`, variablesPartidos);
 
-    // Prompt with explicit instruction to use Google search grounding
-    const promptText = `USANDO TU HERRAMIENTA DE BÚSQUEDA EN INTERNET, busca los resultados reales, en vivo o finalizados, de los siguientes partidos de la Champions League del día de hoy: ${variablesPartidos}. Tras confirmar los datos reales en la web, devuelve ÚNICAMENTE un objeto JSON con esta estructura exacta, sin texto adicional ni markdown:
-{ "partidos": [ { "local": "Nombre", "goles_local": 0, "visitante": "Nombre", "goles_visitante": 0, "estado": "En vivo 45' / Finalizado / No iniciado", "goleadores": [ { "jugador": "Nombre", "equipo": "Nombre Equipo", "minuto": 12 } ], "tarjetas": [ { "jugador": "Nombre", "equipo": "Nombre Equipo", "tipo": "Amarilla/Roja", "minuto": 33 } ] } ] }`;
+    let step1Result: { text: string; searchQueries: string[]; isGrounded: boolean };
+    let jsonResponseText = '';
 
-    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
-    let responseText = '';
-    let callSucceeded = false;
-    let lastError: any = null;
-    let webSearchQueries: string[] = [];
-    let isGrounded = false;
-
-    // 1st Attempt: with Google Search Grounding tool
-    for (const modelName of modelsToTry) {
-      try {
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-        const response = await fetch(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify({
-            contents: [
-              {
-                parts: [{ text: promptText }]
-              }
-            ],
-            tools: [{ googleSearch: {} }],
-            generationConfig: {
-              temperature: 0.1,
-              responseMimeType: "application/json"
-            }
-          })
-        });
-
-        if (!response.ok) {
-          const errData = await response.json().catch(() => ({}));
-          throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
-        }
-
-        const data = await response.json();
-        const candidate = data.candidates?.[0];
-        const partText = candidate?.content?.parts?.[0]?.text;
-        const groundingMeta = candidate?.groundingMetadata;
-
-        if (groundingMeta?.webSearchQueries) {
-          webSearchQueries = groundingMeta.webSearchQueries;
-          isGrounded = true;
-        }
-
-        if (partText) {
-          responseText = partText;
-          callSucceeded = true;
-          isGrounded = !!groundingMeta;
-          break;
-        }
-      } catch (err: any) {
-        lastError = err;
-        console.warn(`Gemini attempt with googleSearch on ${modelName} failed:`, err.message);
-      }
-    }
-
-    // Fallback: If Google Search Grounding quota was exceeded or unavailable, attempt without tools
-    if (!callSucceeded || !responseText) {
-      console.warn("Attempting fallback call without tools...");
-      for (const modelName of modelsToTry) {
+    // =========================================================================
+    // PASO 1: Búsqueda Web (Google Search Grounding) sin modo JSON
+    // =========================================================================
+    try {
+      step1Result = await callGeminiStep1Search(variablesPartidos, apiKey);
+    } catch (searchErr: any) {
+      console.warn("[fetchGeminiMatchesPreview] Falló Paso 1 con herramientas de búsqueda:", searchErr.message);
+      
+      // Fallback de emergencia si la búsqueda falló por cuota/herramientas:
+      // Ejecutar llamada directa sin herramientas
+      console.log("[fetchGeminiMatchesPreview] Intentando consulta directa alternativa...");
+      const fallbackPrompt = `Proporciona el estado actual y los resultados de los siguientes partidos de la Champions League: ${variablesPartidos}. Devuelve ÚNICAMENTE un JSON con la estructura { "partidos": [ { "local": "...", "goles_local": 0, "visitante": "...", "goles_visitante": 0, "estado": "Finalizado/En vivo/No iniciado", "goleadores": [], "tarjetas": [] } ] }`;
+      
+      let fallbackSucceeded = false;
+      for (const modelName of GEMINI_MODELS) {
         try {
           const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-          const response = await fetch(url, {
+          const res = await fetch(url, {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json'
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              contents: [
-                {
-                  parts: [{ text: promptText }]
-                }
-              ],
-              generationConfig: {
-                temperature: 0.1,
-                responseMimeType: "application/json"
-              }
+              contents: [{ parts: [{ text: fallbackPrompt }] }],
+              generationConfig: { temperature: 0.1, responseMimeType: "application/json" }
             })
           });
-
-          if (!response.ok) {
-            const errData = await response.json().catch(() => ({}));
-            throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
+          if (res.ok) {
+            const data = await res.json();
+            const partText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+            if (partText) {
+              jsonResponseText = partText;
+              fallbackSucceeded = true;
+              break;
+            }
           }
-
-          const data = await response.json();
-          const candidate = data.candidates?.[0];
-          const partText = candidate?.content?.parts?.[0]?.text;
-
-          if (partText) {
-            responseText = partText;
-            callSucceeded = true;
-            break;
-          }
-        } catch (err: any) {
-          lastError = err;
-          console.warn(`Gemini fallback attempt on ${modelName} failed:`, err.message);
-        }
+        } catch (e) {}
       }
-    }
 
-    if (!callSucceeded || !responseText) {
-      return {
-        success: false,
-        message: `Error al consultar Gemini API: ${lastError?.message || 'Sin respuesta del modelo'}`,
-        partidos: [],
-        rawJson: '',
-        totalQueried: candidateMatches.length,
-        error: lastError?.message
+      if (!fallbackSucceeded) {
+        return {
+          success: false,
+          message: `Error al consultar Gemini API: ${searchErr.message}`,
+          partidos: [],
+          rawJson: '',
+          totalQueried: candidateMatches.length,
+          error: searchErr.message
+        };
+      }
+
+      step1Result = {
+        text: 'Respuesta generada en modo directo (Búsqueda web en vivo no disponible por cuota de la API).',
+        searchQueries: [],
+        isGrounded: false
       };
     }
 
-    // Clean JSON markdown fences if any
-    let cleanJson = responseText.trim();
+    // =========================================================================
+    // PASO 2: Conversión del texto del Paso 1 a JSON estricto
+    // =========================================================================
+    if (!jsonResponseText) {
+      jsonResponseText = await callGeminiStep2ParseToJson(step1Result.text, variablesPartidos, apiKey);
+    }
+
+    // Limpiar markdown fences si vinieron
+    let cleanJson = jsonResponseText.trim();
     if (cleanJson.startsWith('```json')) {
       cleanJson = cleanJson.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
     } else if (cleanJson.startsWith('```')) {
@@ -285,7 +415,7 @@ export async function fetchGeminiMatchesPreview(
         success: false,
         message: "No se pudo interpretar el formato JSON devuelto por Gemini.",
         partidos: [],
-        rawJson: responseText,
+        rawJson: jsonResponseText,
         totalQueried: candidateMatches.length,
         error: parseErr.message
       };
@@ -299,7 +429,7 @@ export async function fetchGeminiMatchesPreview(
 
     const formattedRawJson = JSON.stringify(parsedPayload, null, 2);
 
-    // Map each returned partido with candidateMatches
+    // Mapear cada partido con las coincidencias de Firestore
     const previewPartidos: GeminiPartidoPreview[] = partidosRaw.map(p => {
       const local = String(p.local || '').trim();
       const visitante = String(p.visitante || '').trim();
@@ -309,7 +439,7 @@ export async function fetchGeminiMatchesPreview(
       const goleadores: GeminiGoleador[] = Array.isArray(p.goleadores) ? p.goleadores : [];
       const tarjetas: GeminiTarjeta[] = Array.isArray(p.tarjetas) ? p.tarjetas : [];
 
-      // Find match in candidateMatches
+      // Buscar partido en candidateMatches usando areTeamsEquivalent robusto
       const matched = candidateMatches.find(m =>
         areTeamsEquivalent(m.homeTeam, local) && areTeamsEquivalent(m.awayTeam, visitante)
       ) || candidateMatches.find(m =>
@@ -338,8 +468,8 @@ export async function fetchGeminiMatchesPreview(
       };
     });
 
-    const statusNote = isGrounded
-      ? `Resultados verificados con Google Search en vivo (${webSearchQueries.length} búsquedas web realizadas).`
+    const statusNote = step1Result.isGrounded
+      ? `Resultados verificados con Google Search en vivo (${step1Result.searchQueries.length} búsquedas web realizadas).`
       : `Gemini IA procesó ${previewPartidos.length} partido(s).`;
 
     return {
@@ -348,8 +478,9 @@ export async function fetchGeminiMatchesPreview(
       partidos: previewPartidos,
       rawJson: formattedRawJson,
       totalQueried: candidateMatches.length,
-      searchQueries: webSearchQueries,
-      isGrounded
+      searchQueries: step1Result.searchQueries,
+      isGrounded: step1Result.isGrounded,
+      searchSummary: step1Result.text
     };
 
   } catch (err: any) {
@@ -413,6 +544,7 @@ export async function commitGeminiMatchesToFirestore(
     }
 
     if (standingsNeedRecalc) {
+      console.log("[commitGeminiMatchesToFirestore] Recalculando tabla de posiciones tras sincronizar partidos...");
       await recalculateStandings().catch(err => {
         console.warn("Standings recalc error after Gemini commit:", err);
       });

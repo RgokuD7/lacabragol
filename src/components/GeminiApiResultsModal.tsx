@@ -24,6 +24,7 @@ interface GeminiApiResultsModalProps {
   isSaving: boolean;
   searchQueries?: string[];
   isGrounded?: boolean;
+  searchSummary?: string;
 }
 
 export function GeminiApiResultsModal({
@@ -34,7 +35,8 @@ export function GeminiApiResultsModal({
   onConfirm,
   isSaving,
   searchQueries = [],
-  isGrounded = false
+  isGrounded = false,
+  searchSummary = ''
 }: GeminiApiResultsModalProps) {
   const [copied, setCopied] = useState(false);
 
@@ -274,12 +276,27 @@ export function GeminiApiResultsModal({
             )}
           </div>
 
-          {/* SECCIÓN 2: MITAD INFERIOR - AUDITORÍA RAW JSON CONSOLA */}
-          <div className="space-y-2 pt-2 border-t border-zinc-800">
+          {/* SECCIÓN 2: MITAD INFERIOR - AUDITORÍA RAW JSON CONSOLA & RESUMEN */}
+          <div className="space-y-3 pt-2 border-t border-zinc-800">
+            {searchSummary && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
+                    <span className="text-emerald-400 text-sm">🌐</span>
+                    <span>Paso 1: Resumen de Búsqueda Web en Vivo</span>
+                  </h3>
+                  <span className="text-[10px] text-emerald-400 font-mono">Google Search Grounding</span>
+                </div>
+                <div className="bg-[#0e0e11] border border-zinc-800 rounded-xl p-3 max-h-36 overflow-y-auto text-xs text-zinc-300 whitespace-pre-wrap leading-relaxed select-text font-sans scrollbar-thin scrollbar-thumb-zinc-800">
+                  {searchSummary}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-black text-zinc-400 uppercase tracking-wider flex items-center gap-1.5">
                 <Code2 className="w-3.5 h-3.5 text-blue-400" />
-                <span>Auditoría Raw JSON (Consola)</span>
+                <span>Paso 2: Auditoría Raw JSON (Estructurado)</span>
               </h3>
               <button
                 onClick={handleCopy}
@@ -319,12 +336,12 @@ export function GeminiApiResultsModal({
             {isSaving ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin text-white" />
-                <span>Guardando y Recalculando...</span>
+                <span>Aplicando a la BD y Recalculando...</span>
               </>
             ) : (
               <>
                 <Check className="w-4 h-4 text-emerald-300" />
-                <span>Confirmar y Guardar</span>
+                <span>Confirmar y Aplicar a la BD</span>
               </>
             )}
           </button>

@@ -296,21 +296,31 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const handleRecalculateStandings = async () => {
     setIsRecalculatingStandings(true);
     vibrateTap();
+    setFeedback({ type: 'info', text: 'Calculando puntos, goles y posiciones para los 36 equipos...' });
     try {
       const res = await recalculateStandings();
       if (res.success) {
         vibrateSuccess();
-        setFeedback({ 
-          type: 'success', 
-          text: `Tabla UCL recalculada exitosamente: ${res.processedMatches} partidos procesados para los 36 equipos.` 
-        });
+        if (res.processedMatches === 0) {
+          setFeedback({ 
+            type: 'info', 
+            text: `Tabla UCL recalculada: No se encontraron partidos con estado 'Finalizado' y marcador numérico válido (0 computados). Todos los equipos se restablecieron a 0 puntos.` 
+          });
+        } else {
+          setFeedback({ 
+            type: 'success', 
+            text: `¡Tabla UCL recalculada con éxito! Se procesaron ${res.processedMatches} partidos finalizados con sus puntos y diferencia de goles para los 36 equipos.` 
+          });
+        }
       } else {
         vibrateError();
-        setFeedback({ type: 'error', text: res.error || 'Error al recalcular la tabla.' });
+        console.error("[AdminTab] Fallo en recalculateStandings:", res.error);
+        setFeedback({ type: 'error', text: `Error al recalcular la tabla: ${res.error || 'Fallo desconocido'}` });
       }
     } catch (err: any) {
       vibrateError();
-      setFeedback({ type: 'error', text: err.message });
+      console.error("[AdminTab] Excepción al recalcular tabla:", err);
+      setFeedback({ type: 'error', text: `Error inesperado: ${err.message}` });
     }
     setIsRecalculatingStandings(false);
   };
@@ -1403,6 +1413,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         rawJson={geminiPreviewData?.rawJson || ''}
         searchQueries={geminiPreviewData?.searchQueries || []}
         isGrounded={geminiPreviewData?.isGrounded || false}
+        searchSummary={geminiPreviewData?.searchSummary || ''}
         onConfirm={handleConfirmCommitGemini}
         isSaving={isCommittingGemini}
       />
