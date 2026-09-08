@@ -22,6 +22,7 @@ import { RankingTab } from '../pages/RankingTab';
 import { AdminTab } from '../pages/AdminTab';
 import { SettingsTab } from '../pages/SettingsTab';
 import { ProfileTab } from '../pages/ProfileTab';
+import { BottomNav } from './BottomNav';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from './AuthProvider';
 import { useGroups } from './GroupsProvider';
@@ -286,16 +287,8 @@ export function Layout() {
     }
   };
 
-  const tabs = [
-    { id: 'predictions', label: 'Partidos', icon: Home, domId: 'nav-matches' },
-    { id: 'standings', label: 'Tabla', icon: Table2, domId: 'nav-standings' },
-    { id: 'ranking', label: 'Ranking', icon: Users, domId: 'nav-ranking' },
-    { id: 'settings', label: 'Grupo', icon: Shield, domId: 'nav-settings' },
-    { id: 'profile', label: 'Perfil', icon: UserIcon, domId: 'nav-profile' },
-  ];
-
   return (
-    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden w-full bg-[#09090b] text-[#e4e4e7] font-sans">
+    <div className="flex flex-col min-h-[100dvh] w-full bg-[#09090b] text-[#e4e4e7] font-sans relative">
       {/* Top Navbar Compacto para Teléfono */}
       <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">
@@ -349,7 +342,7 @@ export function Layout() {
       </header>
 
       {/* Main Content Area */}
-      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'overflow-y-auto pb-28 sm:pb-32 scrollbar-thin scrollbar-thumb-zinc-800'}`}>
+      <main className={`flex-1 w-full ${activeTab === 'standings' ? 'h-[calc(100dvh-56px)] overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'min-h-[100dvh] pb-28 sm:pb-32'}`}>
         <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'min-h-full pb-8'}`}>
           {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
           {activeTab === 'standings' && <StandingsTab />}
@@ -364,7 +357,7 @@ export function Layout() {
         <button
           id="fab-group-chat"
           onClick={openChat}
-          className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+80px)] right-5 z-40 w-14 h-14 bg-blue-600 hover:bg-blue-500 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform active:scale-90 border border-blue-400/30"
+          className="fixed bottom-[calc(env(safe-area-inset-bottom,0px)+80px)] right-5 z-[998] w-14 h-14 bg-blue-600 hover:bg-blue-500 rounded-full shadow-2xl flex items-center justify-center text-white transition-transform active:scale-90 border border-blue-400/30"
           title="Chat del Grupo"
         >
           <MessageCircle className="w-6 h-6" />
@@ -385,74 +378,12 @@ export function Layout() {
         />
       )}
 
-      {/* Bottom Navigation Bar Compacto */}
-      <nav 
-        className="fixed bottom-0 left-0 right-0 m-0 bg-[#111114]/90 backdrop-blur-2xl border-t border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-      >
-        <div className="max-w-4xl mx-auto flex justify-between px-1 py-1">
-          {/* Main 2 Tabs: Partidos y Tabla */}
-          {tabs.slice(0, 2).map((tab) => {
-            const Icon = tab.icon;
-            const isActive = activeTab === tab.id;
-            return (
-              <button
-                key={tab.id}
-                id={tab.domId || ''}
-                onClick={() => setActiveTab(tab.id)}
-                className={cn(
-                  "flex flex-col items-center justify-center flex-1 py-1.5 text-[9px] sm:text-[10px] font-bold tracking-tight transition-all relative",
-                  isActive ? "text-blue-400 font-black" : "text-zinc-400 hover:text-zinc-200"
-                )}
-              >
-                {isActive && (
-                  <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 sm:w-8 h-0.5 bg-blue-500 rounded-full shadow-[0_0_6px_rgba(59,130,246,0.6)]" />
-                )}
-                <div className={cn(
-                  "p-1 rounded-lg transition-all relative",
-                  isActive ? "text-blue-400" : ""
-                )}>
-                  <Icon className={cn("w-4 h-4", isActive ? "stroke-[2.5px]" : "stroke-[1.75px]")} />
-                  {tab.id === 'predictions' && unpredictedCount > 0 && (
-                    <span className="absolute -top-1 -right-1 w-2.5 h-2.5 bg-rose-500 border-2 border-[#111114] rounded-full animate-pulse" />
-                  )}
-                </div>
-                <span className="mt-0.5 leading-none truncate">{tab.label}</span>
-              </button>
-            );
-          })}
-
-          {/* Grouping for Ranking, Grupo and Perfil */}
-          <div id="nav-group-ranking-profile" className="flex flex-[3] justify-between">
-            {tabs.slice(2).map((tab) => {
-              const Icon = tab.icon;
-              const isActive = activeTab === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  id={tab.domId || ''}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    "flex flex-col items-center justify-center flex-1 py-1.5 text-[9px] sm:text-[10px] font-bold tracking-tight transition-all relative",
-                    isActive ? "text-blue-400 font-black" : "text-zinc-400 hover:text-zinc-200"
-                  )}
-                >
-                  {isActive && (
-                    <span className="absolute top-0 left-1/2 -translate-x-1/2 w-6 sm:w-8 h-0.5 bg-blue-500 rounded-full shadow-[0_0_6px_rgba(59,130,246,0.6)]" />
-                  )}
-                  <div className={cn(
-                    "p-1 rounded-lg transition-all relative",
-                    isActive ? "text-blue-400" : ""
-                  )}>
-                    <Icon className={cn("w-4 h-4", isActive ? "stroke-[2.5px]" : "stroke-[1.75px]")} />
-                  </div>
-                  <span className="mt-0.5 leading-none truncate">{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </nav>
+      {/* Standalone Bottom Navigation Bar */}
+      <BottomNav 
+        activeTab={activeTab} 
+        setActiveTab={setActiveTab} 
+        unpredictedCount={unpredictedCount} 
+      />
 
       {/* Share Group Modal using BaseBottomSheet */}
       <BaseBottomSheet

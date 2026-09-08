@@ -12,7 +12,14 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { recalculateStandings } from '../lib/standings';
-import { syncDailyMatchesWithGemini, getGeminiApiKey, setGeminiApiKey } from '../lib/geminiSync';
+import { 
+  fetchGeminiMatchesPreview, 
+  commitGeminiMatchesToFirestore, 
+  getGeminiApiKey, 
+  setGeminiApiKey, 
+  GeminiPreviewResult 
+} from '../lib/geminiSync';
+import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
 import { syncMatchPredictionsAndPoints } from '../lib/sync';
 import { vibrateTap, vibrateSuccess, vibrateError } from '../lib/haptics';
 
@@ -47,6 +54,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [geminiApiKeyInput, setGeminiApiKeyInput] = useState(getGeminiApiKey());
   const [showGeminiConfig, setShowGeminiConfig] = useState(false);
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
+  const [geminiPreviewData, setGeminiPreviewData] = useState<GeminiPreviewResult | null>(null);
+  const [isCommittingGemini, setIsCommittingGemini] = useState(false);
 
   // Status and management states
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -311,13 +320,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     vibrateTap();
     setFeedback({ type: 'info', text: 'Consultando marcadores y resultados con Gemini IA...' });
     try {
-      const res = await syncDailyMatchesWithGemini(undefined, settings, geminiApiKeyInput);
+      const res = await fetchGeminiMatchesPreview(undefined, geminiApiKeyInput);
       if (res.success) {
         vibrateSuccess();
-        setFeedback({
-          type: 'success',
-          text: `${res.message} (${res.totalQueried} partidos analizados)`
-        });
+        setGeminiPreviewData(res);
+        setFeedback(null);
       } else {
         vibrateError();
         setFeedback({ type: 'error', text: res.message });
@@ -327,6 +334,27 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       setFeedback({ type: 'error', text: 'Error en sincronización Gemini: ' + err.message });
     }
     setIsSyncingGemini(false);
+  };
+
+  const handleConfirmCommitGemini = async () => {
+    if (!geminiPreviewData) return;
+    setIsCommittingGemini(true);
+    vibrateTap();
+    try {
+      const res = await commitGeminiMatchesToFirestore(geminiPreviewData.partidos, settings);
+      if (res.success) {
+        vibrateSuccess();
+        setFeedback({ type: 'success', text: res.message });
+        setGeminiPreviewData(null);
+      } else {
+        vibrateError();
+        setFeedback({ type: 'error', text: res.message });
+      }
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error al guardar en Firestore: ' + err.message });
+    }
+    setIsCommittingGemini(false);
   };
 
   const handleSaveGeminiKey = () => {
@@ -1366,6 +1394,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           </div>
         </BaseBottomSheet>
       )}
+
+      {/* Gemini API Results & Validation Modal */}
+      <GeminiApiResultsModal
+        isOpen={geminiPreviewData !== null}
+        onClose={() => setGeminiPreviewData(null)}
+        partidos={geminiPreviewData?.partidos || []}
+        rawJson={geminiPreviewData?.rawJson || ''}
+        onConfirm={handleConfirmCommitGemini}
+        isSaving={isCommittingGemini}
+      />
     </div>
   );
 }

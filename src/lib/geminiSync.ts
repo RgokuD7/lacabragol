@@ -1,4 +1,4 @@
-import { collection, getDocs, doc, updateDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Match, Setting } from '../types';
 import { syncMatchPredictionsAndPoints } from './sync';
@@ -20,42 +20,96 @@ export function setGeminiApiKey(key: string): void {
   }
 }
 
-export interface GeminiMatchResult {
-  matchId: string;
-  homeTeam: string;
-  awayTeam: string;
-  status: 'pending' | 'in_progress' | 'finished';
-  homeScore: number | null;
-  awayScore: number | null;
-  goalscorers?: string[];
-  notes?: string;
+export interface GeminiGoleador {
+  jugador: string;
+  equipo: string;
+  minuto: number;
 }
 
-export interface SyncDailyResult {
+export interface GeminiTarjeta {
+  jugador: string;
+  equipo: string;
+  tipo: string;
+  minuto: number;
+}
+
+export interface GeminiPartido {
+  local: string;
+  goles_local: number | null;
+  visitante: string;
+  goles_visitante: number | null;
+  estado: string;
+  goleadores: GeminiGoleador[];
+  tarjetas: GeminiTarjeta[];
+}
+
+export interface GeminiPartidoPreview extends GeminiPartido {
+  matchedMatchId?: string;
+  matchedMatch?: Match;
+  hasChanges?: boolean;
+}
+
+export interface GeminiPreviewResult {
   success: boolean;
   message: string;
+  partidos: GeminiPartidoPreview[];
+  rawJson: string;
   totalQueried: number;
-  updatedMatches: GeminiMatchResult[];
-  rawText?: string;
   error?: string;
 }
 
+export interface GeminiCommitResult {
+  success: boolean;
+  message: string;
+  updatedCount: number;
+  error?: string;
+}
+
+function normalizeTeamName(name: string): string {
+  return (name || '')
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // remove accents
+    .replace(/\b(fc|cf|as|ac|sk|fk|rb|sv|afc)\b/gi, '') // remove common acronyms
+    .replace(/[^a-z0-9]/g, '')
+    .trim();
+}
+
+function areTeamsEquivalent(nameA: string, nameB: string): boolean {
+  const normA = normalizeTeamName(nameA);
+  const normB = normalizeTeamName(nameB);
+  if (!normA || !normB) return false;
+  return normA === normB || normA.includes(normB) || normB.includes(normA);
+}
+
+export function mapGeminiEstadoToStatus(estado: string): 'pending' | 'in_progress' | 'finished' {
+  const lower = (estado || '').toLowerCase();
+  if (lower.includes('final') || lower.includes('termin') || lower.includes('ft') || lower.includes('concl')) {
+    return 'finished';
+  }
+  if (lower.includes('vivo') || lower.includes('jugando') || lower.includes("'") || lower.includes('descanso') || lower.includes('ht') || lower.includes('progreso')) {
+    return 'in_progress';
+  }
+  return 'pending';
+}
+
 /**
- * Calls Gemini API to fetch match outcomes for a target date (or active/pending matches)
+ * Fetches match results from Gemini API returning parsed structured data and raw JSON for admin preview.
+ * DOES NOT write to Firestore.
  */
-export async function syncDailyMatchesWithGemini(
+export async function fetchGeminiMatchesPreview(
   targetDateStr?: string,
-  settings: Setting | null = null,
   apiKeyOverride?: string
-): Promise<SyncDailyResult> {
+): Promise<GeminiPreviewResult> {
   const apiKey = (apiKeyOverride || getGeminiApiKey()).trim();
 
   if (!apiKey) {
     return {
       success: false,
       message: "No se proporcionó una clave de API de Gemini válida.",
+      partidos: [],
+      rawJson: '',
       totalQueried: 0,
-      updatedMatches: [],
       error: "Falta API Key de Gemini"
     };
   }
@@ -65,24 +119,21 @@ export async function syncDailyMatchesWithGemini(
     const snap = await getDocs(collection(db, 'matches'));
     const allMatches = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
 
-    // Target date formatting (default: today's date in YYYY-MM-DD)
     const todayStr = targetDateStr || new Date().toISOString().split('T')[0];
 
-    // Filter matches for the given date, or in_progress matches, or official UCL matches close to today
+    // Filter matches for the given date, in_progress, or pending
     let candidateMatches = allMatches.filter(m => {
       if (m.date && m.date.startsWith(todayStr)) return true;
       if (m.status === 'in_progress') return true;
       return false;
     });
 
-    // If no matches exactly match today, grab the nearest pending matches or recent matches (max 10)
     if (candidateMatches.length === 0) {
       const pending = allMatches.filter(m => m.status === 'pending' || m.status === 'in_progress');
       if (pending.length > 0) {
         candidateMatches = pending.slice(0, 10);
       } else {
-        // Fallback to the last 6 official matches
-        candidateMatches = allMatches.slice(0, 6);
+        candidateMatches = allMatches.slice(0, 8);
       }
     }
 
@@ -90,40 +141,18 @@ export async function syncDailyMatchesWithGemini(
       return {
         success: true,
         message: "No hay partidos pendientes ni en juego para consultar hoy.",
-        totalQueried: 0,
-        updatedMatches: []
+        partidos: [],
+        rawJson: JSON.stringify({ partidos: [] }, null, 2),
+        totalQueried: 0
       };
     }
 
-    const matchesListText = candidateMatches.map(m => 
-      `- ID: "${m.id}" | ${m.homeTeam} vs ${m.awayTeam} | Fecha/Hora UTC: ${m.date || 'Desconocida'} | Estado actual: ${m.status}`
-    ).join('\n');
+    const variablesPartidos = candidateMatches.map(m => `${m.homeTeam} vs ${m.awayTeam}`).join(', ');
 
-    const promptText = `Eres un asistente de datos deportivos especializado en fútbol de la UEFA Champions League y torneos internacionales.
-Fecha objetivo de consulta: ${todayStr}.
-Consulta tus conocimientos actualizados y fuentes de información para verificar el marcador oficial (en vivo o final) de los siguientes partidos:
+    // Exact prompt required by user
+    const promptText = `Busca los resultados reales y actualizados de los siguientes partidos de la Champions League de hoy: ${variablesPartidos}. Devuelve ÚNICAMENTE un objeto JSON con esta estructura exacta, sin texto adicional ni markdown:
+{ "partidos": [ { "local": "Nombre", "goles_local": 0, "visitante": "Nombre", "goles_visitante": 0, "estado": "En vivo 45' / Finalizado / No iniciado", "goleadores": [ { "jugador": "Nombre", "equipo": "Nombre Equipo", "minuto": 12 } ], "tarjetas": [ { "jugador": "Nombre", "equipo": "Nombre Equipo", "tipo": "Amarilla/Roja", "minuto": 33 } ] } ] }`;
 
-${matchesListText}
-
-Instrucciones estrictas:
-1. Para cada partido que ya haya finalizado, asigna "status": "finished", con sus goles reales "homeScore" (entero >= 0) y "awayScore" (entero >= 0).
-2. Si un partido está jugándose actualmente en vivo, asigna "status": "in_progress", con el marcador actual.
-3. Si el partido aún no ha comenzado o se juega en el futuro, asigna "status": "pending", con "homeScore": null y "awayScore": null.
-4. Incluye la lista de goleadores si se conocen en el campo "goalscorers": ["Nombre Minuto'"].
-5. Devuelve ÚNICAMENTE un array JSON válido sin texto explicativo adicional, sin markdown de bienvenida, estrictamente el JSON:
-[
-  {
-    "matchId": "string",
-    "homeTeam": "string",
-    "awayTeam": "string",
-    "status": "pending" | "in_progress" | "finished",
-    "homeScore": number | null,
-    "awayScore": number | null,
-    "goalscorers": []
-  }
-]`;
-
-    // Attempt Gemini call with active models: gemini-3.6-flash first, then gemini-3.5-flash, gemini-flash-latest, and gemini-2.5-flash
     const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
     let responseText = '';
     let callSucceeded = false;
@@ -174,13 +203,14 @@ Instrucciones estrictas:
       return {
         success: false,
         message: `Error al consultar Gemini API: ${lastError?.message || 'Sin respuesta del modelo'}`,
+        partidos: [],
+        rawJson: '',
         totalQueried: candidateMatches.length,
-        updatedMatches: [],
         error: lastError?.message
       };
     }
 
-    // Clean JSON markdown fences
+    // Clean JSON markdown fences if any
     let cleanJson = responseText.trim();
     if (cleanJson.startsWith('```json')) {
       cleanJson = cleanJson.replace(/^```json\s*/i, '').replace(/\s*```$/i, '');
@@ -188,42 +218,113 @@ Instrucciones estrictas:
       cleanJson = cleanJson.replace(/^```\s*/i, '').replace(/\s*```$/i, '');
     }
 
-    let parsedResults: GeminiMatchResult[] = [];
+    let parsedPayload: any = null;
     try {
-      parsedResults = JSON.parse(cleanJson);
-      if (!Array.isArray(parsedResults)) {
-        throw new Error("La respuesta de Gemini no es un array JSON.");
-      }
+      parsedPayload = JSON.parse(cleanJson);
     } catch (parseErr: any) {
       console.error("Failed to parse Gemini JSON:", cleanJson, parseErr);
       return {
         success: false,
         message: "No se pudo interpretar el formato JSON devuelto por Gemini.",
+        partidos: [],
+        rawJson: responseText,
         totalQueried: candidateMatches.length,
-        updatedMatches: [],
-        rawText: responseText,
         error: parseErr.message
       };
     }
 
-    // 2. Apply updates to Firestore
-    const appliedUpdates: GeminiMatchResult[] = [];
+    const partidosRaw: any[] = Array.isArray(parsedPayload?.partidos)
+      ? parsedPayload.partidos
+      : Array.isArray(parsedPayload)
+        ? parsedPayload
+        : [];
+
+    const formattedRawJson = JSON.stringify(parsedPayload, null, 2);
+
+    // Map each returned partido with candidateMatches
+    const previewPartidos: GeminiPartidoPreview[] = partidosRaw.map(p => {
+      const local = String(p.local || '').trim();
+      const visitante = String(p.visitante || '').trim();
+      const goles_local = p.goles_local !== null && p.goles_local !== undefined ? Number(p.goles_local) : 0;
+      const goles_visitante = p.goles_visitante !== null && p.goles_visitante !== undefined ? Number(p.goles_visitante) : 0;
+      const estado = String(p.estado || 'No iniciado').trim();
+      const goleadores: GeminiGoleador[] = Array.isArray(p.goleadores) ? p.goleadores : [];
+      const tarjetas: GeminiTarjeta[] = Array.isArray(p.tarjetas) ? p.tarjetas : [];
+
+      // Find match in candidateMatches
+      const matched = candidateMatches.find(m =>
+        areTeamsEquivalent(m.homeTeam, local) && areTeamsEquivalent(m.awayTeam, visitante)
+      ) || candidateMatches.find(m =>
+        areTeamsEquivalent(m.homeTeam, local) || areTeamsEquivalent(m.awayTeam, visitante)
+      );
+
+      let hasChanges = false;
+      if (matched) {
+        const newStatus = mapGeminiEstadoToStatus(estado);
+        hasChanges = matched.status !== newStatus ||
+          matched.homeScore !== goles_local ||
+          matched.awayScore !== goles_visitante;
+      }
+
+      return {
+        local,
+        goles_local,
+        visitante,
+        goles_visitante,
+        estado,
+        goleadores,
+        tarjetas,
+        matchedMatchId: matched?.id,
+        matchedMatch: matched,
+        hasChanges
+      };
+    });
+
+    return {
+      success: true,
+      message: `Gemini IA devolvió información de ${previewPartidos.length} partido(s).`,
+      partidos: previewPartidos,
+      rawJson: formattedRawJson,
+      totalQueried: candidateMatches.length
+    };
+
+  } catch (err: any) {
+    console.error("Error in fetchGeminiMatchesPreview:", err);
+    return {
+      success: false,
+      message: `Error general al consultar Gemini: ${err.message}`,
+      partidos: [],
+      rawJson: '',
+      totalQueried: 0,
+      error: err.message
+    };
+  }
+}
+
+/**
+ * Commits the validated preview matches to Firestore, updates prediction points, and recalculates standings.
+ */
+export async function commitGeminiMatchesToFirestore(
+  partidos: GeminiPartidoPreview[],
+  settings: Setting | null = null
+): Promise<GeminiCommitResult> {
+  try {
+    let updatedCount = 0;
     let standingsNeedRecalc = false;
 
-    for (const result of parsedResults) {
-      const match = candidateMatches.find(m => m.id === result.matchId);
-      if (!match) continue;
+    for (const p of partidos) {
+      if (!p.matchedMatchId || !p.matchedMatch) continue;
 
-      const newStatus = result.status;
-      const newHome = result.homeScore !== null && result.homeScore !== undefined ? Number(result.homeScore) : null;
-      const newAway = result.awayScore !== null && result.awayScore !== undefined ? Number(result.awayScore) : null;
+      const newStatus = mapGeminiEstadoToStatus(p.estado);
+      const newHome = p.goles_local !== null && p.goles_local !== undefined ? Number(p.goles_local) : null;
+      const newAway = p.goles_visitante !== null && p.goles_visitante !== undefined ? Number(p.goles_visitante) : null;
 
-      // Check if data actually changed
-      const changed = match.status !== newStatus ||
-        match.homeScore !== newHome ||
-        match.awayScore !== newAway;
+      const currentMatch = p.matchedMatch;
+      const changed = currentMatch.status !== newStatus ||
+        currentMatch.homeScore !== newHome ||
+        currentMatch.awayScore !== newAway;
 
-      if (changed) {
+      if (changed || (p.goleadores && p.goleadores.length > 0)) {
         const updateData: any = {
           status: newStatus,
           homeScore: newHome,
@@ -232,43 +333,72 @@ Instrucciones estrictas:
           is_synced: newStatus === 'finished'
         };
 
-        if (Array.isArray(result.goalscorers) && result.goalscorers.length > 0) {
-          updateData.goalscorers = result.goalscorers;
+        if (Array.isArray(p.goleadores) && p.goleadores.length > 0) {
+          updateData.goalscorers = p.goleadores.map(g => `${g.jugador} ${g.minuto}' (${g.equipo})`);
         }
 
-        await updateDoc(doc(db, 'matches', match.id), updateData);
-        appliedUpdates.push(result);
+        await updateDoc(doc(db, 'matches', p.matchedMatchId), updateData);
+        updatedCount++;
 
         // If match reached finished state, trigger prediction re-evaluation
         if (newStatus === 'finished' && newHome !== null && newAway !== null) {
           standingsNeedRecalc = true;
-          await syncMatchPredictionsAndPoints(match.id, newHome, newAway, settings);
+          await syncMatchPredictionsAndPoints(p.matchedMatchId, newHome, newAway, settings);
         }
       }
     }
 
     if (standingsNeedRecalc) {
-      await recalculateStandings().catch(console.error);
+      await recalculateStandings().catch(err => {
+        console.warn("Standings recalc error after Gemini commit:", err);
+      });
     }
 
     return {
       success: true,
-      message: appliedUpdates.length > 0 
-        ? `Se actualizaron ${appliedUpdates.length} partido(s) exitosamente con Gemini IA.`
-        : "Todos los partidos consultados ya están al día.",
-      totalQueried: candidateMatches.length,
-      updatedMatches: appliedUpdates,
-      rawText: responseText
+      updatedCount,
+      message: updatedCount > 0
+        ? `Se actualizaron ${updatedCount} partido(s) exitosamente en Firestore.`
+        : "Todos los partidos ya estaban sincronizados con estos marcadores."
     };
-
   } catch (err: any) {
-    console.error("Error in syncDailyMatchesWithGemini:", err);
+    console.error("Error committing Gemini matches to Firestore:", err);
     return {
       success: false,
-      message: `Error general durante la sincronización: ${err.message}`,
-      totalQueried: 0,
-      updatedMatches: [],
+      updatedCount: 0,
+      message: `Error al guardar en Firestore: ${err.message}`,
       error: err.message
     };
   }
+}
+
+/**
+ * Backwards-compatible direct sync function
+ */
+export async function syncDailyMatchesWithGemini(
+  targetDateStr?: string,
+  settings: Setting | null = null,
+  apiKeyOverride?: string
+): Promise<{ success: boolean; message: string; totalQueried: number; updatedMatches: any[]; rawText?: string; error?: string }> {
+  const preview = await fetchGeminiMatchesPreview(targetDateStr, apiKeyOverride);
+  if (!preview.success) {
+    return {
+      success: false,
+      message: preview.message,
+      totalQueried: preview.totalQueried,
+      updatedMatches: [],
+      rawText: preview.rawJson,
+      error: preview.error
+    };
+  }
+
+  const commit = await commitGeminiMatchesToFirestore(preview.partidos, settings);
+  return {
+    success: commit.success,
+    message: commit.message,
+    totalQueried: preview.totalQueried,
+    updatedMatches: preview.partidos,
+    rawText: preview.rawJson,
+    error: commit.error
+  };
 }

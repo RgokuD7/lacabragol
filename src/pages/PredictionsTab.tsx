@@ -446,7 +446,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   }
 
   return (
-    <div className="p-2 sm:p-4 md:p-6 space-y-2.5 max-w-4xl mx-auto font-sans text-zinc-200 pb-28 sm:pb-32">
+    <div className="min-h-[100dvh] p-2 sm:p-4 md:p-6 space-y-2.5 max-w-4xl mx-auto font-sans text-zinc-200 pb-28 sm:pb-32">
       {/* Header Denso con Título Arriba */}
       <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
         <div>
