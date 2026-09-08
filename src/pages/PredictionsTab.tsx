@@ -446,7 +446,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   }
 
   return (
-    <div className="p-2 sm:p-4 md:p-6 space-y-2.5 max-w-4xl mx-auto font-sans text-zinc-200 pb-[120px]">
+    <div className="p-2 sm:p-4 md:p-6 space-y-2.5 max-w-4xl mx-auto font-sans text-zinc-200 pb-28 sm:pb-32">
       {/* Header Denso con Título Arriba */}
       <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-1.5">
         <div>
@@ -558,7 +558,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
       </div>
 
       {/* Match Cards List Denso y Estructurado */}
-      <div className="space-y-2">
+      <div className="space-y-2 pb-8">
         {(isTutorialActive ? [TUTORIAL_MOCK_MATCH, ...filteredMatches.filter(m => m.id !== 'tutorial-mock-match')] : filteredMatches).map((match, idx) => {
           const isTutorialItem = match.id === 'tutorial-mock-match';
           const isFinished = match.status === 'finished';

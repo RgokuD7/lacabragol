@@ -123,8 +123,8 @@ Instrucciones estrictas:
   }
 ]`;
 
-    // Attempt Gemini call with gemini-2.5-flash first, fallback to gemini-1.5-flash
-    const modelsToTry = ['gemini-2.5-flash', 'gemini-1.5-flash', 'gemini-2.0-flash'];
+    // Attempt Gemini call with active models: gemini-3.6-flash first, then gemini-3.5-flash, gemini-flash-latest, and gemini-2.5-flash
+    const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
     let responseText = '';
     let callSucceeded = false;
     let lastError: any = null;

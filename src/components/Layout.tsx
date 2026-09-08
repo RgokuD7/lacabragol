@@ -349,8 +349,8 @@ export function Layout() {
       </header>
 
       {/* Main Content Area */}
-      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'overflow-y-auto pb-[calc(64px+env(safe-area-inset-bottom,0px))] scrollbar-thin scrollbar-thumb-zinc-800'}`}>
-        <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'h-full'}`}>
+      <main className={`flex-1 w-full min-h-0 ${activeTab === 'standings' ? 'overflow-hidden flex flex-col pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'overflow-y-auto pb-28 sm:pb-32 scrollbar-thin scrollbar-thumb-zinc-800'}`}>
+        <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'min-h-full pb-8'}`}>
           {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
           {activeTab === 'standings' && <StandingsTab />}
           {activeTab === 'ranking' && <RankingTab />}
@@ -386,7 +386,10 @@ export function Layout() {
       )}
 
       {/* Bottom Navigation Bar Compacto */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-[#111114]/70 backdrop-blur-2xl border-t border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)] pb-[env(safe-area-inset-bottom)]">
+      <nav 
+        className="fixed bottom-0 left-0 right-0 m-0 bg-[#111114]/90 backdrop-blur-2xl border-t border-white/5 z-50 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
+      >
         <div className="max-w-4xl mx-auto flex justify-between px-1 py-1">
           {/* Main 2 Tabs: Partidos y Tabla */}
           {tabs.slice(0, 2).map((tab) => {
