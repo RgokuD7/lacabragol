@@ -22,6 +22,8 @@ interface GeminiApiResultsModalProps {
   rawJson: string;
   onConfirm: () => Promise<void>;
   isSaving: boolean;
+  searchQueries?: string[];
+  isGrounded?: boolean;
 }
 
 export function GeminiApiResultsModal({
@@ -30,7 +32,9 @@ export function GeminiApiResultsModal({
   partidos,
   rawJson,
   onConfirm,
-  isSaving
+  isSaving,
+  searchQueries = [],
+  isGrounded = false
 }: GeminiApiResultsModalProps) {
   const [copied, setCopied] = useState(false);
 
@@ -120,6 +124,34 @@ export function GeminiApiResultsModal({
                 Goles, Goleadores y Tarjetas
               </span>
             </div>
+
+            {/* Google Search Grounding Status Banner */}
+            {isGrounded ? (
+              <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-2.5 space-y-1">
+                <div className="flex items-center gap-1.5 text-xs font-black text-emerald-300">
+                  <span className="text-sm">🌐</span>
+                  <span>Búsqueda Web en Vivo Activada (Google Search Grounding)</span>
+                </div>
+                {searchQueries.length > 0 && (
+                  <div className="text-[10px] text-zinc-400">
+                    <span className="text-zinc-500">Consultas web: </span>
+                    {searchQueries.map((q, i) => (
+                      <span key={i} className="inline-block bg-zinc-800/80 text-zinc-300 px-1.5 py-0.2 rounded mr-1 mb-0.5 border border-zinc-700/60 font-mono">
+                        "{q}"
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-2.5 flex items-center justify-between text-[11px] text-zinc-300">
+                <div className="flex items-center gap-2">
+                  <span>⚡</span>
+                  <span>Modo Inteligente Gemini (Conexión directa con Google AI)</span>
+                </div>
+                <span className="text-[9px] text-zinc-500 uppercase font-bold">API Conectada</span>
+              </div>
+            )}
 
             {partidos.length === 0 ? (
               <div className="p-6 text-center bg-zinc-900/50 border border-zinc-800/80 rounded-xl text-zinc-400 space-y-1">

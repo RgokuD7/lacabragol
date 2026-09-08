@@ -55,6 +55,8 @@ export interface GeminiPreviewResult {
   partidos: GeminiPartidoPreview[];
   rawJson: string;
   totalQueried: number;
+  searchQueries?: string[];
+  isGrounded?: boolean;
   error?: string;
 }
 
@@ -94,7 +96,7 @@ export function mapGeminiEstadoToStatus(estado: string): 'pending' | 'in_progres
 }
 
 /**
- * Fetches match results from Gemini API returning parsed structured data and raw JSON for admin preview.
+ * Fetches match results from Gemini API with Google Search Grounding.
  * DOES NOT write to Firestore.
  */
 export async function fetchGeminiMatchesPreview(
@@ -149,15 +151,18 @@ export async function fetchGeminiMatchesPreview(
 
     const variablesPartidos = candidateMatches.map(m => `${m.homeTeam} vs ${m.awayTeam}`).join(', ');
 
-    // Exact prompt required by user
-    const promptText = `Busca los resultados reales y actualizados de los siguientes partidos de la Champions League de hoy: ${variablesPartidos}. Devuelve ÚNICAMENTE un objeto JSON con esta estructura exacta, sin texto adicional ni markdown:
+    // Prompt with explicit instruction to use Google search grounding
+    const promptText = `USANDO TU HERRAMIENTA DE BÚSQUEDA EN INTERNET, busca los resultados reales, en vivo o finalizados, de los siguientes partidos de la Champions League del día de hoy: ${variablesPartidos}. Tras confirmar los datos reales en la web, devuelve ÚNICAMENTE un objeto JSON con esta estructura exacta, sin texto adicional ni markdown:
 { "partidos": [ { "local": "Nombre", "goles_local": 0, "visitante": "Nombre", "goles_visitante": 0, "estado": "En vivo 45' / Finalizado / No iniciado", "goleadores": [ { "jugador": "Nombre", "equipo": "Nombre Equipo", "minuto": 12 } ], "tarjetas": [ { "jugador": "Nombre", "equipo": "Nombre Equipo", "tipo": "Amarilla/Roja", "minuto": 33 } ] } ] }`;
 
     const modelsToTry = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-flash-latest', 'gemini-2.5-flash'];
     let responseText = '';
     let callSucceeded = false;
     let lastError: any = null;
+    let webSearchQueries: string[] = [];
+    let isGrounded = false;
 
+    // 1st Attempt: with Google Search Grounding tool
     for (const modelName of modelsToTry) {
       try {
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -172,6 +177,7 @@ export async function fetchGeminiMatchesPreview(
                 parts: [{ text: promptText }]
               }
             ],
+            tools: [{ googleSearch: {} }],
             generationConfig: {
               temperature: 0.1,
               responseMimeType: "application/json"
@@ -187,15 +193,67 @@ export async function fetchGeminiMatchesPreview(
         const data = await response.json();
         const candidate = data.candidates?.[0];
         const partText = candidate?.content?.parts?.[0]?.text;
+        const groundingMeta = candidate?.groundingMetadata;
+
+        if (groundingMeta?.webSearchQueries) {
+          webSearchQueries = groundingMeta.webSearchQueries;
+          isGrounded = true;
+        }
 
         if (partText) {
           responseText = partText;
           callSucceeded = true;
+          isGrounded = !!groundingMeta;
           break;
         }
       } catch (err: any) {
         lastError = err;
-        console.warn(`Gemini attempt with ${modelName} failed:`, err.message);
+        console.warn(`Gemini attempt with googleSearch on ${modelName} failed:`, err.message);
+      }
+    }
+
+    // Fallback: If Google Search Grounding quota was exceeded or unavailable, attempt without tools
+    if (!callSucceeded || !responseText) {
+      console.warn("Attempting fallback call without tools...");
+      for (const modelName of modelsToTry) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              contents: [
+                {
+                  parts: [{ text: promptText }]
+                }
+              ],
+              generationConfig: {
+                temperature: 0.1,
+                responseMimeType: "application/json"
+              }
+            })
+          });
+
+          if (!response.ok) {
+            const errData = await response.json().catch(() => ({}));
+            throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
+          }
+
+          const data = await response.json();
+          const candidate = data.candidates?.[0];
+          const partText = candidate?.content?.parts?.[0]?.text;
+
+          if (partText) {
+            responseText = partText;
+            callSucceeded = true;
+            break;
+          }
+        } catch (err: any) {
+          lastError = err;
+          console.warn(`Gemini fallback attempt on ${modelName} failed:`, err.message);
+        }
       }
     }
 
@@ -280,12 +338,18 @@ export async function fetchGeminiMatchesPreview(
       };
     });
 
+    const statusNote = isGrounded
+      ? `Resultados verificados con Google Search en vivo (${webSearchQueries.length} búsquedas web realizadas).`
+      : `Gemini IA procesó ${previewPartidos.length} partido(s).`;
+
     return {
       success: true,
-      message: `Gemini IA devolvió información de ${previewPartidos.length} partido(s).`,
+      message: statusNote,
       partidos: previewPartidos,
       rawJson: formattedRawJson,
-      totalQueried: candidateMatches.length
+      totalQueried: candidateMatches.length,
+      searchQueries: webSearchQueries,
+      isGrounded
     };
 
   } catch (err: any) {

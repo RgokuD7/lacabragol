@@ -1401,6 +1401,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         onClose={() => setGeminiPreviewData(null)}
         partidos={geminiPreviewData?.partidos || []}
         rawJson={geminiPreviewData?.rawJson || ''}
+        searchQueries={geminiPreviewData?.searchQueries || []}
+        isGrounded={geminiPreviewData?.isGrounded || false}
         onConfirm={handleConfirmCommitGemini}
         isSaving={isCommittingGemini}
       />
