@@ -2,9 +2,40 @@ import { doc, getDoc, updateDoc, writeBatch, setDoc, collection, query, where, g
 import { db } from './firebase';
 import { Match, Prediction, Setting, User } from '../types';
 import { evaluatePrediction } from './scoring';
+import { recalculateStandings } from './standings';
 
-export async function syncMatchResult(match: Match, settings: Setting | null) {
-  if (match.is_synced || match.is_fetching) return;
+export async function syncMatchPredictionsAndPoints(
+  matchId: string,
+  homeScore: number,
+  awayScore: number,
+  settings: Setting | null
+) {
+  try {
+    const predSnap = await getDocs(query(collection(db, 'predictions'), where('matchId', '==', matchId)));
+    if (predSnap.empty) {
+      await recalculateStandings().catch(console.error);
+      return;
+    }
+
+    const batch = writeBatch(db);
+    predSnap.docs.forEach(d => {
+      const p = d.data();
+      const evalRes = evaluatePrediction(homeScore, awayScore, p.homeScore, p.awayScore, 'finished', true, settings);
+      batch.update(d.ref, {
+        pointsEarned: evalRes.points,
+        updatedAt: Date.now()
+      });
+    });
+
+    await batch.commit();
+    await recalculateStandings().catch(console.error);
+  } catch (e) {
+    console.error("Error updating predictions points for match:", matchId, e);
+  }
+}
+
+export async function syncMatchResult(match: Match, settings: Setting | null, force: boolean = false) {
+  if (!force && (match.is_synced || match.is_fetching)) return;
 
   const matchRef = doc(db, 'matches', match.id);
   
@@ -184,6 +215,7 @@ export async function syncMatchResult(match: Match, settings: Setting | null) {
     // TRIGGER JORNADA END LOGIC AND TITLES
     if (status === 'finished') {
       await evaluateEndOfJornada(match.group, settings);
+      await recalculateStandings().catch(console.error);
     }
 
   } catch (err) {

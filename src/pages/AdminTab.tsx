@@ -4,15 +4,22 @@ import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
 import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
 import { Match, Prediction, User, Setting } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
 import { cn } from '../lib/utils';
+import { useSettings } from '../components/SettingsProvider';
+import { BaseBottomSheet } from '../components/BaseBottomSheet';
+import { recalculateStandings } from '../lib/standings';
+import { syncDailyMatchesWithGemini, getGeminiApiKey, setGeminiApiKey } from '../lib/geminiSync';
+import { syncMatchPredictionsAndPoints } from '../lib/sync';
+import { vibrateTap, vibrateSuccess, vibrateError } from '../lib/haptics';
 
 export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => void }) {
   const { user, profile } = useAuth();
   const { groups, activeGroupId } = useGroups();
+  const { settings } = useSettings();
   const [adminTab, setAdminTab] = useState<'actions' | 'scores' | 'users' | 'players'>('actions');
 
   const [matches, setMatches] = useState<Match[]>([]);
@@ -24,6 +31,22 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [matchScores, setMatchScores] = useState<Record<string, { home: string, away: string, status: string }>>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Admin touch score editor modal state (prevents virtual keyboard layout shifts)
+  const [editingMatch, setEditingMatch] = useState<Match | null>(null);
+  const [modalHomeScore, setModalHomeScore] = useState<number>(0);
+  const [modalAwayScore, setModalAwayScore] = useState<number>(0);
+  const [modalStatus, setModalStatus] = useState<'pending' | 'in_progress' | 'finished'>('pending');
+  const [isSavingScoreModal, setIsSavingScoreModal] = useState(false);
+
+  // Standings recalculation state
+  const [isRecalculatingStandings, setIsRecalculatingStandings] = useState(false);
+
+  // Gemini Daily Sync state
+  const [isSyncingGemini, setIsSyncingGemini] = useState(false);
+  const [geminiApiKeyInput, setGeminiApiKeyInput] = useState(getGeminiApiKey());
+  const [showGeminiConfig, setShowGeminiConfig] = useState(false);
+  const [geminiKeySaved, setGeminiKeySaved] = useState(false);
 
   // Status and management states
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -180,12 +203,138 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       }
       
       await updateDoc(mRef, updateData);
+
+      // Re-evaluate predictions if finished
+      if (ms.status === 'finished') {
+        const finalH = updateData.homeScore ?? 0;
+        const finalA = updateData.awayScore ?? 0;
+        await syncMatchPredictionsAndPoints(matchId, finalH, finalA, settings);
+        await recalculateStandings();
+      }
+
       setFeedback({ type: 'success', text: 'Resultado del partido actualizado correctamente.' });
     } catch(e) {
       console.error(e);
       setFeedback({ type: 'error', text: 'Error guardando partido' });
     }
     setIsSaving(false);
+  };
+
+  const handleOpenScoreModal = (m: Match) => {
+    setEditingMatch(m);
+    const ms = matchScores[m.id];
+    const hVal = ms?.home !== '' && ms?.home !== undefined && !isNaN(parseInt(ms.home, 10)) ? parseInt(ms.home, 10) : (m.homeScore ?? 0);
+    const aVal = ms?.away !== '' && ms?.away !== undefined && !isNaN(parseInt(ms.away, 10)) ? parseInt(ms.away, 10) : (m.awayScore ?? 0);
+    setModalHomeScore(hVal);
+    setModalAwayScore(aVal);
+    setModalStatus((ms?.status || m.status || 'pending') as any);
+    vibrateTap();
+  };
+
+  const handleSaveScoreModal = async () => {
+    if (!editingMatch) return;
+    setIsSavingScoreModal(true);
+    try {
+      const matchId = editingMatch.id;
+      const mRef = doc(db, 'matches', matchId);
+
+      const updateData: any = {
+        status: modalStatus,
+        updatedAt: Date.now(),
+        is_synced: modalStatus === 'finished'
+      };
+
+      if (modalStatus === 'in_progress' || modalStatus === 'finished') {
+        updateData.homeScore = modalHomeScore;
+        updateData.awayScore = modalAwayScore;
+      } else {
+        updateData.homeScore = null;
+        updateData.awayScore = null;
+      }
+
+      await updateDoc(mRef, updateData);
+
+      // Update local state in matchScores
+      setMatchScores(prev => ({
+        ...prev,
+        [matchId]: {
+          home: modalStatus !== 'pending' ? String(modalHomeScore) : '',
+          away: modalStatus !== 'pending' ? String(modalAwayScore) : '',
+          status: modalStatus
+        }
+      }));
+
+      // Re-evaluate predictions if finished
+      if (modalStatus === 'finished') {
+        await syncMatchPredictionsAndPoints(matchId, modalHomeScore, modalAwayScore, settings);
+        await recalculateStandings();
+      }
+
+      vibrateSuccess();
+      setFeedback({ 
+        type: 'success', 
+        text: `Marcador de ${editingMatch.homeTeam} vs ${editingMatch.awayTeam} actualizado (${modalStatus === 'finished' ? 'Finalizado' : modalStatus === 'in_progress' ? 'En Juego' : 'Por Jugar'}).` 
+      });
+      setEditingMatch(null);
+    } catch (e: any) {
+      console.error(e);
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error al guardar resultado: ' + e.message });
+    }
+    setIsSavingScoreModal(false);
+  };
+
+  const handleRecalculateStandings = async () => {
+    setIsRecalculatingStandings(true);
+    vibrateTap();
+    try {
+      const res = await recalculateStandings();
+      if (res.success) {
+        vibrateSuccess();
+        setFeedback({ 
+          type: 'success', 
+          text: `Tabla UCL recalculada exitosamente: ${res.processedMatches} partidos procesados para los 36 equipos.` 
+        });
+      } else {
+        vibrateError();
+        setFeedback({ type: 'error', text: res.error || 'Error al recalcular la tabla.' });
+      }
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: err.message });
+    }
+    setIsRecalculatingStandings(false);
+  };
+
+  const handleSyncGeminiDaily = async () => {
+    setIsSyncingGemini(true);
+    vibrateTap();
+    setFeedback({ type: 'info', text: 'Consultando marcadores y resultados con Gemini IA...' });
+    try {
+      const res = await syncDailyMatchesWithGemini(undefined, settings, geminiApiKeyInput);
+      if (res.success) {
+        vibrateSuccess();
+        setFeedback({
+          type: 'success',
+          text: `${res.message} (${res.totalQueried} partidos analizados)`
+        });
+      } else {
+        vibrateError();
+        setFeedback({ type: 'error', text: res.message });
+      }
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error en sincronización Gemini: ' + err.message });
+    }
+    setIsSyncingGemini(false);
+  };
+
+  const handleSaveGeminiKey = () => {
+    if (!geminiApiKeyInput.trim()) return;
+    setGeminiApiKey(geminiApiKeyInput.trim());
+    setGeminiKeySaved(true);
+    vibrateSuccess();
+    setTimeout(() => setGeminiKeySaved(false), 2500);
   };
 
   const toggleUserPaid = async (uid: string, current: boolean) => {
@@ -574,18 +723,88 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
       {adminTab === 'actions' && (
         <div className="space-y-6">
-          <div className="bg-[#121215] border border-zinc-800 rounded-lg p-3 sm:p-2 space-y-3">
-            <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-400 border-b border-zinc-800 pb-3 flex items-center gap-2">
-              <RefreshCw className="w-4 h-4 text-blue-400" />
-              <span>Sincronización Técnica</span>
-            </h3>
-            
-            <div className="bg-[#121215] border border-blue-500/30 rounded-xl p-3 sm:p-2 flex flex-col justify-between space-y-3 hover:border-blue-500/60 transition-all bg-gradient-to-b from-blue-950/10 to-transparent">
-              <div>
-                <h3 className="text-xs font-black text-white">Re-evaluar Partidos</h3>
-                <p className="text-xs text-zinc-400 mt-1 leading-relaxed">Fuerza una re-evaluación completa (Proximamente un Cloud Function).</p>
+          {/* Sincronización Inteligente con Gemini IA */}
+          <div className="bg-[#121215] border border-blue-500/30 rounded-xl p-3 sm:p-4 space-y-4 bg-gradient-to-b from-blue-950/20 to-transparent">
+            <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider">Sincronización Inteligente Gemini IA</h3>
+                  <p className="text-[10px] text-zinc-400">Actualiza resultados de hoy y en juego vía Google Gemini API</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowGeminiConfig(!showGeminiConfig)}
+                className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/60"
+                title="Configurar Gemini API Key"
+              >
+                <Key className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {showGeminiConfig && (
+              <div className="bg-black/60 border border-zinc-800 rounded-xl p-3 space-y-2 animate-in fade-in">
+                <label className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">Gemini API Key</label>
+                <div className="flex gap-2">
+                  <input
+                    type="password"
+                    value={geminiApiKeyInput}
+                    onChange={e => setGeminiApiKeyInput(e.target.value)}
+                    placeholder="AQ.Ab8..."
+                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-blue-500"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveGeminiKey}
+                    className="px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1 shrink-0"
+                  >
+                    {geminiKeySaved ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
+                    <span>{geminiKeySaved ? 'Guardado' : 'Guardar'}</span>
+                  </button>
+                </div>
+                <p className="text-[9px] text-zinc-500">Se guarda localmente en el navegador para consultas de administrador.</p>
+              </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row gap-2.5">
+              <button
+                type="button"
+                onClick={handleSyncGeminiDaily}
+                disabled={isSyncingGemini}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/25 cursor-pointer"
+              >
+                {isSyncingGemini ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
+                <span>{isSyncingGemini ? 'Consultando Gemini IA...' : 'Consultar Resultados de Hoy (Gemini IA)'}</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Recálculo Oficial de Tabla UCL (36 Equipos) */}
+          <div className="bg-[#121215] border border-zinc-800 rounded-xl p-3 sm:p-4 space-y-3">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <Table2 className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider">Tabla Oficial UCL (36 Equipos)</h3>
+                  <p className="text-[10px] text-zinc-400">Calcula W/D/L, DG, GF, GC y puntos de todos los partidos finalizados</p>
+                </div>
               </div>
             </div>
+
+            <button
+              type="button"
+              onClick={handleRecalculateStandings}
+              disabled={isRecalculatingStandings}
+              className="w-full bg-emerald-600/20 border border-emerald-500/40 hover:bg-emerald-600/30 text-emerald-300 font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+            >
+              {isRecalculatingStandings ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-emerald-400" />}
+              <span>{isRecalculatingStandings ? 'Recalculando Tabla...' : 'Recalcular Tabla UCL Ahora'}</span>
+            </button>
           </div>
 
           <div className="bg-[#121215] border border-zinc-800 rounded-lg p-3 sm:p-4 space-y-4 mt-4">
@@ -673,7 +892,29 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
       {adminTab === 'scores' && (
         <div className="space-y-4">
-          <div className="bg-[#121215] border border-zinc-800 rounded-lg p-2 space-y-3">
+          {/* Top Quick Actions in Scores Tab */}
+          <div className="flex flex-col sm:flex-row gap-2">
+            <button
+              type="button"
+              onClick={handleSyncGeminiDaily}
+              disabled={isSyncingGemini}
+              className="flex-1 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 text-white font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 shadow-md shadow-blue-600/20 active:scale-98 cursor-pointer disabled:opacity-50"
+            >
+              {isSyncingGemini ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
+              <span>{isSyncingGemini ? 'Consultando Gemini...' : 'Consultar Resultados con Gemini IA'}</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRecalculateStandings}
+              disabled={isRecalculatingStandings}
+              className="bg-zinc-900 border border-emerald-500/40 hover:bg-emerald-950/30 text-emerald-300 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer disabled:opacity-50"
+            >
+              {isRecalculatingStandings ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-emerald-400" />}
+              <span>Recalcular Tabla UCL</span>
+            </button>
+          </div>
+
+          <div className="bg-[#121215] border border-zinc-800 rounded-xl p-2 space-y-3">
             <div className="flex flex-col sm:flex-row gap-2.5">
               <div className="relative flex-1">
                 <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
@@ -681,7 +922,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   type="text"
                   value={matchSearch}
                   onChange={(e) => setMatchSearch(e.target.value)}
-                  placeholder="Buscar equipo..."
+                  placeholder="Buscar equipo o partido..."
                   className="w-full bg-[#121215] border border-zinc-800 rounded-xl pl-9 pr-3 py-2.5 text-xs text-white placeholder:text-zinc-600 outline-none focus:border-blue-500"
                 />
               </div>
@@ -690,49 +931,50 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           
           <div className="space-y-2">
             {filteredMatches.map(m => {
-              const ms = matchScores[m.id] || { home: '', away: '', status: 'pending' };
+              const ms = matchScores[m.id];
+              const displayHome = (ms?.home !== '' && ms?.home !== undefined) ? ms.home : (m.homeScore !== null && m.homeScore !== undefined ? String(m.homeScore) : '-');
+              const displayAway = (ms?.away !== '' && ms?.away !== undefined) ? ms.away : (m.awayScore !== null && m.awayScore !== undefined ? String(m.awayScore) : '-');
+              const currentStatus = ms?.status || m.status || 'pending';
+
               return (
-                <div key={m.id} className="bg-zinc-900 border border-zinc-800/80 rounded-lg p-2">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                    <div className="min-w-0">
-                       <span className="text-white text-xs font-bold truncate block">{m.homeTeam} vs {m.awayTeam}</span>
-                       <span className="text-[10px] text-zinc-500">{new Date(m.date).toLocaleString()}</span>
+                <div 
+                  key={m.id} 
+                  onClick={() => handleOpenScoreModal(m)}
+                  className="bg-[#121215] border border-zinc-800 hover:border-zinc-700 rounded-xl p-3 flex items-center justify-between gap-3 cursor-pointer active:scale-[0.99] transition-all"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-white text-xs font-black truncate">{m.homeTeam}</span>
+                      <span className="text-zinc-600 text-[10px] font-bold">vs</span>
+                      <span className="text-white text-xs font-black truncate">{m.awayTeam}</span>
                     </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      <input 
-                        type="number" 
-                        min="0"
-                        onKeyDown={(e) => {
-                          if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
-                            e.preventDefault();
-                          }
-                        }}
-                        value={ms.home} 
-                        onChange={e => handleMatchScoreChange(m.id, 'home', e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} 
-                        className="w-10 h-8 bg-black border border-zinc-700 rounded-md text-center text-xs font-black text-white outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                      />
-                      <span className="text-zinc-600 font-black">-</span>
-                      <input 
-                        type="number" 
-                        min="0"
-                        onKeyDown={(e) => {
-                          if (e.key === '-' || e.key === 'e' || e.key === 'E' || e.key === '+' || e.key === '.') {
-                            e.preventDefault();
-                          }
-                        }}
-                        value={ms.away} 
-                        onChange={e => handleMatchScoreChange(m.id, 'away', e.target.value.replace(/[^0-9]/g, '').slice(0, 2))} 
-                        className="w-10 h-8 bg-black border border-zinc-700 rounded-md text-center text-xs font-black text-white outline-none focus:border-blue-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" 
-                      />
-                      <select value={ms.status} onChange={e => handleMatchScoreChange(m.id, 'status', e.target.value)} className="bg-black border border-zinc-700 h-8 rounded-md px-1 text-[10px] font-semibold text-zinc-300 outline-none w-24">
-                        <option value="pending">Por Jugar</option>
-                        <option value="in_progress">En Juego</option>
-                        <option value="finished">Finalizado</option>
-                      </select>
-                      <button disabled={isSaving} onClick={() => updateMatchResult(m.id)} className="h-8 px-2.5 bg-blue-600 hover:bg-blue-500 text-white font-bold text-[10px] uppercase tracking-wider rounded-md transition-all disabled:opacity-50">
-                        {isSaving ? '...' : 'Guardar'}
-                      </button>
+                    <div className="flex items-center gap-2 mt-1">
+                      <span className="text-[10px] text-zinc-500 font-mono">
+                        {new Date(m.date).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })}
+                      </span>
+                      <span className={cn(
+                        "text-[9px] font-black uppercase px-1.5 py-0.5 rounded",
+                        currentStatus === 'finished' ? "bg-zinc-800 text-zinc-400 border border-zinc-700/50" :
+                        currentStatus === 'in_progress' ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse" :
+                        "bg-blue-500/10 text-blue-400 border border-blue-500/30"
+                      )}>
+                        {currentStatus === 'finished' ? 'Finalizado' : currentStatus === 'in_progress' ? 'En Juego' : 'Por Jugar'}
+                      </span>
                     </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 shrink-0">
+                    <div className="font-mono text-sm font-black text-white bg-black/70 px-2.5 py-1.5 rounded-lg border border-zinc-700 shadow-inner min-w-[54px] text-center">
+                      {displayHome} - {displayAway}
+                    </div>
+                    <button 
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); handleOpenScoreModal(m); }}
+                      className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-zinc-700/70 cursor-pointer"
+                    >
+                      <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                      <span className="text-[10px] uppercase font-bold">Editar</span>
+                    </button>
                   </div>
                 </div>
               );
@@ -964,6 +1206,165 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             )}
           </div>
         </div>
+      )}
+
+      {/* Touch-Friendly Score Editor Modal (Bottom Sheet) */}
+      {editingMatch && (
+        <BaseBottomSheet
+          isOpen={!!editingMatch}
+          onClose={() => setEditingMatch(null)}
+          title="Editar Resultado Oficial"
+        >
+          <div className="space-y-6 pb-6 pt-2">
+            {/* Teams Header with Badges */}
+            <div className="flex items-center justify-around bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800/80">
+              {/* Home Team */}
+              <div className="flex flex-col items-center gap-2 flex-1 text-center">
+                <TeamBadge teamName={editingMatch.homeTeam} size="md" />
+                <span className="text-xs font-black text-white line-clamp-1">{editingMatch.homeTeam}</span>
+                <span className="text-[10px] text-blue-400 font-bold uppercase">Local</span>
+                
+                {/* Stepper Local */}
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => { setModalHomeScore(prev => Math.max(0, prev - 1)); vibrateTap(); }}
+                    className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-90 text-white font-black text-xl flex items-center justify-center border border-zinc-700 transition-transform cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="w-10 text-center font-mono text-2xl font-black text-white">{modalHomeScore}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setModalHomeScore(prev => prev + 1); vibrateTap(); }}
+                    className="w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-90 text-white font-black text-xl flex items-center justify-center shadow-md shadow-blue-600/30 transition-transform cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-center justify-center px-2">
+                <span className="text-xl font-black text-zinc-600 font-mono">VS</span>
+              </div>
+
+              {/* Away Team */}
+              <div className="flex flex-col items-center gap-2 flex-1 text-center">
+                <TeamBadge teamName={editingMatch.awayTeam} size="md" />
+                <span className="text-xs font-black text-white line-clamp-1">{editingMatch.awayTeam}</span>
+                <span className="text-[10px] text-zinc-400 font-bold uppercase">Visita</span>
+
+                {/* Stepper Visita */}
+                <div className="flex items-center gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => { setModalAwayScore(prev => Math.max(0, prev - 1)); vibrateTap(); }}
+                    className="w-10 h-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:scale-90 text-white font-black text-xl flex items-center justify-center border border-zinc-700 transition-transform cursor-pointer"
+                  >
+                    -
+                  </button>
+                  <span className="w-10 text-center font-mono text-2xl font-black text-white">{modalAwayScore}</span>
+                  <button
+                    type="button"
+                    onClick={() => { setModalAwayScore(prev => prev + 1); vibrateTap(); }}
+                    className="w-10 h-10 rounded-xl bg-blue-600 hover:bg-blue-500 active:scale-90 text-white font-black text-xl flex items-center justify-center shadow-md shadow-blue-600/30 transition-transform cursor-pointer"
+                  >
+                    +
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Quick Score Presets */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block text-center">Marcadores Frecuentes</span>
+              <div className="grid grid-cols-5 gap-1.5">
+                {[
+                  [0, 0], [1, 0], [0, 1], [1, 1], [2, 1],
+                  [1, 2], [2, 0], [0, 2], [2, 2], [3, 1]
+                ].map(([h, a]) => (
+                  <button
+                    key={`${h}-${a}`}
+                    type="button"
+                    onClick={() => { setModalHomeScore(h); setModalAwayScore(a); vibrateTap(); }}
+                    className={cn(
+                      "py-1.5 text-xs font-mono font-bold rounded-lg border transition-all cursor-pointer",
+                      modalHomeScore === h && modalAwayScore === a
+                        ? "bg-blue-600 text-white border-blue-400"
+                        : "bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-800"
+                    )}
+                  >
+                    {h}-{a}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Status Segmented Control */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block text-center">Estado del Partido</span>
+              <div className="grid grid-cols-3 gap-2 p-1 bg-zinc-900 rounded-xl border border-zinc-800">
+                <button
+                  type="button"
+                  onClick={() => { setModalStatus('pending'); vibrateTap(); }}
+                  className={cn(
+                    "py-2.5 text-xs font-black uppercase rounded-lg transition-all cursor-pointer",
+                    modalStatus === 'pending'
+                      ? "bg-zinc-700 text-white shadow"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  Por Jugar
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setModalStatus('in_progress'); vibrateTap(); }}
+                  className={cn(
+                    "py-2.5 text-xs font-black uppercase rounded-lg transition-all cursor-pointer",
+                    modalStatus === 'in_progress'
+                      ? "bg-amber-600 text-white shadow-md shadow-amber-600/30"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  En Juego
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setModalStatus('finished'); vibrateTap(); }}
+                  className={cn(
+                    "py-2.5 text-xs font-black uppercase rounded-lg transition-all cursor-pointer",
+                    modalStatus === 'finished'
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-600/30"
+                      : "text-zinc-400 hover:text-zinc-200"
+                  )}
+                >
+                  Finalizado
+                </button>
+              </div>
+            </div>
+
+            {/* Save and Cancel Buttons */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isSavingScoreModal}
+                onClick={handleSaveScoreModal}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-black py-3.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 active:scale-98 cursor-pointer"
+              >
+                {isSavingScoreModal ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                <span>{isSavingScoreModal ? 'Guardando...' : 'Guardar Resultado'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isSavingScoreModal}
+                onClick={() => setEditingMatch(null)}
+                className="px-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </BaseBottomSheet>
       )}
     </div>
   );

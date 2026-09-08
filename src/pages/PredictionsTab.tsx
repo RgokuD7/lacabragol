@@ -751,6 +751,8 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 matchStatus={effectiveStatus} 
                 matchHomeTeam={match.homeTeam} 
                 matchAwayTeam={match.awayTeam} 
+                matchHomeScore={match.homeScore}
+                matchAwayScore={match.awayScore}
                 isJackpot={evalResult.type === 'exact'}
                 isTutorialActive={isTutorialItem}
                 pointsNode={

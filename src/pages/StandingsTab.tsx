@@ -14,6 +14,9 @@ import {
   RotateCcw,
   Info
 } from 'lucide-react';
+import { recalculateStandings } from '../lib/standings';
+import { vibrateTap } from '../lib/haptics';
+import { cn } from '../lib/utils';
 
 interface StandingTeam {
   id?: number;
@@ -285,6 +288,7 @@ export function StandingsTab() {
   const [cupTrees, setCupTrees] = useState<CupTree[]>([]);
   const [seasonInfo, setSeasonInfo] = useState<{ id: number; name: string } | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'brackets'>('table');
 
@@ -484,6 +488,21 @@ export function StandingsTab() {
               Tabla de Posiciones Oficial · Fase de Liga (36 clubes)
             </p>
           </div>
+
+          <button
+            type="button"
+            onClick={async () => {
+              setIsRefreshing(true);
+              vibrateTap();
+              await recalculateStandings().catch(console.error);
+              setIsRefreshing(false);
+            }}
+            disabled={isRefreshing}
+            className="p-2 bg-[#121215] hover:bg-zinc-800 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+            title="Recalcular Tabla Oficial"
+          >
+            <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-blue-400")} />
+          </button>
         </div>
 
         {/* Search filter denso */}

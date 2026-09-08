@@ -5,6 +5,8 @@ import { db } from '../lib/firebase';
 import { Prediction, User } from '../types';
 import { useGroups } from './GroupsProvider';
 import { useAuth } from './AuthProvider';
+import { useSettings } from './SettingsProvider';
+import { evaluatePrediction } from '../lib/scoring';
 import { Users, Plus } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { BaseBottomSheet } from './BaseBottomSheet';
@@ -21,8 +23,28 @@ function PredictionCard({
   setActiveEmojiPicker, 
   handleReaction, 
   setContextMenuPos, 
-  setContextMenuPredId, matchStatus }: any) {
+  setContextMenuPredId, 
+  matchStatus,
+  matchHomeScore,
+  matchAwayScore,
+  settings 
+}: any) {
   const isMe = p.userId === currentUser?.uid;
+  const isFinished = matchStatus === 'finished';
+  const hasRealScores = matchHomeScore !== null && matchHomeScore !== undefined && matchAwayScore !== null && matchAwayScore !== undefined;
+
+  let effectivePoints = p.pointsEarned ?? 0;
+  let isExact = false;
+
+  if (hasRealScores && (isFinished || matchStatus === 'in_progress')) {
+    const evalRes = evaluatePrediction(matchHomeScore, matchAwayScore, p.homeScore, p.awayScore, matchStatus as any, true, settings);
+    effectivePoints = evalRes.points;
+    isExact = evalRes.type === 'exact';
+  } else if (isFinished && effectivePoints > 0) {
+    const exactPts = settings?.pointsExactMatch ?? 3;
+    isExact = effectivePoints === exactPts;
+  }
+
   const validReactions = Object.entries(p.reactions || {}).filter(([_, users]) => 
     Array.isArray(users) ? users.length > 0 : (users as number) > 0
   );
@@ -44,15 +66,33 @@ function PredictionCard({
           <span className="font-mono text-sm font-black text-white bg-[#111114] px-2 py-1 rounded-md border border-zinc-700 shadow-inner">
             {p.homeScore} - {p.awayScore}
           </span>
-          {matchStatus === 'finished' && p.pointsEarned > 0 && (
-            <span className="text-[10px] font-black text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded shadow-sm border border-emerald-500/20">
-              +{p.pointsEarned} pts
+          {isFinished && isExact && (
+            <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)] flex items-center gap-1">
+              <span>🎯</span>
+              <span>+{effectivePoints} pts</span>
             </span>
           )}
-          {matchStatus === 'finished' && (p.pointsEarned === 0 || p.pointsEarned === undefined) && (
-            <span className="text-[10px] font-black text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded shadow-sm border border-zinc-700/50">
+          {isFinished && !isExact && effectivePoints > 0 && (
+            <span className="text-[10px] font-black text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded-md border border-blue-500/30 flex items-center gap-1">
+              <span>⚽</span>
+              <span>+{effectivePoints} pts</span>
+            </span>
+          )}
+          {isFinished && effectivePoints === 0 && (
+            <span className="text-[10px] font-bold text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700/50">
               0 pts
             </span>
+          )}
+          {matchStatus === 'in_progress' && hasRealScores && (
+            isExact ? (
+              <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 animate-pulse">
+                🎯 {effectivePoints}p en vivo
+              </span>
+            ) : effectivePoints > 0 ? (
+              <span className="text-[9px] font-black text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded border border-blue-500/30">
+                ⚽ {effectivePoints}p en vivo
+              </span>
+            ) : null
           )}
         </div>
       </div>
@@ -88,6 +128,8 @@ export function MatchPredictions({
   matchStatus, 
   matchHomeTeam, 
   matchAwayTeam, 
+  matchHomeScore,
+  matchAwayScore,
   pointsNode, 
   isJackpot,
   isTutorialActive 
@@ -97,12 +139,15 @@ export function MatchPredictions({
   matchStatus: string; 
   matchHomeTeam: string; 
   matchAwayTeam: string; 
+  matchHomeScore?: number | null;
+  matchAwayScore?: number | null;
   pointsNode?: React.ReactNode; 
   isJackpot?: boolean;
   isTutorialActive?: boolean;
 }) {
   const { activeGroupId, groups } = useGroups();
   const { user: currentUser } = useAuth();
+  const { settings } = useSettings();
   const [expanded, setExpanded] = useState(false);
   const [predictions, setPredictions] = useState<(Prediction & { user?: User })[]>([]);
   const [loading, setLoading] = useState(false);
@@ -284,9 +329,16 @@ export function MatchPredictions({
           user: users[p.userId]
         }));
         
+        const hasRealScores = matchHomeScore !== null && matchHomeScore !== undefined && matchAwayScore !== null && matchAwayScore !== undefined;
         predsWithUsers.sort((a, b) => {
-          if (b.pointsEarned !== a.pointsEarned) return b.pointsEarned - a.pointsEarned;
-          return (a.user?.nickname || '').localeCompare(b.user?.nickname || '');
+          const aPts = hasRealScores 
+            ? evaluatePrediction(matchHomeScore, matchAwayScore, a.homeScore, a.awayScore, matchStatus as any, true, settings).points
+            : (a.pointsEarned ?? 0);
+          const bPts = hasRealScores
+            ? evaluatePrediction(matchHomeScore, matchAwayScore, b.homeScore, b.awayScore, matchStatus as any, true, settings).points
+            : (b.pointsEarned ?? 0);
+          if (bPts !== aPts) return bPts - aPts;
+          return (a.user?.nickname || a.user?.displayName || '').localeCompare(b.user?.nickname || b.user?.displayName || '');
         });
         
         setPredictions(predsWithUsers);
@@ -307,7 +359,7 @@ export function MatchPredictions({
     return () => {
       if (unsub) unsub();
     }
-  }, [expanded, activeGroup, isMatchOpen]);
+  }, [expanded, activeGroup, isMatchOpen, matchHomeScore, matchAwayScore]);
 
   return (
     <>
@@ -356,6 +408,9 @@ export function MatchPredictions({
                   setContextMenuPos={setContextMenuPos}
                   setContextMenuPredId={setContextMenuPredId}
                   matchStatus={isTutorialMatch ? 'finished' : matchStatus}
+                  matchHomeScore={matchHomeScore}
+                  matchAwayScore={matchAwayScore}
+                  settings={settings}
                 />
               ))}
             </div>

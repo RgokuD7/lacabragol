@@ -257,11 +257,14 @@ export function SettingsTab() {
         updatedAt: Date.now()
       };
       await setDoc(doc(db, 'settings', activeGroupId), payload, { merge: true });
+      (document.activeElement as HTMLElement)?.blur();
+      vibrateSuccess();
       setSettingsSuccess(true);
       setTimeout(() => setSettingsSuccess(false), 3000);
       setIsEditingRules(false);
     } catch (e) {
       console.error(e);
+      vibrateError();
       alert('Error al guardar la configuración');
     } finally {
       setSavingSettings(false);

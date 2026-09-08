@@ -295,7 +295,7 @@ export function Layout() {
   ];
 
   return (
-    <div className={`flex flex-col ${activeTab === 'standings' ? 'h-[100dvh] max-h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'} w-full bg-[#09090b] text-[#e4e4e7] font-sans`}>
+    <div className="flex flex-col h-[100dvh] max-h-[100dvh] overflow-hidden w-full bg-[#09090b] text-[#e4e4e7] font-sans">
       {/* Top Navbar Compacto para Teléfono */}
       <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">

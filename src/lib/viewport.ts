@@ -20,15 +20,15 @@ export function initViewportFixes() {
     }
   };
 
-  // When any input / textarea / editable element blurs (keyboard dismisses), reset window scroll
-  window.addEventListener('focusout', (e) => {
-    const target = e.target as HTMLElement | null;
-    if (target && ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName)) {
-      window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
-      setTimeout(resetWindowScroll, 80);
-      setTimeout(resetWindowScroll, 250);
-    }
-  });
+  // Only reset window.scrollY if window was scrolled unexpectedly by the browser
+  // (We do NOT scroll to top on focusout because that interrupts user clicks on buttons like 'Guardar')
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', () => {
+      if (window.scrollY > 0) {
+        window.scrollTo(0, 0);
+      }
+    });
+  }
 
   // Initial call to ensure pristine state
   resetWindowScroll();
