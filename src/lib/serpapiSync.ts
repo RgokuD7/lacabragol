@@ -83,21 +83,25 @@ export async function fetchSerpApiRaw(query: string, apiKeyOverride?: string): P
   console.log(`[SerpAPI] Consultando Google: "${query}"...`);
 
   // Lista priorizada de proxies para sortear restricciones CORS en el navegador
+  // IMPORTANTE: Se amplía el timeout a 75 segundos por intento para que las peticiones en lote
+  // o las respuestas demoradas de los proxies no se cancelen con 'fetch is aborted'.
   const proxyAttempts: Array<{ type: string; url: string; isGetWrapper?: boolean }> = [
-    { type: 'direct', url: directUrl },
     { type: 'allorigins-raw', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}` },
     { type: 'allorigins-get', url: `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`, isGetWrapper: true },
-    { type: 'corsproxy', url: `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}` },
+    { type: 'corsproxy', url: `https://corsproxy.io/?${encodeURIComponent(directUrl)}` },
     { type: 'codetabs', url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(directUrl)}` },
   ];
 
   let lastErr: any = null;
 
   for (const attempt of proxyAttempts) {
+    let timeoutId: any = null;
     try {
       const controller = new AbortController();
-      // Timeout de 10s por intento para no colgar el flujo
-      const timeoutId = setTimeout(() => controller.abort(), attempt.type === 'direct' ? 4000 : 10000);
+      // Timeout holgado de 75 segundos para batching y proxies lentos
+      timeoutId = setTimeout(() => {
+        try { controller.abort(); } catch {}
+      }, 75000);
 
       const res = await fetch(attempt.url, {
         method: 'GET',
@@ -131,6 +135,7 @@ export async function fetchSerpApiRaw(query: string, apiKeyOverride?: string): P
         return extractRelevantSerpApiNode(data);
       }
     } catch (err: any) {
+      if (timeoutId) clearTimeout(timeoutId);
       lastErr = err;
       console.warn(`[SerpAPI] Intento ${attempt.type} falló para "${query}":`, err?.message || err);
     }
@@ -920,57 +925,71 @@ export async function checkAndAutoSyncFinishedMatches(
 
     candidates.forEach(c => {
       const parsed = geminiResultsMap[c.match.id];
-      if (!parsed) {
-        // Si Gemini no devolvió este partido, liberar su candado
-        batch.update(doc(db, 'matches', c.match.id), { is_updating: false });
-        return;
-      }
+      const elapsedMins = (now - c.matchTime) / (60 * 1000);
 
-      const estadoLower = parsed.estado.toLowerCase();
-      const isFinished = 
-        estadoLower.includes('final') ||
-        estadoLower.includes('ft') ||
-        estadoLower.includes('terminado') ||
-        estadoLower.includes('concl') ||
-        (c.targetMilestone >= 115); // Hito +115 min es cierre definitivo
+      if (parsed) {
+        const estadoLower = (parsed.estado || '').toLowerCase();
+        const isFinished = 
+          estadoLower.includes('final') ||
+          estadoLower.includes('ft') ||
+          estadoLower.includes('terminado') ||
+          estadoLower.includes('concl') ||
+          c.targetMilestone >= 115 ||
+          elapsedMins >= 115;
 
-      const isLive = 
-        estadoLower.includes('vivo') ||
-        estadoLower.includes('live') ||
-        estadoLower.includes('juego') ||
-        estadoLower.includes('1t') ||
-        estadoLower.includes('2t') ||
-        estadoLower.includes('descanso') ||
-        estadoLower.includes('ht');
+        // REGLA CRÍTICA:
+        // Si ya pasó el hito de 115 min (o terminó) -> 'finished' ('Finalizado')
+        // Si está en hitos intermedios (+5, +25, +47, etc.) -> 'in_progress' ('En curso')
+        const status: 'finished' | 'in_progress' = isFinished ? 'finished' : 'in_progress';
 
-      const status: 'finished' | 'in_progress' = isFinished ? 'finished' : (isLive ? 'in_progress' : 'in_progress');
+        if (status === 'finished') {
+          finishedCount++;
+        } else {
+          liveCount++;
+        }
 
-      if (status === 'finished') {
-        finishedCount++;
+        if (Array.isArray(parsed.goleadores)) {
+          allGoalscorersToEnsure.push(...parsed.goleadores);
+        }
+
+        const matchRef = doc(db, 'matches', c.match.id);
+        batch.update(matchRef, sanitizeForFirestore({
+          homeScore: parsed.goles_local,
+          awayScore: parsed.goles_visitante,
+          status,
+          goalscorers: parsed.goleadores || [],
+          cards: parsed.tarjetas || [],
+          ultimo_hito_sincronizado: c.targetMilestone,
+          last_synced_milestone: c.targetMilestone,
+          last_synced_at: Date.now(),
+          is_synced: status === 'finished',
+          is_updating: false,
+          updated_at: Date.now()
+        }));
+
+        updatedCandidates.push({ candidate: c, result: parsed, status });
       } else {
-        liveCount++;
+        // Si Gemini no devolvió este partido, pero ya superó los 115 min, forzar cierre para no quedar en 'Por Confirmar'
+        const isFinished = c.targetMilestone >= 115 || elapsedMins >= 115;
+        const status: 'finished' | 'in_progress' = isFinished ? 'finished' : 'in_progress';
+
+        if (status === 'finished') {
+          finishedCount++;
+        } else {
+          liveCount++;
+        }
+
+        const matchRef = doc(db, 'matches', c.match.id);
+        batch.update(matchRef, sanitizeForFirestore({
+          status,
+          ultimo_hito_sincronizado: c.targetMilestone,
+          last_synced_milestone: c.targetMilestone,
+          last_synced_at: Date.now(),
+          is_synced: status === 'finished',
+          is_updating: false,
+          updated_at: Date.now()
+        }));
       }
-
-      if (Array.isArray(parsed.goleadores)) {
-        allGoalscorersToEnsure.push(...parsed.goleadores);
-      }
-
-      const matchRef = doc(db, 'matches', c.match.id);
-      batch.update(matchRef, sanitizeForFirestore({
-        homeScore: parsed.goles_local,
-        awayScore: parsed.goles_visitante,
-        status,
-        goalscorers: parsed.goleadores || [],
-        cards: parsed.tarjetas || [],
-        ultimo_hito_sincronizado: c.targetMilestone,
-        last_synced_milestone: c.targetMilestone,
-        last_synced_at: Date.now(),
-        is_synced: status === 'finished',
-        is_updating: false,
-        updated_at: Date.now()
-      }));
-
-      updatedCandidates.push({ candidate: c, result: parsed, status });
     });
 
     console.log(`[AutoSync] 💾 Escribiendo ${updatedCandidates.length} partidos en Firestore con writeBatch...`);
@@ -1006,14 +1025,17 @@ export async function checkAndAutoSyncFinishedMatches(
   } catch (err: any) {
     console.error('[AutoSync] Error crítico en sincronización escalonada por lotes:', err);
     errors.push(err.message || 'Error general en batching');
-
-    // Liberar candados en Firestore en caso de error
-    await Promise.allSettled(
-      candidates.map(c =>
-        updateDoc(doc(db, 'matches', c.match.id), { is_updating: false }).catch(() => null)
-      )
-    );
   } finally {
+    // Garantizar que NINGÚN candidato se quede con is_updating: true en Firestore
+    try {
+      await Promise.allSettled(
+        candidates.map(c =>
+          updateDoc(doc(db, 'matches', c.match.id), { is_updating: false }).catch(() => null)
+        )
+      );
+    } catch (cleanupErr) {
+      console.warn("[AutoSync] Error liberando candados en finally:", cleanupErr);
+    }
     // Liberar throttle en memoria
     candidates.forEach(c => inFlightSyncMatchIds.delete(c.match.id));
   }
@@ -1106,10 +1128,12 @@ export async function syncJornadaMatchesWithSerpApi(
         { local: match.homeTeam, visitante: match.awayTeam }
       );
 
+      const elapsedMins = (now - matchTime) / (60 * 1000);
       const isFinished = 
         parsed.estado.toLowerCase().includes('final') ||
         parsed.estado.toLowerCase().includes('ft') ||
-        parsed.estado.toLowerCase().includes('terminado');
+        parsed.estado.toLowerCase().includes('terminado') ||
+        elapsedMins >= 115;
 
       const isLive = 
         parsed.estado.toLowerCase().includes('vivo') ||
@@ -1118,7 +1142,7 @@ export async function syncJornadaMatchesWithSerpApi(
         parsed.estado.toLowerCase().includes('1t') ||
         parsed.estado.toLowerCase().includes('2t');
 
-      const status = isFinished ? 'finished' : isLive ? 'in_progress' : match.status;
+      const status: Match['status'] = isFinished ? 'finished' : (isLive ? 'in_progress' : (elapsedMins > 0 ? 'in_progress' : match.status));
 
       // Inyectar datos en Firestore
       await updateDoc(matchRef, {
@@ -1156,8 +1180,9 @@ export async function syncJornadaMatchesWithSerpApi(
       console.log(`[syncJornadaMatchesWithSerpApi] ✓ Partido ${matchLabel} guardado: ${parsed.goles_local}-${parsed.goles_visitante} (${status})`);
     } catch (err: any) {
       console.error(`[syncJornadaMatchesWithSerpApi] Error procesando ${matchLabel}:`, err);
-      await updateDoc(matchRef, { is_updating: false }).catch(() => {});
       errors.push(`${matchLabel}: ${err.message}`);
+    } finally {
+      await updateDoc(matchRef, { is_updating: false }).catch(() => {});
     }
   }
 

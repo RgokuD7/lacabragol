@@ -71,28 +71,29 @@ export function Layout() {
   settingsRef.current = settings;
 
   useEffect(() => {
-    // 1. Escucha en tiempo real de todos los partidos en Firestore
+    // 1. Escucha en tiempo real de todos los partidos en Firestore (actualiza ref en memoria sin ciclos)
     const unsubMatches = onSnapshot(collection(db, 'matches'), (snap) => {
       matchesRef.current = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
-      // Evaluación automática al actualizar o cargar la lista
-      checkAndAutoSyncFinishedMatches(matchesRef.current, settingsRef.current).catch(err => {
-        console.warn("[Reloj Interno] Error en auto-sync inicial:", err);
-      });
     }, (err) => {
       console.warn("[Reloj Interno] Error en snapshot de matches:", err);
     });
 
     // 2. Cronómetro interno con setInterval cada 60 segundos
-    const interval = setInterval(() => {
+    const runCronTick = () => {
       if (matchesRef.current.length > 0) {
         checkAndAutoSyncFinishedMatches(matchesRef.current, settingsRef.current).catch(err => {
           console.warn("[Reloj Interno Tick] Error en auto-sync:", err);
         });
       }
-    }, 60 * 1000);
+    };
+
+    // Evaluación inicial diferida 2.5s para dar tiempo a recibir los documentos
+    const initialTimer = setTimeout(runCronTick, 2500);
+    const interval = setInterval(runCronTick, 60 * 1000);
 
     return () => {
       unsubMatches();
+      clearTimeout(initialTimer);
       clearInterval(interval);
     };
   }, []);

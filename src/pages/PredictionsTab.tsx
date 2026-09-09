@@ -237,16 +237,16 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   };
 
   const getMatchLiveInfo = (match: Match) => {
-    if (match.status === 'finished') {
+    const matchTime = new Date(match.date).getTime();
+    const elapsedMinutes = isNaN(matchTime) ? 0 : Math.floor((currentTime - matchTime) / (60 * 1000));
+
+    if (match.status === 'finished' || (match.homeScore !== null && match.awayScore !== null && elapsedMinutes >= 115)) {
       return { isLive: false, label: 'Finalizado' };
     }
     
-    const matchTime = new Date(match.date).getTime();
     const isStarted = currentTime >= matchTime;
     
     if (match.status === 'in_progress' || isStarted) {
-      const elapsedMinutes = Math.floor((currentTime - matchTime) / (60 * 1000));
-      
       if (elapsedMinutes < 0) {
         return { isLive: false, label: 'Por Jugar' };
       }
