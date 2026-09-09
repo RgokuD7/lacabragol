@@ -126,7 +126,7 @@ export function ScoreNumpadModal({
   const activeTeamFlag = isHome ? match.homeFlag : match.awayFlag;
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col justify-end animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[1050] flex flex-col justify-end animate-in fade-in duration-200">
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/70 backdrop-blur-sm"
@@ -137,7 +137,7 @@ export function ScoreNumpadModal({
       <div 
         className="relative bg-[#121216] border-t border-zinc-800 w-full max-w-md mx-auto rounded-t-3xl shadow-2xl flex flex-col transition-transform duration-200"
         style={{
-          paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 12px), 16px)'
+          paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 20px), 24px)'
         }}
       >
         {/* Top Header Bar with Drag Handle, Title & Dedicated Close Button */}

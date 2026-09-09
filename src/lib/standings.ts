@@ -24,6 +24,9 @@ export interface StandingRow {
   scoreDiff: number;
   points: number;
   promotion: string;
+  awayGoals?: number;
+  awayWins?: number;
+  posicion_oficial_api?: number;
 }
 
 /**
@@ -354,7 +357,27 @@ export async function recalculateStandings(): Promise<{
 
     console.log(`[recalculateStandings] Partidos finalizados con marcador válido: ${finishedMatches.length}`);
 
-    // 2. Initialize table rows for all 36 UCL teams
+    // 2. Read existing doc upfront to extract existing official API positions
+    const standingsDocRef = doc(db, 'system', 'standings');
+    const existingSnap = await getDoc(standingsDocRef).catch(readErr => {
+      console.warn("[recalculateStandings] No se pudo leer doc existente (se creará uno nuevo):", readErr);
+      return null;
+    });
+    const existingData = existingSnap?.exists() ? existingSnap.data() : {};
+
+    const existingPositionsMap = new Map<number, number>();
+    if (Array.isArray(existingData?.standings)) {
+      for (const row of existingData.standings) {
+        if (row?.team?.id) {
+          const apiPos = row.posicion_oficial_api ?? row.position;
+          if (typeof apiPos === 'number' && !isNaN(apiPos)) {
+            existingPositionsMap.set(row.team.id, apiPos);
+          }
+        }
+      }
+    }
+
+    // 3. Initialize table rows for all 36 UCL teams
     const teamStatsMap = new Map<number, {
       team: StandingTeam;
       matches: number;
@@ -365,6 +388,9 @@ export async function recalculateStandings(): Promise<{
       scoresAgainst: number;
       scoreDiff: number;
       points: number;
+      awayGoals: number;
+      awayWins: number;
+      posicion_oficial_api?: number;
     }>();
 
     for (const uclTeam of UCL_36_TEAMS) {
@@ -385,11 +411,14 @@ export async function recalculateStandings(): Promise<{
         scoresFor: 0,
         scoresAgainst: 0,
         scoreDiff: 0,
-        points: 0
+        points: 0,
+        awayGoals: 0,
+        awayWins: 0,
+        posicion_oficial_api: existingPositionsMap.get(uclTeam.id)
       });
     }
 
-    // 3. Process each finished match
+    // 4. Process each finished match
     let processedCount = 0;
     for (const match of finishedMatches) {
       const homeFlagId = match.homeFlag?.match(/\/team\/(\d+)\/image/)?.[1];
@@ -431,6 +460,9 @@ export async function recalculateStandings(): Promise<{
       awayStats.scoresAgainst += hScore;
       awayStats.scoreDiff = awayStats.scoresFor - awayStats.scoresAgainst;
 
+      // REGLA 4 UEFA: Mayor cantidad de goles a favor marcados como visitante
+      awayStats.awayGoals += aScore;
+
       if (hScore > aScore) {
         // Victoria Local
         homeStats.wins += 1;
@@ -440,6 +472,8 @@ export async function recalculateStandings(): Promise<{
         // Victoria Visitante
         awayStats.wins += 1;
         awayStats.points += 3;
+        // REGLA 6 UEFA: Mayor número de victorias como visitante
+        awayStats.awayWins += 1;
         homeStats.losses += 1;
       } else {
         // Empate
@@ -453,21 +487,82 @@ export async function recalculateStandings(): Promise<{
       console.log(`[recalculateStandings] ✓ Computado: ${homeUcl.name} ${hScore} - ${aScore} ${awayUcl.name}`);
     }
 
-    // 4. Sort rows by official UEFA Champions League criteria:
-    // 1st: Points
-    // 2nd: Goal Difference (scoreDiff)
-    // 3rd: Goals Scored (scoresFor)
-    // 4th: Matches won (wins)
-    // 5th: Team Name alphabetical
-    const sortedStats = Array.from(teamStatsMap.values()).sort((a, b) => {
+    // 5. Comparador estricto de Reglas 1 a 6 UEFA Champions League:
+    // 1. Puntos totales (3 por victoria, 1 por empate)
+    // 2. Diferencia de goles (GF - GC)
+    // 3. Mayor cantidad de goles a favor (GF)
+    // 4. Mayor cantidad de goles a favor marcados como visitante
+    // 5. Mayor número de victorias
+    // 6. Mayor número de victorias como visitante
+    const compareRules1to6 = (a: any, b: any): number => {
       if (b.points !== a.points) return b.points - a.points;
       if (b.scoreDiff !== a.scoreDiff) return b.scoreDiff - a.scoreDiff;
       if (b.scoresFor !== a.scoresFor) return b.scoresFor - a.scoresFor;
+      const bAwayGoals = b.awayGoals ?? 0;
+      const aAwayGoals = a.awayGoals ?? 0;
+      if (bAwayGoals !== aAwayGoals) return bAwayGoals - aAwayGoals;
       if (b.wins !== a.wins) return b.wins - a.wins;
+      const bAwayWins = b.awayWins ?? 0;
+      const aAwayWins = a.awayWins ?? 0;
+      if (bAwayWins !== aAwayWins) return bAwayWins - aAwayWins;
+      return 0;
+    };
+
+    // 6. Verificar si existe algún empate no resuelto tras Reglas 1 a 6
+    const allStatsList = Array.from(teamStatsMap.values());
+    let hasUnresolvedTie = false;
+    for (let i = 0; i < allStatsList.length; i++) {
+      for (let j = i + 1; j < allStatsList.length; j++) {
+        const t1 = allStatsList[i];
+        const t2 = allStatsList[j];
+        if (t1.matches > 0 && compareRules1to6(t1, t2) === 0) {
+          // Si ambos equipos están empatados en reglas 1-6 y no tienen posición oficial distinta
+          if (!t1.posicion_oficial_api || !t2.posicion_oficial_api || t1.posicion_oficial_api === t2.posicion_oficial_api) {
+            hasUnresolvedTie = true;
+            break;
+          }
+        }
+      }
+      if (hasUnresolvedTie) break;
+    }
+
+    // Si persiste empate, consultar automáticamente a SerpAPI ("tabla posiciones champions league")
+    if (hasUnresolvedTie) {
+      console.log('[recalculateStandings] ⚠️ Empate detectado tras Reglas 1-6 sin posicion_oficial_api. Consultando SerpAPI...');
+      try {
+        const { fetchSerpApiRaw, parseStandingsWithGemini } = await import('./serpapiSync');
+        const rawNode = await fetchSerpApiRaw('tabla posiciones champions league');
+        const items = await parseStandingsWithGemini(rawNode);
+        for (let idx = 0; idx < items.length; idx++) {
+          const item = items[idx];
+          const uclTeam = findUclTeam(item.equipo);
+          if (uclTeam && teamStatsMap.has(uclTeam.id)) {
+            const teamStat = teamStatsMap.get(uclTeam.id)!;
+            const pos = Number(item.posicion) || (idx + 1);
+            teamStat.posicion_oficial_api = pos;
+          }
+        }
+        console.log('[recalculateStandings] ✅ Posiciones oficiales de la API aplicadas a los equipos.');
+      } catch (err: any) {
+        console.warn('[recalculateStandings] ⚠️ Fallback SerpAPI para desempate no pudo completarse:', err.message);
+      }
+    }
+
+    // 7. Ordenar filas aplicando Reglas 1 a 6, seguidas de Regla 7 (posicion_oficial_api) y alfabético
+    const sortedStats = Array.from(teamStatsMap.values()).sort((a, b) => {
+      const cmp1to6 = compareRules1to6(a, b);
+      if (cmp1to6 !== 0) return cmp1to6;
+
+      // REGLA 7 UEFA (Fallback oficial persistido de la API)
+      const aApi = a.posicion_oficial_api ?? 999;
+      const bApi = b.posicion_oficial_api ?? 999;
+      if (aApi !== bApi) return aApi - bApi;
+
+      // Criterio residual alfabético
       return a.team.name.localeCompare(b.team.name);
     });
 
-    // 5. Assign positions and promotions
+    // 8. Assign positions and promotions
     const finalStandings: StandingRow[] = sortedStats.map((row, index) => {
       const position = index + 1;
       let promotion = 'Eliminado';
@@ -480,7 +575,10 @@ export async function recalculateStandings(): Promise<{
       return {
         ...row,
         position,
-        promotion
+        promotion,
+        awayGoals: row.awayGoals,
+        awayWins: row.awayWins,
+        posicion_oficial_api: row.posicion_oficial_api
       };
     });
 
@@ -503,13 +601,7 @@ export async function recalculateStandings(): Promise<{
       Fase: r.promotion
     })));
 
-    // 6. Read existing doc to preserve season/cupTrees if present
-    const standingsDocRef = doc(db, 'system', 'standings');
-    const existingSnap = await getDoc(standingsDocRef).catch(readErr => {
-      console.warn("[recalculateStandings] No se pudo leer doc existente (se creará uno nuevo):", readErr);
-      return null;
-    });
-    const existingData = existingSnap?.exists() ? existingSnap.data() : {};
+    // 9. Prepare payload preserving existing season and cupTrees
 
     const payload = {
       season: existingData?.season || {

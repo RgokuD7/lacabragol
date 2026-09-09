@@ -29,7 +29,8 @@ import {
   parseStandingsWithGemini, 
   getMockRealMadridVsInterPreview, 
   commitSerpApiStandingsToFirestore, 
-  SerpApiStandingItem 
+  SerpApiStandingItem,
+  checkAndAutoSyncFinishedMatches
 } from '../lib/serpapiSync';
 import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
 import { SerpApiStandingsModal } from '../components/SerpApiStandingsModal';
@@ -78,6 +79,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [serpStandingsPreview, setSerpStandingsPreview] = useState<SerpApiStandingItem[] | null>(null);
   const [serpStandingsRawJson, setSerpStandingsRawJson] = useState<string>('');
   const [isCommittingStandings, setIsCommittingStandings] = useState(false);
+  const [isAutoSyncing, setIsAutoSyncing] = useState(false);
 
   // Status and management states
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -549,6 +551,25 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       setFeedback({ type: 'error', text: 'Error al guardar tabla en Firestore: ' + err.message });
     }
     setIsCommittingStandings(false);
+  };
+
+  const handleRunAutoSyncNow = async () => {
+    setIsAutoSyncing(true);
+    vibrateTap();
+    setFeedback({ type: 'info', text: 'Verificando partidos finalizados (+115m) con candado de concurrencia...' });
+    try {
+      const res = await checkAndAutoSyncFinishedMatches(matches, settings);
+      vibrateSuccess();
+      setFeedback({
+        type: 'success',
+        text: `Auto-sync finalizado: ${res.syncedCount} partido(s) actualizado(s)${res.errors.length > 0 ? `. Hubo ${res.errors.length} advertencia(s).` : '.'}`
+      });
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: `Error en auto-sync: ${err.message}` });
+    } finally {
+      setIsAutoSyncing(false);
+    }
   };
 
   const toggleUserPaid = async (uid: string, current: boolean) => {
@@ -1040,6 +1061,17 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   <span>{isSyncingSerpApiStandings ? 'Obteniendo Tabla...' : 'Forzar Sincronización de Tabla'}</span>
                 </button>
               </div>
+
+              {/* Botón Auto-Sync Inteligente por Partido con Candado */}
+              <button
+                type="button"
+                onClick={handleRunAutoSyncNow}
+                disabled={isAutoSyncing}
+                className="w-full bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98 disabled:opacity-50"
+              >
+                {isAutoSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-emerald-400" />}
+                <span>{isAutoSyncing ? 'Ejecutando Auto-Sync...' : '⚡ Auto-Sync Inteligente (+115m con Candado)'}</span>
+              </button>
 
               {/* Botón Caso de Prueba: Real Madrid vs Inter (Mock Test) */}
               <button

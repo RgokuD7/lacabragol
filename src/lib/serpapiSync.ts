@@ -1,7 +1,7 @@
 import { collection, getDocs, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { Match, Setting } from '../types';
-import { syncMatchPredictionsAndPoints } from './sync';
+import { syncMatchPredictionsAndPoints, syncMatchResult } from './sync';
 import { recalculateStandings, findUclTeam, StandingRow, StandingTeam } from './standings';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { getGeminiApiKey } from './geminiSync';
@@ -345,7 +345,8 @@ export async function commitSerpApiStandingsToFirestore(
         scoresAgainst: item.goles_contra,
         scoreDiff: item.diferencia_goles,
         points: item.puntos,
-        promotion
+        promotion,
+        posicion_oficial_api: pos
       };
     });
 
@@ -357,7 +358,8 @@ export async function commitSerpApiStandingsToFirestore(
       GF: r.scoresFor,
       GC: r.scoresAgainst,
       DG: r.scoreDiff,
-      PTS: r.points
+      PTS: r.points,
+      PosOficialApi: r.posicion_oficial_api
     })));
 
     const standingsDocRef = doc(db, 'system', 'standings');
@@ -393,4 +395,145 @@ export async function commitSerpApiStandingsToFirestore(
       error: err.message
     };
   }
+}
+
+const inFlightSyncMatchIds = new Set<string>();
+
+/**
+ * Sistema de Actualización Inteligente y Automática por Partido (SerpAPI + Gemini + Candado de Concurrencia).
+ * 
+ * Lógica:
+ * - Filtra partidos donde: hora_actual > (hora_inicio + 115 minutos) y status !== 'finished'.
+ * - Candado Anti-Colisión (Firestore):
+ *   - Si is_updating === true y el candado tiene menos de 5 minutos, otro cliente está actualizándolo -> se omite.
+ *   - Antes de llamar a la API, el cliente actualiza el documento con { is_updating: true, is_updating_at: Date.now() }.
+ * - Consulta SerpAPI: `[Local] vs [Visitante] hoy`.
+ * - Gemini extrae y parsea el nodo sports_results al formato estricto de partido.
+ * - Si el partido está finalizado:
+ *   - Se guarda el marcador, goleadores, tarjetas, status = 'finished'.
+ *   - Se libera el candado: is_updating: false.
+ *   - Se recalculan pronósticos, puntos y tabla de posiciones.
+ * - Si no está finalizado o si ocurre un error, se libera el candado: is_updating: false.
+ */
+export async function checkAndAutoSyncFinishedMatches(
+  matches: Match[],
+  settings: Setting | null
+): Promise<{ syncedCount: number; errors: string[] }> {
+  const now = Date.now();
+  const MATCH_DURATION_MS = 115 * 60 * 1000;
+  const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos de expiración para evitar bloqueos permanentes
+
+  // Filtrar candidatos según tiempo y estado
+  const candidates = matches.filter(m => {
+    if (m.status === 'finished') return false;
+    const matchTime = new Date(m.date).getTime();
+    if (isNaN(matchTime)) return false;
+    const isOver115Min = now > (matchTime + MATCH_DURATION_MS);
+    if (!isOver115Min) return false;
+
+    // Throttle local en memoria
+    if (inFlightSyncMatchIds.has(m.id)) return false;
+
+    // Candado remoto en Firestore
+    if (m.is_updating && m.is_updating_at && (now - m.is_updating_at < LOCK_TIMEOUT_MS)) {
+      console.log(`[AutoSync] Partido ${m.homeTeam} vs ${m.awayTeam} está bloqueado por otro cliente (is_updating: true).`);
+      return false;
+    }
+
+    return true;
+  });
+
+  if (candidates.length === 0) {
+    return { syncedCount: 0, errors: [] };
+  }
+
+  console.log(`[AutoSync] Verificando ${candidates.length} partido(s) pendiente(s) tras 115 minutos...`);
+  let syncedCount = 0;
+  const errors: string[] = [];
+
+  for (const match of candidates) {
+    inFlightSyncMatchIds.add(match.id);
+    const matchRef = doc(db, 'matches', match.id);
+
+    try {
+      // 1. Verificación atómica en Firestore antes de llamar a la API
+      const snap = await getDoc(matchRef);
+      if (snap.exists()) {
+        const fresh = snap.data() as Match;
+        if (fresh.status === 'finished') {
+          inFlightSyncMatchIds.delete(match.id);
+          continue;
+        }
+        if (fresh.is_updating && fresh.is_updating_at && (Date.now() - fresh.is_updating_at < LOCK_TIMEOUT_MS)) {
+          console.log(`[AutoSync] Partido ${match.homeTeam} vs ${match.awayTeam} fue bloqueado concurrentemente por otro cliente.`);
+          inFlightSyncMatchIds.delete(match.id);
+          continue;
+        }
+      }
+
+      // 2. Activar candado de concurrencia en Firestore
+      await updateDoc(matchRef, {
+        is_updating: true,
+        is_updating_at: Date.now()
+      });
+      console.log(`[AutoSync] 🔒 Candado activado para: ${match.homeTeam} vs ${match.awayTeam}`);
+
+      // 3. Consultar SerpAPI
+      const queryStr = `${match.homeTeam} vs ${match.awayTeam} hoy`;
+      const rawNode = await fetchSerpApiRaw(queryStr);
+      const parsed = await parseMatchWithGemini(rawNode, { local: match.homeTeam, visitante: match.awayTeam });
+
+      const isFinished = 
+        parsed.estado.toLowerCase().includes('final') ||
+        parsed.estado.toLowerCase().includes('ft') ||
+        parsed.estado.toLowerCase().includes('terminado');
+
+      if (isFinished) {
+        console.log(`[AutoSync] ⚽ Partido finalizado confirmado: ${parsed.local} ${parsed.goles_local} - ${parsed.goles_visitante} ${parsed.visitante}`);
+
+        // 4. Guardar resultado final y liberar candado
+        await updateDoc(matchRef, {
+          homeScore: parsed.goles_local,
+          awayScore: parsed.goles_visitante,
+          status: 'finished',
+          goalscorers: parsed.goleadores || [],
+          cards: parsed.tarjetas || [],
+          is_synced: true,
+          is_updating: false,
+          updated_at: Date.now()
+        });
+
+        const updatedMatch: Match = {
+          ...match,
+          homeScore: parsed.goles_local,
+          awayScore: parsed.goles_visitante,
+          status: 'finished',
+          goalscorers: parsed.goleadores || [],
+          cards: parsed.tarjetas || [],
+          is_synced: true,
+          is_updating: false
+        };
+
+        // 5. Recalcular puntos, medallas, rachas y tabla de posiciones
+        await syncMatchResult(updatedMatch, settings, true);
+        syncedCount++;
+      } else {
+        console.log(`[AutoSync] Partido aún no finalizado (${parsed.estado}). Liberando candado.`);
+        await updateDoc(matchRef, {
+          is_updating: false
+        });
+      }
+    } catch (err: any) {
+      console.error(`[AutoSync] Error actualizando partido ${match.homeTeam} vs ${match.awayTeam}:`, err);
+      errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${err.message}`);
+      // Liberar candado en caso de error
+      await updateDoc(matchRef, {
+        is_updating: false
+      }).catch(() => null);
+    } finally {
+      inFlightSyncMatchIds.delete(match.id);
+    }
+  }
+
+  return { syncedCount, errors };
 }

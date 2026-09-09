@@ -15,6 +15,7 @@ import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionMod
 import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
+import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
 import { 
   Check, 
   Calendar, 
@@ -205,6 +206,25 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
     return () => unsubPreds();
   }, [user, activeGroupId]);
+
+  // Sistema de Actualización Inteligente y Automática por Partido (SerpAPI + Gemini + Candado)
+  useEffect(() => {
+    if (!matches || matches.length === 0) return;
+
+    // Ejecuta la verificación automática cuando los partidos cargan o cambian
+    checkAndAutoSyncFinishedMatches(matches, settings).catch(err => {
+      console.warn("[PredictionsTab] Error en auto-sync de partidos:", err);
+    });
+
+    // Revisa periódicamente cada 60 segundos
+    const interval = setInterval(() => {
+      checkAndAutoSyncFinishedMatches(matches, settings).catch(err => {
+        console.warn("[PredictionsTab] Error en intervalo de auto-sync:", err);
+      });
+    }, 60 * 1000);
+
+    return () => clearInterval(interval);
+  }, [matches, settings]);
 
   const handleScoreChange = (matchId: string, type: 'home' | 'away', val: string) => {
     const cleanVal = val.replace(/[^0-9]/g, '').slice(0, 2);

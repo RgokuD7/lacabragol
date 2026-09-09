@@ -65,6 +65,10 @@ export interface Match {
   apiId?: string | number;
   is_synced?: boolean;
   is_fetching?: boolean;
+  is_updating?: boolean;
+  is_updating_at?: number;
+  goalscorers?: any[];
+  cards?: any[];
 }
 
 export interface Prediction {
