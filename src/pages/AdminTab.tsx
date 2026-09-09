@@ -380,7 +380,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         vibrateSuccess();
         setFeedback({
           type: 'success',
-          text: `¡Recálculo exitoso! Se corrigieron ${res.updatedUsersCount} usuarios, se auditaron ${res.updatedPredictionsCount} pronósticos y se recalcularon las medallas oficiales sobre ${res.totalMatchesCount} partidos finalizados. Tabla UCL sincronizada.`
+          text: `¡Recálculo exitoso! Se auditaron ${res.auditedPredictionsCount} pronósticos (${res.correctedPredictionsCount} corregidos), se recalcularon ${res.updatedUsersCount} usuarios y se actualizaron las 15 medallas sobre ${res.totalMatchesCount} partidos finalizados. Tabla UCL sincronizada.`
         });
       }
     } catch (err: any) {

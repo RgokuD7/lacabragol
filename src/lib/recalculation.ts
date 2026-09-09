@@ -104,8 +104,7 @@ export async function recalculateUsersAbsolute(
         uid,
         preds,
         finishedMatchesMap,
-        finishedMatchesList,
-        pointsExactMatch
+        finishedMatchesList
       );
 
       const userRef = doc(db, 'users', uid);
@@ -126,9 +125,11 @@ export async function recalculateUsersAbsolute(
 
 /**
  * RECALCULO GENERAL DE EMERGENCIA (100% Base de Datos - CERO llamadas a SerpAPI):
- * 1. Audita todas las predicciones de partidos finalizados y corrige pointsEarned si difiere.
- * 2. Deduplica pronósticos por partido para evitar inflar puntos por pertenecer a varios grupos.
- * 3. Suma de forma absoluta los puntos y plenos de cada usuario.
+ * 1. Audita todas las predicciones de la BBDD:
+ *    - Partidos finalizados: reevalúa pointsEarned según las reglas del grupo correspondiente.
+ *    - Partidos pendientes/futuros: fuerza pointsEarned estrictamente a 0 si contenían puntos residuales.
+ * 2. Deduplica pronósticos por partido para evitar inflar puntos globales por pertenecer a varios grupos.
+ * 3. Suma de forma absoluta los puntos y plenos reales de cada usuario (iniciando estrictamente en 0).
  * 4. Limpia el array medallas y reevalúa retroactivamente los 15 logros oficiales.
  * 5. Sobrescribe users/{userId} con points, exactMatches, rachas y medallas.
  * 6. Dispara recalculateStandings() al culminar.
@@ -138,21 +139,27 @@ export async function recalculateAllUsersFromDatabase(
 ): Promise<{
   success: boolean;
   updatedUsersCount: number;
-  updatedPredictionsCount: number;
+  auditedPredictionsCount: number;
+  correctedPredictionsCount: number;
   totalMatchesCount: number;
 }> {
   console.log('[recalculateAllUsersFromDatabase] Iniciando recálculo masivo 100% BBDD...');
 
   try {
-    // 1. Obtener Settings
-    let settings = settingsOverride;
-    if (!settings) {
+    // 1. Obtener todas las configuraciones de grupos
+    const settingsSnap = await getDocs(collection(db, 'settings'));
+    const settingsByGroup: Record<string, Setting> = {};
+    settingsSnap.docs.forEach(d => {
+      settingsByGroup[d.id] = { id: d.id, ...d.data() } as any;
+    });
+
+    let defaultSettings = settingsOverride;
+    if (!defaultSettings) {
       const globalSetSnap = await getDoc(doc(db, 'settings', 'global')).catch(() => null);
       if (globalSetSnap && globalSetSnap.exists()) {
-        settings = globalSetSnap.data() as Setting;
+        defaultSettings = globalSetSnap.data() as Setting;
       }
     }
-    const pointsExactMatch = settings?.pointsExactMatch ?? 3;
 
     // 2. Obtener todos los partidos
     const matchesSnap = await getDocs(collection(db, 'matches'));
@@ -182,19 +189,27 @@ export async function recalculateAllUsersFromDatabase(
 
     console.log(`[recalculateAllUsersFromDatabase] Partidos finalizados detectados: ${finishedMatchesList.length}`);
 
-    // 3. Obtener todas las predicciones
+    // 3. Obtener todas las predicciones de la colección raíz /predictions
     const predsSnap = await getDocs(collection(db, 'predictions'));
     const allPredictions: Prediction[] = predsSnap.docs.map(d => ({ id: d.id, ...d.data() } as Prediction));
 
-    console.log(`[recalculateAllUsersFromDatabase] Pronósticos totales en BBDD: ${allPredictions.length}`);
+    console.log(`[recalculateAllUsersFromDatabase] Pronósticos totales auditados en BBDD: ${allPredictions.length}`);
 
     const predBatchOps: ((batch: WriteBatch) => void)[] = [];
-    let updatedPredictionsCount = 0;
+    let correctedPredictionsCount = 0;
 
-    // 4. Auditar pointsEarned en cada predicción de partido finalizado
+    // 4. Auditar pointsEarned en TODAS las predicciones:
+    // - Si el partido está finalizado, se reevalúa con las reglas del grupo de la predicción.
+    // - Si el partido NO está finalizado o no existe, pointsEarned DEBE ser 0.
     allPredictions.forEach(pred => {
       const match = finishedMatchesMap[pred.matchId];
+      let expectedPoints = 0;
+
       if (match) {
+        const predSettings = (pred.groupId && settingsByGroup[pred.groupId])
+          ? settingsByGroup[pred.groupId]
+          : (defaultSettings || null);
+
         const evalRes = evaluatePrediction(
           match.homeScore,
           match.awayScore,
@@ -202,20 +217,23 @@ export async function recalculateAllUsersFromDatabase(
           pred.awayScore,
           'finished',
           true,
-          settings
+          predSettings
         );
+        expectedPoints = evalRes.points;
+      } else {
+        expectedPoints = 0;
+      }
 
-        if (pred.pointsEarned !== evalRes.points) {
-          pred.pointsEarned = evalRes.points;
-          updatedPredictionsCount++;
-          const predRef = doc(db, 'predictions', pred.id);
-          predBatchOps.push(batch => {
-            batch.update(predRef, {
-              pointsEarned: evalRes.points,
-              updatedAt: Date.now()
-            });
+      if ((pred.pointsEarned ?? 0) !== expectedPoints) {
+        pred.pointsEarned = expectedPoints;
+        correctedPredictionsCount++;
+        const predRef = doc(db, 'predictions', pred.id);
+        predBatchOps.push(batch => {
+          batch.update(predRef, {
+            pointsEarned: expectedPoints,
+            updatedAt: Date.now()
           });
-        }
+        });
       }
     });
 
@@ -247,8 +265,7 @@ export async function recalculateAllUsersFromDatabase(
         u.uid,
         userPreds,
         finishedMatchesMap,
-        finishedMatchesList,
-        pointsExactMatch
+        finishedMatchesList
       );
 
       const userRef = doc(db, 'users', u.uid);
@@ -273,7 +290,8 @@ export async function recalculateAllUsersFromDatabase(
     return {
       success: true,
       updatedUsersCount: allUsers.length,
-      updatedPredictionsCount,
+      auditedPredictionsCount: allPredictions.length,
+      correctedPredictionsCount,
       totalMatchesCount: finishedMatchesList.length
     };
   } catch (err) {
@@ -290,8 +308,7 @@ function calculateUserStatsAndMedals(
   userId: string,
   userPreds: Prediction[],
   finishedMatchesMap: Record<string, Match>,
-  sortedFinishedMatches: Match[],
-  pointsExactMatch: number = 3
+  sortedFinishedMatches: Match[]
 ): { userUpdate: Record<string, any> } {
   // Deduplicar pronósticos por matchId para evitar que usuarios en múltiples grupos
   // sumen puntos duplicados en su perfil global
@@ -309,14 +326,27 @@ function calculateUserStatsAndMedals(
     }
   });
 
-  // 1. Suma absoluta de puntos y exactMatches
+  // Helper para verificar pleno exacto de marcador
+  const isExactScore = (p: Prediction, m: Match): boolean => {
+    return (
+      m.homeScore !== null &&
+      m.homeScore !== undefined &&
+      m.awayScore !== null &&
+      m.awayScore !== undefined &&
+      p.homeScore === m.homeScore &&
+      p.awayScore === m.awayScore
+    );
+  };
+
+  // 1. Suma absoluta de puntos y exactMatches (reiniciados estrictamente en cero)
   let absolutePoints = 0;
   let absoluteExactMatches = 0;
 
   Object.values(uniqueMatchPreds).forEach(p => {
     const pts = p.pointsEarned || 0;
     absolutePoints += pts;
-    if (pts === pointsExactMatch) {
+    const m = finishedMatchesMap[p.matchId];
+    if (m && isExactScore(p, m)) {
       absoluteExactMatches += 1;
     }
   });
@@ -335,7 +365,7 @@ function calculateUserStatsAndMedals(
     const rAway = m.awayScore!;
     const pts = p.pointsEarned || 0;
 
-    const exact = pHome === rHome && pAway === rAway;
+    const exact = isExactScore(p, m);
     const realDiff = rHome - rAway;
     const predDiff = pHome - pAway;
     const sameOutcome =
@@ -396,7 +426,10 @@ function calculateUserStatsAndMedals(
     const numPreds = userJornadaPreds.length;
     const numMatches = jMatches.length;
     const jTotalPts = userJornadaPreds.reduce((sum, p) => sum + (p.pointsEarned || 0), 0);
-    const jExacts = userJornadaPreds.filter(p => (p.pointsEarned || 0) === pointsExactMatch);
+    const jExacts = userJornadaPreds.filter(p => {
+      const m = finishedMatchesMap[p.matchId];
+      return m ? isExactScore(p, m) : false;
+    });
     const jMisses = userJornadaPreds.filter(p => (p.pointsEarned || 0) === 0);
 
     // 🐐 Cabra de Oro: Puntuó (>0) en TODOS los partidos de la jornada (mínimo 4 partidos)
@@ -438,7 +471,9 @@ function calculateUserStatsAndMedals(
     const pred = uniqueMatchPreds[m.id];
     if (pred) {
       const pts = pred.pointsEarned || 0;
-      if (pts === pointsExactMatch) {
+      const isPleno = isExactScore(pred, m);
+
+      if (isPleno) {
         current_pleno++;
         current_normal++;
         current_falla = 0;

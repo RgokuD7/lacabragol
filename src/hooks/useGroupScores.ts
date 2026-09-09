@@ -32,7 +32,7 @@ export function useGroupScores(
 
     const recompute = () => {
       const scores: Record<string, MemberScore> = {};
-      const userFinishedPreds: Record<string, { pred: Prediction; matchTime: number; updatedAt: number }[]> = {};
+      const userFinishedPreds: Record<string, { pred: Prediction; matchTime: number; updatedAt: number; isExact: boolean }[]> = {};
 
       predictionsList.forEach((pred) => {
         const uid = pred.userId;
@@ -42,15 +42,26 @@ export function useGroupScores(
           scores[uid] = { points: 0, exactMatches: 0, streak_pleno: 0, streak_normal: 0 };
         }
 
-        const pts = pred.pointsEarned || 0;
-        scores[uid].points += pts;
-
-        if (pts > 0 && pts === exactMatchPoints) {
-          scores[uid].exactMatches += 1;
-        }
-
         const match = matchesMap[pred.matchId];
-        if (match && match.status === 'finished') {
+        if (
+          match &&
+          match.status === 'finished' &&
+          match.homeScore !== null &&
+          match.homeScore !== undefined &&
+          match.awayScore !== null &&
+          match.awayScore !== undefined
+        ) {
+          const pts = pred.pointsEarned || 0;
+          scores[uid].points += pts;
+
+          const isExact =
+            pred.homeScore === match.homeScore &&
+            pred.awayScore === match.awayScore;
+
+          if (isExact) {
+            scores[uid].exactMatches += 1;
+          }
+
           if (!userFinishedPreds[uid]) {
             userFinishedPreds[uid] = [];
           }
@@ -58,7 +69,8 @@ export function useGroupScores(
           userFinishedPreds[uid].push({ 
             pred, 
             matchTime: mTime,
-            updatedAt: pred.updatedAt || 0
+            updatedAt: pred.updatedAt || 0,
+            isExact
           });
         }
       });
@@ -74,8 +86,7 @@ export function useGroupScores(
         // Count streaks backwards from the most recently finished match
         let streakPleno = 0;
         for (let i = list.length - 1; i >= 0; i--) {
-          const pts = list[i].pred.pointsEarned || 0;
-          if (pts === exactMatchPoints) {
+          if (list[i].isExact) {
             streakPleno++;
           } else {
             break;
