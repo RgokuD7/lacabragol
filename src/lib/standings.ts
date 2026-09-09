@@ -2,6 +2,7 @@ import { collection, doc, getDoc, getDocs, setDoc } from 'firebase/firestore';
 import { db } from './firebase';
 import { UCL_36_TEAMS, UCL_LEAGUE_PHASE_MATCHES, getTeamLogoByName } from '../data/fixtures';
 import { Match } from '../types';
+import { sanitizeForFirestore } from './utils';
 
 export interface StandingTeam {
   id?: number;
@@ -614,9 +615,11 @@ export async function recalculateStandings(): Promise<{
       lastRecalculatedAt: Date.now()
     };
 
-    console.log('[recalculateStandings] Guardando en Firestore en doc(system/standings) con await...');
+    const sanitizedPayload = sanitizeForFirestore(payload);
+
+    console.log('[recalculateStandings] Guardando en Firestore en doc(system/standings) sanitizado...');
     // STRICTLY AWAIT THE WRITE PROMISE
-    await setDoc(standingsDocRef, payload, { merge: true });
+    await setDoc(standingsDocRef, sanitizedPayload, { merge: true });
     console.log('✅ [recalculateStandings] ¡Guardado exitoso confirmado en Firestore!');
 
     return {

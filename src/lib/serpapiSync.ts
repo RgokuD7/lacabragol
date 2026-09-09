@@ -5,6 +5,7 @@ import { syncMatchPredictionsAndPoints, syncMatchResult } from './sync';
 import { recalculateStandings, findUclTeam, StandingRow, StandingTeam } from './standings';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { getGeminiApiKey } from './geminiSync';
+import { sanitizeForFirestore } from './utils';
 
 export const DEFAULT_SERPAPI_KEY = "30ebec1be507cf06e25598686b84f4aa3c9c56abd6bc7c2e13ac23ce0851cd8e";
 
@@ -321,31 +322,31 @@ export async function commitSerpApiStandingsToFirestore(
       const logoUrl = getTeamLogoByName(teamName) || (uclTeam?.id ? `https://img.sofascore.com/api/v1/team/${uclTeam.id}/image` : '');
 
       const standingTeam: StandingTeam = {
-        id: uclTeam?.id,
-        name: teamName,
-        shortName,
-        nameCode: shortName.slice(0, 3).toUpperCase(),
-        logo: logoUrl,
-        country: uclTeam?.country
+        id: uclTeam?.id ?? null,
+        name: teamName || 'Club Desconocido',
+        shortName: shortName || teamName || 'Club',
+        nameCode: (shortName || teamName || 'CLB').slice(0, 3).toUpperCase(),
+        logo: logoUrl || '',
+        country: uclTeam?.country || ''
       };
 
-      const wins = Math.floor(item.puntos / 3);
-      const remainingPts = item.puntos % 3;
+      const wins = Math.floor((item.puntos || 0) / 3);
+      const remainingPts = (item.puntos || 0) % 3;
       const draws = remainingPts;
-      const losses = Math.max(0, item.partidos_jugados - wins - draws);
+      const losses = Math.max(0, (item.partidos_jugados || 0) - wins - draws);
 
       return {
         position: pos,
         team: standingTeam,
-        matches: item.partidos_jugados,
+        matches: item.partidos_jugados ?? 0,
         wins,
         draws,
         losses,
-        scoresFor: item.goles_favor,
-        scoresAgainst: item.goles_contra,
-        scoreDiff: item.diferencia_goles,
-        points: item.puntos,
-        promotion,
+        scoresFor: item.goles_favor ?? 0,
+        scoresAgainst: item.goles_contra ?? 0,
+        scoreDiff: item.diferencia_goles ?? 0,
+        points: item.puntos ?? 0,
+        promotion: promotion || '',
         posicion_oficial_api: pos
       };
     });
@@ -377,8 +378,10 @@ export async function commitSerpApiStandingsToFirestore(
       lastRecalculatedAt: Date.now()
     };
 
-    console.log('[commitSerpApiStandingsToFirestore] Guardando en Firestore en doc(system/standings)...');
-    await setDoc(standingsDocRef, payload, { merge: true });
+    const sanitizedPayload = sanitizeForFirestore(payload);
+
+    console.log('[commitSerpApiStandingsToFirestore] Guardando en Firestore en doc(system/standings) sanitizado...');
+    await setDoc(standingsDocRef, sanitizedPayload, { merge: true });
     console.log('[commitSerpApiStandingsToFirestore] ¡Guardado exitoso confirmado en Firestore!');
 
     return {

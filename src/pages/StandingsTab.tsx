@@ -17,6 +17,7 @@ import {
 import { recalculateStandings } from '../lib/standings';
 import { vibrateTap } from '../lib/haptics';
 import { cn } from '../lib/utils';
+import { TopScorersView } from '../components/TopScorersView';
 
 interface StandingTeam {
   id?: number;
@@ -291,6 +292,7 @@ export function StandingsTab() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'brackets'>('table');
+  const [activeSection, setActiveSection] = useState<'standings' | 'scorers'>('standings');
 
   // Apple Sports Scrubber Stage Range State
   const [startRoundIdx, setStartRoundIdx] = useState<number>(0);
@@ -472,7 +474,7 @@ export function StandingsTab() {
     <div 
       className="w-full flex-1 flex flex-col min-h-0 overflow-hidden max-w-4xl mx-auto font-sans text-[#e4e4e7] px-2 sm:px-4 pt-1 h-full"
     >
-      {/* Title & Search bar: Flex-shrink 0 */}
+      {/* Title & Actions: Flex-shrink 0 */}
       <div className="flex-shrink-0 space-y-2 pb-2">
         <div className="flex items-center justify-between gap-2 border-b border-zinc-800/80 pb-2">
           <div className="min-w-0">
@@ -485,146 +487,192 @@ export function StandingsTab() {
               </span>
             </div>
             <p className="text-[10px] sm:text-xs text-zinc-400 truncate">
-              Tabla de Posiciones Oficial · Fase de Liga (36 clubes)
+              {activeSection === 'standings' 
+                ? 'Tabla de Posiciones Oficial · Fase de Liga (36 clubes)'
+                : 'Tabla Oficial de Máximos Goleadores (Top Scorers)'}
             </p>
           </div>
 
+          {activeSection === 'standings' && (
+            <button
+              type="button"
+              onClick={async () => {
+                setIsRefreshing(true);
+                vibrateTap();
+                await recalculateStandings().catch(console.error);
+                setIsRefreshing(false);
+              }}
+              disabled={isRefreshing}
+              className="p-2 bg-[#121215] hover:bg-zinc-800 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+              title="Recalcular Tabla Oficial"
+            >
+              <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-blue-400")} />
+            </button>
+          )}
+        </div>
+
+        {/* Sub-navigation Switcher: Clasificación vs Goleadores */}
+        <div className="flex bg-[#121215] p-1 rounded-xl border border-zinc-800/80 gap-1 shrink-0">
           <button
             type="button"
-            onClick={async () => {
-              setIsRefreshing(true);
+            onClick={() => {
               vibrateTap();
-              await recalculateStandings().catch(console.error);
-              setIsRefreshing(false);
+              setActiveSection('standings');
             }}
-            disabled={isRefreshing}
-            className="p-2 bg-[#121215] hover:bg-zinc-800 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-            title="Recalcular Tabla Oficial"
+            className={cn(
+              "flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              activeSection === 'standings'
+                ? "bg-blue-600 text-white shadow-sm font-black"
+                : "text-zinc-400 hover:text-white"
+            )}
           >
-            <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-blue-400")} />
+            <Table2 className="w-3.5 h-3.5" />
+            <span>Clasificación</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              vibrateTap();
+              setActiveSection('scorers');
+            }}
+            className={cn(
+              "flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              activeSection === 'scorers'
+                ? "bg-blue-600 text-white shadow-sm font-black"
+                : "text-zinc-400 hover:text-white"
+            )}
+          >
+            <span className="text-xs">⚽</span>
+            <span>Goleadores</span>
           </button>
         </div>
-
-        {/* Search filter denso */}
-        <div className="relative">
-          <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Buscar club (Real Madrid, City, Bayern)..."
-            className="w-full bg-[#121215] border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-zinc-600 outline-none focus:border-blue-500 transition-colors"
-          />
-        </div>
       </div>
 
-      {/* Table Container: flex: 1; overflow-y: auto; SOLO ESTE CONTENEDOR HACE SCROLL */}
-      <div 
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-auto bg-[#121215] rounded-xl border border-zinc-800 shadow-lg relative overscroll-contain"
-        style={{ WebkitOverflowScrolling: "touch" }}
-      >
-        <table className="w-full text-left whitespace-nowrap text-xs border-collapse">
-          <thead 
-            className="bg-[#18181b] text-[10px] uppercase font-black text-zinc-400 border-b border-zinc-800 sticky top-0 z-30 shadow-md rounded-t-xl"
+      {activeSection === 'scorers' ? (
+        <TopScorersView />
+      ) : (
+        <>
+          {/* Search filter denso */}
+          <div className="relative shrink-0 pb-1">
+            <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Buscar club (Real Madrid, City, Bayern)..."
+              className="w-full bg-[#121215] border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-zinc-600 outline-none focus:border-blue-500 transition-colors"
+            />
+          </div>
+
+          {/* Table Container: flex: 1; overflow-y: auto; SOLO ESTE CONTENEDOR HACE SCROLL */}
+          <div 
+            className="flex-1 min-h-0 overflow-y-auto overflow-x-auto bg-[#121215] rounded-xl border border-zinc-800 shadow-lg relative overscroll-contain"
+            style={{ WebkitOverflowScrolling: "touch" }}
           >
-            <tr>
-              {/* Sticky Pos */}
-              <th className="py-2.5 px-1 text-center w-7 min-w-[28px] max-w-[28px] sticky left-0 top-0 z-50 bg-[#18181b] border-r border-b border-zinc-800/80">
-                #
-              </th>
-              {/* Sticky Club */}
-              <th className="py-2.5 px-2.5 sticky left-[28px] top-0 z-50 bg-[#18181b] border-r border-b border-zinc-800 w-[130px] min-w-[130px] max-w-[130px]">
-                Club
-              </th>
-              {/* Sticky PTS */}
-              <th className="py-2.5 px-2 text-center w-12 min-w-[48px] max-w-[48px] font-black text-white bg-blue-950 border-r border-b border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] top-0 z-50">
-                PTS
-              </th>
-              {/* Scrollable Stats */}
-              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">PJ</th>
-              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">G</th>
-              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">E</th>
-              <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">P</th>
-              <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">GF</th>
-              <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">GC</th>
-              <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">DG</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-zinc-800/60 font-sans">
-            {filteredStandings.map((row) => {
-              const badge = getPositionBadge(row.position);
-              const rowBg = row.position <= 8 ? 'bg-[#0a1712]' : row.position <= 24 ? 'bg-[#0d1624]' : 'bg-[#121215]';
-              const stickyBg = row.position <= 8 ? 'bg-[#0c1d17]' : row.position <= 24 ? 'bg-[#0f1b2d]' : 'bg-[#141418]';
-
-              return (
-                <tr 
-                  key={row.position} 
-                  className={`hover:bg-zinc-800/40 transition-colors ${rowBg}`}
-                >
-                  {/* Sticky Position column */}
-                  <td className={`py-1.5 px-1 text-center sticky left-0 z-10 w-7 min-w-[28px] max-w-[28px] ${stickyBg} border-r border-zinc-800/60`}>
-                    <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-black border ${badge.bg}`}>
-                      {row.position}
-                    </span>
-                  </td>
-
-                  {/* Sticky Club column */}
-                  <td className={`py-1.5 px-2.5 font-bold text-white sticky left-[28px] z-10 w-[130px] min-w-[130px] max-w-[130px] ${stickyBg} border-r border-zinc-800`}>
-                    <div className="flex items-center gap-2">
-                      <TeamBadge src={row.team.logo} teamName={row.team.name} size="sm" className="w-5 h-5 shrink-0" />
-                      <span className="truncate text-xs" title={row.team.name}>
-                        {row.team.name}
-                      </span>
-                    </div>
-                  </td>
-
-                  {/* Sticky PTS column */}
-                  <td className="py-1.5 px-2 text-center font-mono font-black text-xs text-white bg-blue-950/95 backdrop-blur-sm border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-10 w-12 min-w-[48px] max-w-[48px]">
-                    {row.points}
-                  </td>
-                  <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.matches}</td>
-                  <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.wins}</td>
-                  <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.draws}</td>
-                  <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.losses}</td>
-                  <td className="py-1.5 px-2 text-center font-mono text-zinc-400 text-[11px]">{row.scoresFor}</td>
-                  <td className="py-1.5 px-2 text-center font-mono text-zinc-400 text-[11px]">{row.scoresAgainst}</td>
-                  <td className="py-1.5 px-2 text-center font-mono font-bold text-[11px]">
-                    <span className={row.scoreDiff > 0 ? 'text-emerald-400' : row.scoreDiff < 0 ? 'text-rose-400' : 'text-zinc-400'}>
-                      {row.scoreDiff > 0 ? `+${row.scoreDiff}` : row.scoreDiff}
-                    </span>
-                  </td>
+            <table className="w-full text-left whitespace-nowrap text-xs border-collapse">
+              <thead 
+                className="bg-[#18181b] text-[10px] uppercase font-black text-zinc-400 border-b border-zinc-800 sticky top-0 z-30 shadow-md rounded-t-xl"
+              >
+                <tr>
+                  {/* Sticky Pos */}
+                  <th className="py-2.5 px-1 text-center w-7 min-w-[28px] max-w-[28px] sticky left-0 top-0 z-50 bg-[#18181b] border-r border-b border-zinc-800/80">
+                    #
+                  </th>
+                  {/* Sticky Club */}
+                  <th className="py-2.5 px-2.5 sticky left-[28px] top-0 z-50 bg-[#18181b] border-r border-b border-zinc-800 w-[130px] min-w-[130px] max-w-[130px]">
+                    Club
+                  </th>
+                  {/* Sticky PTS */}
+                  <th className="py-2.5 px-2 text-center w-12 min-w-[48px] max-w-[48px] font-black text-white bg-blue-950 border-r border-b border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] top-0 z-50">
+                    PTS
+                  </th>
+                  {/* Scrollable Stats */}
+                  <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">PJ</th>
+                  <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">G</th>
+                  <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">E</th>
+                  <th className="py-2.5 px-2 text-center w-9 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">P</th>
+                  <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">GF</th>
+                  <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">GC</th>
+                  <th className="py-2.5 px-2 text-center w-10 sticky top-0 z-40 bg-[#18181b] border-b border-zinc-800">DG</th>
                 </tr>
-              );
-            })}
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60 font-sans">
+                {filteredStandings.map((row) => {
+                  const badge = getPositionBadge(row.position);
+                  const rowBg = row.position <= 8 ? 'bg-[#0a1712]' : row.position <= 24 ? 'bg-[#0d1624]' : 'bg-[#121215]';
+                  const stickyBg = row.position <= 8 ? 'bg-[#0c1d17]' : row.position <= 24 ? 'bg-[#0f1b2d]' : 'bg-[#141418]';
 
-            {filteredStandings.length === 0 && !loading && (
-              <tr>
-                <td colSpan={10} className="py-8 text-center text-zinc-500 text-xs">
-                  No se encontraron equipos para "{searchQuery}"
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+                  return (
+                    <tr 
+                      key={row.position} 
+                      className={`hover:bg-zinc-800/40 transition-colors ${rowBg}`}
+                    >
+                      {/* Sticky Position column */}
+                      <td className={`py-1.5 px-1 text-center sticky left-0 z-10 w-7 min-w-[28px] max-w-[28px] ${stickyBg} border-r border-zinc-800/60`}>
+                        <span className={`inline-flex items-center justify-center w-5 h-5 rounded text-[10px] font-black border ${badge.bg}`}>
+                          {row.position}
+                        </span>
+                      </td>
 
-      {/* Footer Legend: flex-shrink: 0 */}
-      <div className="flex-shrink-0 pt-2 pb-1">
-        <div className="bg-[#121215] border border-zinc-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-400 shadow-md">
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded bg-emerald-400"></span>
-            <span><strong>1°-8°</strong>: Octavos directos</span>
+                      {/* Sticky Club column */}
+                      <td className={`py-1.5 px-2.5 font-bold text-white sticky left-[28px] z-10 w-[130px] min-w-[130px] max-w-[130px] ${stickyBg} border-r border-zinc-800`}>
+                        <div className="flex items-center gap-2">
+                          <TeamBadge src={row.team.logo} teamName={row.team.name} size="sm" className="w-5 h-5 shrink-0" />
+                          <span className="truncate text-xs" title={row.team.name}>
+                            {row.team.name}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Sticky PTS column */}
+                      <td className="py-1.5 px-2 text-center font-mono font-black text-xs text-white bg-blue-950/95 backdrop-blur-sm border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-10 w-12 min-w-[48px] max-w-[48px]">
+                        {row.points}
+                      </td>
+                      <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.matches}</td>
+                      <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.wins}</td>
+                      <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.draws}</td>
+                      <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.losses}</td>
+                      <td className="py-1.5 px-2 text-center font-mono text-zinc-400 text-[11px]">{row.scoresFor}</td>
+                      <td className="py-1.5 px-2 text-center font-mono text-zinc-400 text-[11px]">{row.scoresAgainst}</td>
+                      <td className="py-1.5 px-2 text-center font-mono font-bold text-[11px]">
+                        <span className={row.scoreDiff > 0 ? 'text-emerald-400' : row.scoreDiff < 0 ? 'text-rose-400' : 'text-zinc-400'}>
+                          {row.scoreDiff > 0 ? `+${row.scoreDiff}` : row.scoreDiff}
+                        </span>
+                      </td>
+                    </tr>
+                  );
+                })}
+
+                {filteredStandings.length === 0 && !loading && (
+                  <tr>
+                    <td colSpan={10} className="py-8 text-center text-zinc-500 text-xs">
+                      No se encontraron equipos para "{searchQuery}"
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded bg-blue-400"></span>
-            <span><strong>9°-24°</strong>: Playoffs (16avos)</span>
+
+          {/* Footer Legend: flex-shrink: 0 */}
+          <div className="flex-shrink-0 pt-2 pb-1">
+            <div className="bg-[#121215] border border-zinc-800 rounded-xl px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-[10px] text-zinc-400 shadow-md">
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded bg-emerald-400"></span>
+                <span><strong>1°-8°</strong>: Octavos directos</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded bg-blue-400"></span>
+                <span><strong>9°-24°</strong>: Playoffs (16avos)</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded bg-zinc-600"></span>
+                <span><strong>25°-36°</strong>: Eliminados</span>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded bg-zinc-600"></span>
-            <span><strong>25°-36°</strong>: Eliminados</span>
-          </div>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   );
 };

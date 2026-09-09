@@ -13,6 +13,7 @@ import { TeamBadge } from '../components/TeamBadge';
 import { MatchPredictions } from '../components/MatchPredictions';
 import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionModal';
 import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
+import { MatchEventsModal } from '../components/MatchEventsModal';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
 import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
@@ -86,6 +87,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     match: null,
     initialFocus: 'home'
   });
+  const [eventsModalMatch, setEventsModalMatch] = useState<Match | null>(null);
 
   // Keep live match minutes and lock states reactive in real-time
   useEffect(() => {
@@ -661,7 +663,18 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                   </span>
                 </div>
                 
-                <div className="flex items-center gap-1 shrink-0">
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEventsModalMatch(match)}
+                    className="text-[9px] uppercase font-bold text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 px-2 py-0.5 rounded border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center gap-1 cursor-pointer"
+                    title="Ver eventos y detalles del partido"
+                  >
+                    <span>Detalles</span>
+                    {((match.goalscorers && match.goalscorers.length > 0) || (match.cards && match.cards.length > 0)) && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                    )}
+                  </button>
                   <span className="text-[9px] uppercase font-bold text-zinc-400 bg-zinc-900 px-1.5 py-0.2 rounded border border-zinc-800/80">
                     {match.group || 'Fase de Liga'}
                   </span>
@@ -687,11 +700,19 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 <div className="shrink-0 flex flex-col items-center justify-center gap-1 px-1">
                   {isFinished || locked ? (
                     <>
-                      <div className="inline-flex items-center gap-1.5 bg-zinc-900 border border-zinc-700/80 px-2 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white">
+                      <button
+                        type="button"
+                        onClick={() => setEventsModalMatch(match)}
+                        className="inline-flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-700/80 px-2.5 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white transition-all cursor-pointer shadow-sm group"
+                        title="Tocar para ver eventos del partido"
+                      >
                         <span>{isInProgress || isFinished ? (match.homeScore ?? 0) : (match.homeScore ?? '-')}</span>
                         <span className="text-zinc-500 text-xs">-</span>
                         <span>{isInProgress || isFinished ? (match.awayScore ?? 0) : (match.awayScore ?? '-')}</span>
-                      </div>
+                        {((match.goalscorers && match.goalscorers.length > 0) || (match.cards && match.cards.length > 0)) && (
+                          <span className="text-[10px] ml-0.5 opacity-75 group-hover:scale-125 transition-transform select-none">⚽</span>
+                        )}
+                      </button>
                       <div className="flex items-center justify-center mt-1">
                         {hasSaved ? (
                           <div className="flex items-center gap-1.5 bg-blue-900/20 border border-blue-500/30 rounded-lg px-2 py-0.5">
@@ -817,6 +838,12 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           await savePrediction(matchId, homeVal, awayVal);
         }}
         isSaving={savingId === scoreModal.match?.id}
+      />
+
+      <MatchEventsModal
+        isOpen={!!eventsModalMatch}
+        onClose={() => setEventsModalMatch(null)}
+        match={eventsModalMatch}
       />
     </div>
   );
