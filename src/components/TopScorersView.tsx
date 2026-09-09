@@ -50,9 +50,6 @@ export function TopScorersView() {
                 <th className="py-2.5 px-3">
                   Jugador / Club
                 </th>
-                <th className="py-2.5 px-3 text-center w-20 min-w-[70px]">
-                  Partidos
-                </th>
                 <th className="py-2.5 px-3 text-center w-24 min-w-[80px] bg-blue-950 font-black text-white border-l border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)]">
                   Goles
                 </th>
@@ -113,11 +110,6 @@ export function TopScorersView() {
                           </p>
                         </div>
                       </div>
-                    </td>
-
-                    {/* Matches Scored */}
-                    <td className="py-2 px-3 text-center font-mono text-zinc-400 text-xs">
-                      {scorer.matchesScored} {scorer.matchesScored === 1 ? 'partido' : 'partidos'}
                     </td>
 
                     {/* Goals Column */}

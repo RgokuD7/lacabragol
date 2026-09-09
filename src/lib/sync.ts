@@ -199,6 +199,16 @@ export async function syncMatchResult(match: Match, settings: Setting | null, fo
             finalUpdates.streak_ausente = sa;
         }
 
+        const streakMedals: string[] = [];
+        if (sa >= 4) streakMedals.push('👻 Fantasma');
+        if (sf >= 3) streakMedals.push('🥶 Enfriado');
+        if (sn >= 3) streakMedals.push('🔥 En Llamas');
+        if (sp >= 2) streakMedals.push('🐐🔥 Racha Cabra');
+
+        if (streakMedals.length > 0) {
+          finalUpdates.medallas = arrayUnion(...(updateData.medals || []), ...streakMedals);
+        }
+
         batch.update(doc(db, 'users', userId), finalUpdates);
       }
     }

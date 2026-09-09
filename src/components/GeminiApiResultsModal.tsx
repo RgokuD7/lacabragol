@@ -78,7 +78,7 @@ export function GeminiApiResultsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[1000] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[1050] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200">
       <div 
         className="bg-[#121215] border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-2xl max-h-[90dvh] flex flex-col shadow-2xl overflow-hidden"
         onClick={e => e.stopPropagation()}
@@ -320,7 +320,7 @@ export function GeminiApiResultsModal({
         </div>
 
         {/* Acciones Inferiores */}
-        <div className="px-4 py-3 bg-[#16161b] border-t border-zinc-800 flex items-center justify-end gap-2.5 shrink-0">
+        <div className="px-4 py-3 pb-28 sm:pb-3 bg-[#16161b] border-t border-zinc-800 flex items-center justify-end gap-2.5 shrink-0">
           <button
             type="button"
             onClick={onClose}

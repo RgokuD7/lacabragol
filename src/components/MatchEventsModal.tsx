@@ -11,110 +11,14 @@ interface MatchEventsModalProps {
   match: Match | null;
 }
 
-interface TimelineEvent {
-  id: string;
-  minute: number;
-  type: 'goal' | 'card';
-  cardType?: 'amarilla' | 'roja';
-  playerName: string;
-  teamName: string;
-  isHomeTeam: boolean;
-}
+import { parseMatchEvents, MatchEventsTimeline } from './MatchEventsTimeline';
 
 export function MatchEventsModal({ isOpen, onClose, match }: MatchEventsModalProps) {
   if (!match) return null;
 
   const isFinished = match.status === 'finished';
   const isInProgress = match.status === 'in_progress';
-
-  // Parse and unify all events
-  const events: TimelineEvent[] = [];
-
-  // 1. Process goalscorers
-  if (Array.isArray(match.goalscorers)) {
-    match.goalscorers.forEach((g, idx) => {
-      if (!g) return;
-      if (typeof g === 'object') {
-        const minute = Number(g.minuto ?? g.minute ?? 0);
-        const playerName = String(g.jugador || g.player || 'Gol').trim();
-        const teamName = String(g.equipo || g.team || '').trim();
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-                       match.homeTeam.toLowerCase().includes(teamName.toLowerCase());
-
-        events.push({
-          id: `goal-${idx}-${minute}`,
-          minute: isNaN(minute) ? 0 : minute,
-          type: 'goal',
-          playerName,
-          teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
-          isHomeTeam: isHome
-        });
-      } else if (typeof g === 'string') {
-        // String format: "Kylian Mbappé 14' (Real Madrid)"
-        const matchStr = g.match(/^(.*?)\s*(\d+)?['’]?\s*(?:\((.*?)\))?$/);
-        const playerName = matchStr?.[1]?.trim() || g;
-        const minute = matchStr?.[2] ? parseInt(matchStr[2], 10) : 0;
-        const teamName = matchStr?.[3]?.trim() || '';
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase());
-
-        events.push({
-          id: `goal-str-${idx}-${minute}`,
-          minute,
-          type: 'goal',
-          playerName,
-          teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
-          isHomeTeam: isHome
-        });
-      }
-    });
-  }
-
-  // 2. Process cards
-  if (Array.isArray(match.cards)) {
-    match.cards.forEach((c, idx) => {
-      if (!c) return;
-      if (typeof c === 'object') {
-        const minute = Number(c.minuto ?? c.minute ?? 0);
-        const playerName = String(c.jugador || c.player || 'Tarjeta').trim();
-        const teamName = String(c.equipo || c.team || '').trim();
-        const tipoStr = String(c.tipo || c.type || '').toLowerCase();
-        const cardType: 'amarilla' | 'roja' = (tipoStr.includes('roja') || tipoStr.includes('red')) ? 'roja' : 'amarilla';
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-                       match.homeTeam.toLowerCase().includes(teamName.toLowerCase());
-
-        events.push({
-          id: `card-${idx}-${minute}`,
-          minute: isNaN(minute) ? 0 : minute,
-          type: 'card',
-          cardType,
-          playerName,
-          teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
-          isHomeTeam: isHome
-        });
-      } else if (typeof c === 'string') {
-        const matchStr = c.match(/^(.*?)\s*(\d+)?['’]?\s*(?:\((.*?)\))?(?:\s*-\s*(.*))?$/);
-        const playerName = matchStr?.[1]?.trim() || c;
-        const minute = matchStr?.[2] ? parseInt(matchStr[2], 10) : 0;
-        const teamName = matchStr?.[3]?.trim() || '';
-        const rawTipo = matchStr?.[4]?.toLowerCase() || '';
-        const cardType: 'amarilla' | 'roja' = rawTipo.includes('roja') ? 'roja' : 'amarilla';
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase());
-
-        events.push({
-          id: `card-str-${idx}-${minute}`,
-          minute,
-          type: 'card',
-          cardType,
-          playerName,
-          teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
-          isHomeTeam: isHome
-        });
-      }
-    });
-  }
-
-  // Sort events chronologically by minute
-  events.sort((a, b) => a.minute - b.minute);
+  const events = parseMatchEvents(match);
 
   return (
     <BaseBottomSheet
@@ -124,7 +28,7 @@ export function MatchEventsModal({ isOpen, onClose, match }: MatchEventsModalPro
       zIndexClassName="z-[1050]"
       contentClassName="p-4"
     >
-      <div className="space-y-4 pb-12 max-h-[75vh] overflow-y-auto px-1">
+      <div className="space-y-4 pb-28 max-h-[75vh] overflow-y-auto px-1">
         {/* Match Header Board */}
         <div className="bg-[#18181b] border border-zinc-800 rounded-2xl p-4 shadow-lg">
           {/* Top Info: Date & Group */}

@@ -13,6 +13,9 @@ import { Podium } from '../types';
 import { getTeamLogoByName } from '../data/fixtures';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
 import { FooterVersion } from '../components/FooterVersion';
+import { AchievementBadge } from '../components/AchievementBadge';
+import { TrophyRoomModal } from '../components/TrophyRoomModal';
+import { ACHIEVEMENTS, isAchievementUnlocked } from '../data/achievements';
 
 export function ProfileTab() {
   const { user, profile, logout } = useAuth();
@@ -30,6 +33,7 @@ export function ProfileTab() {
   const [savedMsg, setSavedMsg] = useState('');
   const [podium, setPodium] = useState<Podium | null>(null);
   const [savingPodium, setSavingPodium] = useState(false);
+  const [isTrophyRoomOpen, setIsTrophyRoomOpen] = useState(false);
 
   useEffect(() => {
     if (profile) {
@@ -97,6 +101,7 @@ export function ProfileTab() {
   const max_falla = profile?.max_streak_falla || 0;
   const max_ausente = profile?.max_streak_ausente || 0;
   const medallas = profile?.medallas || [];
+  const unlockedAchievements = ACHIEVEMENTS.filter(a => isAchievementUnlocked(a, profile));
 
   return (
     <div className="p-2 sm:p-4 md:p-6 space-y-4 font-sans text-[#e4e4e7] max-w-4xl mx-auto pb-[150px]">
@@ -217,22 +222,37 @@ export function ProfileTab() {
         </div>
       </div>
 
-      {/* Medallas Obtenidas */}
+      {/* Medallas y Vitrina de Logros */}
       <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-sm space-y-3">
-        <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5 pb-1 border-b border-zinc-800/80">
-          <Award className="w-3.5 h-3.5 text-amber-400" />
-          Medallas Obtenidas
-        </h3>
-        {medallas.length === 0 ? (
-          <div className="bg-zinc-900/40 rounded-xl p-5 text-center border border-zinc-800/40 border-dashed">
-            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Aún no has obtenido medallas</p>
+        <div className="flex items-center justify-between pb-2 border-b border-zinc-800/80">
+          <h3 className="text-xs font-black text-zinc-400 uppercase tracking-widest flex items-center gap-1.5">
+            <Award className="w-3.5 h-3.5 text-amber-400" />
+            <span>Medallas y Logros ({unlockedAchievements.length})</span>
+          </h3>
+          <button
+            type="button"
+            onClick={() => setIsTrophyRoomOpen(true)}
+            className="flex items-center gap-1.5 text-[11px] font-black text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2.5 py-1 rounded-xl transition-all cursor-pointer shadow-sm active:scale-95"
+          >
+            <Trophy className="w-3 h-3" />
+            <span>Sala de Trofeos</span>
+          </button>
+        </div>
+
+        {unlockedAchievements.length === 0 ? (
+          <div className="bg-zinc-900/40 rounded-xl p-5 text-center border border-zinc-800/40 border-dashed space-y-1.5">
+            <p className="text-xs font-medium text-zinc-500 uppercase tracking-wider">Aún no has obtenido trofeos</p>
+            <p className="text-[11px] text-zinc-600 max-w-xs mx-auto">Pronostica partidos, acierta marcadores y encadena rachas para desbloquear medallas.</p>
           </div>
         ) : (
           <div className="flex flex-wrap gap-2 pt-1">
-            {medallas.map((medalla, i) => (
-              <div key={i} className="bg-zinc-900 border border-zinc-700/60 px-3 py-1.5 rounded-xl shadow-sm">
-                <span className="text-xs font-bold text-zinc-200">{medalla}</span>
-              </div>
+            {unlockedAchievements.map(achievement => (
+              <AchievementBadge 
+                key={achievement.id} 
+                achievement={achievement} 
+                isUnlocked={true} 
+                size="md" 
+              />
             ))}
           </div>
         )}
@@ -246,7 +266,7 @@ export function ProfileTab() {
           }
           window.dispatchEvent(new CustomEvent('restart-tutorial'));
         }}
-        className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-2xl font-black uppercase tracking-widest text-xs transition-colors border border-blue-500/30 shadow-sm"
+        className="w-full flex items-center justify-center gap-2 py-3.5 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-2xl font-black uppercase tracking-widest text-xs transition-colors border border-blue-500/30 shadow-sm cursor-pointer"
       >
         <HelpCircle className="w-4 h-4" /> Ver Tutorial de la App
       </button>
@@ -254,13 +274,20 @@ export function ProfileTab() {
       {/* Cerrar Sesión Button */}
       <button 
         onClick={logout}
-        className="w-full flex items-center justify-center gap-2 py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-2xl font-black uppercase tracking-widest text-xs transition-colors border border-red-500/30 shadow-sm"
+        className="w-full flex items-center justify-center gap-2 py-3.5 bg-red-500/10 hover:bg-red-500/20 text-red-400 rounded-2xl font-black uppercase tracking-widest text-xs transition-colors border border-red-500/30 shadow-sm cursor-pointer"
       >
         <LogOut className="w-4 h-4" /> Cerrar Sesión
       </button>
 
       {/* Watermark version footer */}
       <FooterVersion className="mt-2 pb-6" />
+
+      {/* Sala de Trofeos Modal */}
+      <TrophyRoomModal
+        isOpen={isTrophyRoomOpen}
+        onClose={() => setIsTrophyRoomOpen(false)}
+        user={profile}
+      />
     </div>
   );
 }

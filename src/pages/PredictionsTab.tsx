@@ -14,6 +14,7 @@ import { MatchPredictions } from '../components/MatchPredictions';
 import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionModal';
 import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { MatchEventsModal } from '../components/MatchEventsModal';
+import { MatchEventsTimeline } from '../components/MatchEventsTimeline';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
 import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
@@ -29,7 +30,9 @@ import {
   Trophy,
   AlertTriangle,
   RefreshCw,
-  Sparkles
+  Sparkles,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 
 export type StatusFilterType = 'all' | 'open' | 'live' | 'finished';
@@ -88,6 +91,14 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     initialFocus: 'home'
   });
   const [eventsModalMatch, setEventsModalMatch] = useState<Match | null>(null);
+  const [expandedMatchIds, setExpandedMatchIds] = useState<Record<string, boolean>>({});
+
+  const toggleMatchEvents = (matchId: string) => {
+    setExpandedMatchIds(prev => ({
+      ...prev,
+      [matchId]: !prev[matchId]
+    }));
+  };
 
   // Keep live match minutes and lock states reactive in real-time
   useEffect(() => {
@@ -804,6 +815,52 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                   ) : null
                 }
               />
+
+              {/* Inline Match Events Timeline (Expandable) */}
+              {(isFinished || isInProgress || ((match.goalscorers?.length || 0) + (match.cards?.length || 0) > 0)) && (
+                <div className="mt-2.5 pt-2 border-t border-zinc-800/80">
+                  <div className="flex items-center justify-between">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        toggleMatchEvents(match.id);
+                      }}
+                      className="flex items-center gap-1.5 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors py-1 px-2 rounded-lg bg-zinc-900/70 hover:bg-zinc-800 border border-zinc-800/80 cursor-pointer select-none active:scale-95"
+                    >
+                      <span className="select-none">⚽</span>
+                      <span>
+                        {((match.goalscorers?.length || 0) + (match.cards?.length || 0)) > 0
+                          ? `${(match.goalscorers?.length || 0) + (match.cards?.length || 0)} eventos`
+                          : 'Goles y tarjetas'}
+                      </span>
+                      {expandedMatchIds[match.id] ? (
+                        <ChevronUp className="w-3 h-3 text-zinc-400" />
+                      ) : (
+                        <ChevronDown className="w-3 h-3 text-zinc-400" />
+                      )}
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setEventsModalMatch(match);
+                      }}
+                      className="text-[9px] text-blue-400 hover:text-blue-300 font-semibold px-2 py-1 rounded hover:bg-blue-500/10 transition-colors cursor-pointer select-none"
+                      title="Ver ficha completa en modal"
+                    >
+                      Ficha completa
+                    </button>
+                  </div>
+
+                  {expandedMatchIds[match.id] && (
+                    <div className="mt-2 pt-1.5 border-t border-zinc-800/60 animate-in fade-in duration-200">
+                      <MatchEventsTimeline match={match} compact={true} />
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           );
         })}

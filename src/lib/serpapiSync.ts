@@ -4,6 +4,7 @@ import { Match, Setting } from '../types';
 import { syncMatchPredictionsAndPoints, syncMatchResult } from './sync';
 import { recalculateStandings, findUclTeam, StandingRow, StandingTeam } from './standings';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
+import { DEFAULT_PLAYERS, PlayerItem } from '../data/players';
 import { getGeminiApiKey } from './geminiSync';
 import { sanitizeForFirestore } from './utils';
 
@@ -403,6 +404,63 @@ export async function commitSerpApiStandingsToFirestore(
 const inFlightSyncMatchIds = new Set<string>();
 
 /**
+ * Ensures that all goalscorers returned by SerpAPI/Gemini exist in the system players collection (doc(db, 'system/players')).
+ * If a player does not exist, creates their profile "al vuelo" with default values and persists it sanitised.
+ */
+export async function ensurePlayersExist(
+  goalscorers: Array<{ jugador?: string; player?: string; equipo?: string; team?: string }>
+): Promise<void> {
+  if (!Array.isArray(goalscorers) || goalscorers.length === 0) return;
+
+  try {
+    const playersDocRef = doc(db, 'system', 'players');
+    const snap = await getDoc(playersDocRef).catch(() => null);
+    
+    let currentPlayers: PlayerItem[] = DEFAULT_PLAYERS;
+    if (snap?.exists()) {
+      const data = snap.data();
+      if (Array.isArray(data?.players) && data.players.length > 0) {
+        currentPlayers = data.players;
+      }
+    }
+
+    const existingNames = new Set(
+      currentPlayers.map(p => p.name.toLowerCase().trim())
+    );
+
+    const newPlayers: PlayerItem[] = [];
+
+    goalscorers.forEach(g => {
+      const name = String(g.jugador || g.player || '').trim();
+      if (!name) return;
+      
+      const normalized = name.toLowerCase();
+      if (!existingNames.has(normalized)) {
+        existingNames.add(normalized);
+        const teamName = String(g.equipo || g.team || '').trim();
+        newPlayers.push({
+          id: `auto_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+          name,
+          team: teamName,
+          position: 'Delantero',
+          nationality: ''
+        });
+        console.log(`[ensurePlayersExist] ⚽ Creando perfil de jugador al vuelo: "${name}" (${teamName})`);
+      }
+    });
+
+    if (newPlayers.length > 0) {
+      const updatedList = [...currentPlayers, ...newPlayers];
+      const payload = sanitizeForFirestore({ players: updatedList });
+      await setDoc(playersDocRef, payload, { merge: true });
+      console.log(`[ensurePlayersExist] ✅ ${newPlayers.length} nuevo(s) perfil(es) guardado(s) en doc(system/players).`);
+    }
+  } catch (err: any) {
+    console.warn('[ensurePlayersExist] Advertencia al verificar/crear perfiles al vuelo:', err?.message || err);
+  }
+}
+
+/**
  * Sistema de Actualización Inteligente y Automática por Partido (SerpAPI + Gemini + Candado de Concurrencia).
  * 
  * Lógica:
@@ -499,6 +557,9 @@ export async function checkAndAutoSyncFinishedMatches(
 
       if (isFinished) {
         console.log(`[AutoSync] ⚽ Partido finalizado confirmado: ${parsed.local} ${parsed.goles_local} - ${parsed.goles_visitante} ${parsed.visitante}`);
+
+        // Crear perfiles de goleadores al vuelo si no existen en la BD
+        await ensurePlayersExist(parsed.goleadores || []);
 
         // 4. Guardar resultado final y liberar candado
         await updateDoc(matchRef, {
@@ -668,6 +729,7 @@ export async function syncJornadaMatchesWithSerpApi(
 
       // Si el partido está finalizado, actualizar predicciones, puntos y rachas
       if (status === 'finished') {
+        await ensurePlayersExist(parsed.goleadores || []);
         await syncMatchResult(updatedMatch, settings, true);
       }
 

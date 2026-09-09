@@ -76,7 +76,7 @@ export function BaseBottomSheet({
         </div>
 
         {/* Content Body */}
-        <div className={cn("flex-1 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-zinc-800", contentClassName)}>
+        <div className={cn("flex-1 overflow-y-auto px-6 py-4 pb-28 sm:pb-8 scrollbar-thin scrollbar-thumb-zinc-800", contentClassName)}>
           {children}
         </div>
       </div>

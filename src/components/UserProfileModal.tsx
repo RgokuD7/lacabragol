@@ -2,11 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { UserAvatar } from './UserAvatar';
 import { PodiumDisplay } from './PodiumDisplay';
-import { Hash, Mail } from 'lucide-react';
+import { Hash, Mail, Trophy, Award } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { User, Podium } from '../types';
 import { getGroupPodium } from '../lib/podium';
+import { AchievementBadge } from './AchievementBadge';
+import { TrophyRoomModal } from './TrophyRoomModal';
+import { ACHIEVEMENTS, isAchievementUnlocked } from '../data/achievements';
 
 interface UserProfileModalProps {
   user: User | null;
@@ -18,6 +21,7 @@ interface UserProfileModalProps {
 export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfileModalProps) {
   const [podium, setPodium] = useState<Podium | null>(null);
   const [loading, setLoading] = useState(false);
+  const [isTrophyRoomOpen, setIsTrophyRoomOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -41,6 +45,7 @@ export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfile
   const max_falla = user.max_streak_falla || 0;
   const max_ausente = user.max_streak_ausente || 0;
   const medallas = user.medallas || [];
+  const unlockedAchievements = ACHIEVEMENTS.filter(a => isAchievementUnlocked(a, user));
 
   return (
     <BaseBottomSheet isOpen={isOpen} onClose={onClose} title="Salón de la Fama">
@@ -100,24 +105,49 @@ export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfile
           </div>
         </div>
 
-        {/* Medallas Obtenidas */}
+        {/* Medallas y Vitrina de Logros */}
         <div className="space-y-3">
-          <h4 className="text-[11px] font-black uppercase text-zinc-400 tracking-widest px-1 border-b border-zinc-800 pb-2">Medallas Obtenidas</h4>
-          {medallas.length === 0 ? (
-            <div className="bg-zinc-900/30 rounded-xl p-6 text-center border border-zinc-800/30 border-dashed">
+          <div className="flex items-center justify-between px-1 border-b border-zinc-800 pb-2">
+            <h4 className="text-[11px] font-black uppercase text-zinc-400 tracking-widest flex items-center gap-1.5">
+              <Award className="w-3.5 h-3.5 text-amber-400" />
+              <span>Medallas y Logros ({unlockedAchievements.length})</span>
+            </h4>
+            <button
+              type="button"
+              onClick={() => setIsTrophyRoomOpen(true)}
+              className="flex items-center gap-1.5 text-[10px] font-black text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 px-2 py-0.5 rounded-lg transition-all cursor-pointer shadow-sm active:scale-95"
+            >
+              <Trophy className="w-3 h-3" />
+              <span>Sala de Trofeos</span>
+            </button>
+          </div>
+
+          {unlockedAchievements.length === 0 ? (
+            <div className="bg-zinc-900/30 rounded-xl p-6 text-center border border-zinc-800/30 border-dashed space-y-1">
               <p className="text-xs font-medium text-zinc-500 uppercase tracking-widest">Aún no tiene medallas</p>
+              <p className="text-[11px] text-zinc-600">Este usuario aún no ha desbloqueado trofeos.</p>
             </div>
           ) : (
-            <div className="bg-zinc-900/50 rounded-xl p-4 border border-zinc-800 shadow-inner flex flex-wrap gap-2 justify-center">
-              {medallas.map((medalla, i) => (
-                <div key={i} className="bg-[#111114] border border-zinc-700/50 px-2.5 py-1.5 rounded-lg shadow-sm">
-                  <span className="text-xs font-bold text-zinc-300">{medalla}</span>
-                </div>
+            <div className="bg-zinc-900/50 rounded-xl p-3 border border-zinc-800 shadow-inner flex flex-wrap gap-2 justify-center">
+              {unlockedAchievements.map(achievement => (
+                <AchievementBadge
+                  key={achievement.id}
+                  achievement={achievement}
+                  isUnlocked={true}
+                  size="md"
+                />
               ))}
             </div>
           )}
         </div>
       </div>
+
+      {/* Sala de Trofeos Modal */}
+      <TrophyRoomModal
+        isOpen={isTrophyRoomOpen}
+        onClose={() => setIsTrophyRoomOpen(false)}
+        user={user}
+      />
     </BaseBottomSheet>
   );
 }

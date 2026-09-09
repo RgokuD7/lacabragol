@@ -60,8 +60,13 @@ export function MultiGroupPredictionModal({
   };
 
   return (
-    <BaseBottomSheet isOpen={isOpen} onClose={onClose} title="¿Guardar en otros grupos?">
-      <div className="space-y-4 pb-4">
+    <BaseBottomSheet 
+      isOpen={isOpen} 
+      onClose={onClose} 
+      title="¿Guardar en otros grupos?"
+      zIndexClassName="z-[1050]"
+    >
+      <div className="space-y-4 pb-24 sm:pb-28">
         {/* Match and Score pill */}
         <div className="bg-[#121215] border border-zinc-800 rounded-xl p-3 flex items-center justify-between shadow-sm">
           <div className="flex flex-col min-w-0 pr-2">
