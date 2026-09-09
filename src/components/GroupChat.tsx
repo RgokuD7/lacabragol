@@ -357,7 +357,7 @@ export function GroupChat({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[100] bg-[#0a0a0b] flex flex-col h-[100dvh] overflow-hidden">
+    <div className="fixed inset-0 z-[1000] bg-[#0a0a0b] flex flex-col h-[100dvh] overflow-hidden">
       <div className="flex-1 relative flex flex-col max-w-4xl mx-auto w-full h-full overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#111114]/90 backdrop-blur-sm z-10 sticky top-0 flex items-center justify-between shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
@@ -462,26 +462,26 @@ export function GroupChat({
           </div>
         )}
 
-        {/* Mentions Auto-complete */}
-        {showMentions && filteredMembers.length > 0 && (
-          <div className="absolute bottom-[70px] left-4 right-4 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto z-10">
-            {filteredMembers.map(m => (
-              <button
-                key={m.uid}
-                onClick={() => handleMentionSelect(m.nickname || m.displayName || 'Usuario')}
-                className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-left transition-colors"
-              >
-                <div className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-[10px] font-black text-blue-400 border border-blue-500/20 uppercase">
-                  {(m.nickname || m.displayName || 'U')[0]}
-                </div>
-                <span className="text-xs font-bold text-white">{m.nickname || m.displayName}</span>
-              </button>
-            ))}
-          </div>
-        )}
-
         {/* Input Area */}
-        <div className="p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[env(safe-area-inset-bottom,12px)]">
+        <div className="relative p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-24 sm:pb-28">
+          {/* Mentions Auto-complete */}
+          {showMentions && filteredMembers.length > 0 && (
+            <div className="absolute bottom-[calc(100%+8px)] left-4 right-4 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto z-20">
+              {filteredMembers.map(m => (
+                <button
+                  key={m.uid}
+                  onClick={() => handleMentionSelect(m.nickname || m.displayName || 'Usuario')}
+                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-left transition-colors"
+                >
+                  <div className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-[10px] font-black text-blue-400 border border-blue-500/20 uppercase">
+                    {(m.nickname || m.displayName || 'U')[0]}
+                  </div>
+                  <span className="text-xs font-bold text-white">{m.nickname || m.displayName}</span>
+                </button>
+              ))}
+            </div>
+          )}
+
           <form onSubmit={handleSendMessage} className="flex gap-2 w-full">
             <input
               id="chat-input"
@@ -496,14 +496,14 @@ export function GroupChat({
             <button
               type="submit"
               disabled={!newMessage.trim() || sending}
-              className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center text-white shrink-0 transition-colors shadow-sm"
+              className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center text-white shrink-0 transition-colors shadow-sm cursor-pointer"
             >
               <Send className="w-4 h-4 ml-[-2px]" />
             </button>
           </form>
         </div>
       </div>
-      </div>
     </div>
-  );
+  </div>
+);
 }

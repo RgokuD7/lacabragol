@@ -4,7 +4,7 @@ import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
 import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
 import { Match, Prediction, User, Setting } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
@@ -12,6 +12,7 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { recalculateStandings } from '../lib/standings';
+import { recalculateAllUsersFromDatabase } from '../lib/recalculation';
 import { 
   fetchGeminiMatchesPreview, 
   commitGeminiMatchesToFirestore, 
@@ -63,6 +64,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   // Standings recalculation state
   const [isRecalculatingStandings, setIsRecalculatingStandings] = useState(false);
+  const [isRecalculatingRanking, setIsRecalculatingRanking] = useState(false);
+  const [showConfirmRecalculateRanking, setShowConfirmRecalculateRanking] = useState(false);
 
   // Gemini Daily Sync state
   const [isSyncingGemini, setIsSyncingGemini] = useState(false);
@@ -364,6 +367,32 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       setFeedback({ type: 'error', text: `Error inesperado: ${err.message}` });
     }
     setIsRecalculatingStandings(false);
+  };
+
+  const handleRecalculateRanking = async () => {
+    setIsRecalculatingRanking(true);
+    setShowConfirmRecalculateRanking(false);
+    vibrateTap();
+    setFeedback({ type: 'info', text: 'Recalculando puntos, plenos y 15 medallas oficiales desde cero en la base de datos (Cero SerpAPI)...' });
+    try {
+      const res = await recalculateAllUsersFromDatabase(settings);
+      if (res.success) {
+        vibrateSuccess();
+        setFeedback({
+          type: 'success',
+          text: `¡Recálculo exitoso! Se corrigieron ${res.updatedUsersCount} usuarios, se auditaron ${res.updatedPredictionsCount} pronósticos y se recalcularon las medallas oficiales sobre ${res.totalMatchesCount} partidos finalizados. Tabla UCL sincronizada.`
+        });
+      }
+    } catch (err: any) {
+      vibrateError();
+      console.error("[AdminTab] Error en recálculo de ranking:", err);
+      setFeedback({
+        type: 'error',
+        text: `Error al recalcular ranking: ${err.message || 'Error desconocido'}`
+      });
+    } finally {
+      setIsRecalculatingRanking(false);
+    }
   };
 
   const handleSyncGeminiDaily = async () => {
@@ -1199,6 +1228,69 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             </div>
           </div>
 
+          {/* Recálculo de Emergencia de Ranking y Logros (100% BBDD) */}
+          <div className="bg-[#121215] border border-rose-500/40 rounded-xl p-3 sm:p-4 space-y-3 bg-gradient-to-b from-rose-950/20 to-transparent shadow-lg shadow-rose-950/10">
+            <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400">
+                  <Flame className="w-4 h-4" />
+                </div>
+                <div>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider">Recálculo de Ranking y Logros (BBDD)</h3>
+                    <span className="text-[9px] font-black uppercase tracking-widest bg-rose-500/20 text-rose-300 border border-rose-500/40 px-1.5 py-0.2 rounded">
+                      CERO SerpAPI
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-zinc-400">Audita pronósticos, suma puntos absolutos sin deltas y reevalúa retroactivamente las 15 medallas oficiales</p>
+                </div>
+              </div>
+            </div>
+
+            {showConfirmRecalculateRanking ? (
+              <div className="p-3.5 bg-rose-950/40 border border-rose-800/60 rounded-xl space-y-3 animate-in fade-in duration-200">
+                <div className="flex items-start gap-2.5 text-rose-300 text-xs leading-relaxed font-medium">
+                  <AlertTriangle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-white mb-1">¿Forzar recálculo total de ranking y medallas?</p>
+                    <p className="text-zinc-400 text-[11px]">
+                      Se recorrerán todos los usuarios en Firestore, sumando directamente los puntos de sus pronósticos en partidos finalizados y reasignando las 15 medallas legítimas (eliminando medallas de reglas antiguas). Cero llamadas a APIs externas.
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center justify-end gap-2 pt-1 border-t border-rose-900/40">
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmRecalculateRanking(false)}
+                    disabled={isRecalculatingRanking}
+                    className="px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-400 hover:text-white bg-zinc-900 border border-zinc-800 hover:bg-zinc-800 transition-colors cursor-pointer"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRecalculateRanking}
+                    disabled={isRecalculatingRanking}
+                    className="px-3.5 py-1.5 rounded-lg text-xs font-black uppercase tracking-wider text-white bg-rose-600 hover:bg-rose-500 border border-rose-500/50 shadow-md shadow-rose-600/30 flex items-center gap-1.5 transition-all cursor-pointer disabled:opacity-50"
+                  >
+                    {isRecalculatingRanking ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Flame className="w-3.5 h-3.5" />}
+                    <span>{isRecalculatingRanking ? 'Recalculando...' : 'Sí, Forzar Recálculo'}</span>
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setShowConfirmRecalculateRanking(true)}
+                disabled={isRecalculatingRanking}
+                className="w-full bg-rose-600 hover:bg-rose-500 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-rose-600/20 active:scale-[0.99]"
+              >
+                {isRecalculatingRanking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4 text-white" />}
+                <span>{isRecalculatingRanking ? 'Recalculando Puntos y Medallas...' : '🚨 Forzar Recálculo de Ranking (BBDD)'}</span>
+              </button>
+            )}
+          </div>
+
           {/* Recálculo Oficial de Tabla UCL (36 Equipos) */}
           <div className="bg-[#121215] border border-zinc-800 rounded-xl p-3 sm:p-4 space-y-3">
             <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
@@ -1328,6 +1420,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             >
               {isRecalculatingStandings ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-emerald-400" />}
               <span>Recalcular Tabla UCL</span>
+            </button>
+            <button
+              type="button"
+              onClick={handleRecalculateRanking}
+              disabled={isRecalculatingRanking}
+              className="bg-zinc-900 border border-rose-500/40 hover:bg-rose-950/30 text-rose-300 font-bold py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 active:scale-98 cursor-pointer disabled:opacity-50"
+            >
+              {isRecalculatingRanking ? <Loader2 className="w-4 h-4 animate-spin" /> : <Flame className="w-4 h-4 text-rose-400" />}
+              <span>{isRecalculatingRanking ? 'Recalculando...' : 'Recalcular Ranking BBDD'}</span>
             </button>
           </div>
 

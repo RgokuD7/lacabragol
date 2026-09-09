@@ -1,8 +1,9 @@
-import { doc, getDoc, updateDoc, writeBatch, setDoc, collection, query, where, getDocs, increment, arrayUnion } from 'firebase/firestore';
+import { doc, getDoc, updateDoc, writeBatch, setDoc, collection, query, where, getDocs, arrayUnion } from 'firebase/firestore';
 import { db } from './firebase';
 import { Match, Prediction, Setting, User } from '../types';
 import { evaluatePrediction } from './scoring';
 import { recalculateStandings } from './standings';
+import { recalculateUsersAbsolute } from './recalculation';
 
 export async function syncMatchPredictionsAndPoints(
   matchId: string,
@@ -18,8 +19,11 @@ export async function syncMatchPredictionsAndPoints(
     }
 
     const batch = writeBatch(db);
+    const affectedUserIds = new Set<string>();
+
     predSnap.docs.forEach(d => {
       const p = d.data();
+      if (p.userId) affectedUserIds.add(p.userId);
       const evalRes = evaluatePrediction(homeScore, awayScore, p.homeScore, p.awayScore, 'finished', true, settings);
       batch.update(d.ref, {
         pointsEarned: evalRes.points,
@@ -28,7 +32,13 @@ export async function syncMatchPredictionsAndPoints(
     });
 
     await batch.commit();
-    await recalculateStandings().catch(console.error);
+
+    // Recálculo absoluto sin deltas para evitar desincronizaciones
+    if (affectedUserIds.size > 0) {
+      await recalculateUsersAbsolute(Array.from(affectedUserIds), settings).catch(console.error);
+    } else {
+      await recalculateStandings().catch(console.error);
+    }
   } catch (e) {
     console.error("Error updating predictions points for match:", matchId, e);
   }
@@ -60,166 +70,31 @@ export async function syncMatchResult(match: Match, settings: Setting | null, fo
       is_fetching: false
     });
 
-    
+    const affectedUserIds = new Set<string>();
+
     if (status === 'finished' && homeScore !== null && awayScore !== null && homeScore !== undefined && awayScore !== undefined) {
-      
       const predSnap = await getDocs(query(collection(db, 'predictions'), where('matchId', '==', match.id)));
-      const allUsersSnap = await getDocs(collection(db, 'users'));
-      
-      const allUsers: Record<string, any> = {};
-      allUsersSnap.docs.forEach(d => {
-        allUsers[d.id] = d.data();
-      });
 
-      const userUpdates: Record<string, any> = {};
-
-      // 1. Process predictions
+      // Actualizar puntos ganados en cada predicción
       predSnap.docs.forEach(d => {
         const p = d.data();
-        const oldPointsEarned = p.pointsEarned || 0;
-        
+        if (p.userId) affectedUserIds.add(p.userId);
         const evalRes = evaluatePrediction(homeScore, awayScore, p.homeScore, p.awayScore, 'finished', true, settings);
         
         batch.update(d.ref, {
           pointsEarned: evalRes.points,
           updatedAt: Date.now()
         });
-        
-        const pointsDiff = evalRes.points - oldPointsEarned;
-        let exactDiff = 0;
-        
-        const exactMatchPoints = settings?.pointsExactMatch || 3;
-        
-        if (evalRes.points === exactMatchPoints && oldPointsEarned !== exactMatchPoints) {
-            exactDiff = 1;
-        } else if (evalRes.points !== exactMatchPoints && oldPointsEarned === exactMatchPoints) {
-            exactDiff = -1;
-        }
-
-        const newMedals = [];
-        const pHome = p.homeScore;
-        const pAway = p.awayScore;
-        const rHome = homeScore;
-        const rAway = awayScore;
-        const exact = pHome === rHome && pAway === rAway;
-        const realDiff = rHome - rAway;
-        const predDiff = pHome - pAway;
-        const sameOutcome = (realDiff > 0 && predDiff > 0) || (realDiff < 0 && predDiff < 0) || (realDiff === 0 && predDiff === 0);
-
-        if (exact && pHome === 0 && pAway === 0) {
-          newMedals.push('🔒 Cerrajero');
-          newMedals.push('🥱 Partido Somnífero');
-        }
-        if (exact && ((pHome === 1 && pAway === 0) || (pHome === 0 && pAway === 1))) newMedals.push('👔 Bilardista');
-        
-        // Modo Play: apuesta por un partido con 7+ goles y gana en un partido de 7+ goles
-        if (sameOutcome && (pHome + pAway) >= 7 && (rHome + rAway) >= 7) {
-          newMedals.push('🎮 Modo Play');
-        }
-        if (rHome !== rAway && pHome === rAway && pAway === rHome) {
-          newMedals.push('🙃 Mundo al Revés');
-        }
-        if ((pHome + pAway) >= 4 && rHome === 0 && rAway === 0) {
-          newMedals.push('💨 Puro Humo');
-        }
-        if (evalRes.points === 0 && (pHome + pAway) === (rHome + rAway)) {
-          newMedals.push('🧮 Matemático');
-        }
-
-        // Streak calculation
-        let streakType = 'falla';
-        if (evalRes.points === exactMatchPoints) {
-          streakType = 'pleno';
-        } else if (evalRes.points > 0) {
-          streakType = 'normal';
-        }
-
-        if (!userUpdates[p.userId]) {
-            userUpdates[p.userId] = { pointsDiff: 0, exactDiff: 0, medals: [], streakType, hasPrediction: true };
-        }
-        userUpdates[p.userId].pointsDiff += pointsDiff;
-        userUpdates[p.userId].exactDiff += exactDiff;
-        userUpdates[p.userId].medals.push(...newMedals);
-        userUpdates[p.userId].streakType = streakType;
       });
-
-      // 2. Apply streaks and create user batch updates for participants of this match
-      for (const [userId, updateData] of Object.entries(userUpdates as Record<string, any>)) {
-        const u = allUsers[userId];
-        if (!u) continue; // safety
-
-        const finalUpdates: any = { updatedAt: Date.now() };
-        
-        if (updateData.pointsDiff !== 0) finalUpdates.points = increment(updateData.pointsDiff);
-        if (updateData.exactDiff !== 0) finalUpdates.exactMatches = increment(updateData.exactDiff);
-        if (updateData.medals.length > 0) finalUpdates.medallas = arrayUnion(...updateData.medals);
-
-        // Calculate streaks
-        let sn = u.streak_normal || 0;
-        let sp = u.streak_pleno || 0;
-        let sf = u.streak_falla || 0;
-        let sa = u.streak_ausente || 0;
-        let msn = u.max_streak_normal || 0;
-        let msp = u.max_streak_pleno || 0;
-        let msf = u.max_streak_falla || 0;
-        let msa = u.max_streak_ausente || 0;
-
-        const type = updateData.streakType;
-
-        if (type === 'ausente') {
-            sa += 1;
-            sn = 0; sp = 0; sf = 0;
-            if (sa > msa) { msa = sa; finalUpdates.max_streak_ausente = msa; }
-            finalUpdates.streak_ausente = sa;
-            finalUpdates.streak_normal = sn;
-            finalUpdates.streak_pleno = sp;
-            finalUpdates.streak_falla = sf;
-        } else if (type === 'falla') {
-            sf += 1;
-            sn = 0; sp = 0; sa = 0;
-            if (sf > msf) { msf = sf; finalUpdates.max_streak_falla = msf; }
-            finalUpdates.streak_falla = sf;
-            finalUpdates.streak_normal = sn;
-            finalUpdates.streak_pleno = sp;
-            finalUpdates.streak_ausente = sa;
-        } else if (type === 'normal') {
-            sn += 1;
-            sp = 0; sf = 0; sa = 0;
-            if (sn > msn) { msn = sn; finalUpdates.max_streak_normal = msn; }
-            finalUpdates.streak_normal = sn;
-            finalUpdates.streak_pleno = sp;
-            finalUpdates.streak_falla = sf;
-            finalUpdates.streak_ausente = sa;
-        } else if (type === 'pleno') {
-            sp += 1;
-            sn += 1;
-            sf = 0; sa = 0;
-            if (sp > msp) { msp = sp; finalUpdates.max_streak_pleno = msp; }
-            if (sn > msn) { msn = sn; finalUpdates.max_streak_normal = msn; }
-            finalUpdates.streak_pleno = sp;
-            finalUpdates.streak_normal = sn;
-            finalUpdates.streak_falla = sf;
-            finalUpdates.streak_ausente = sa;
-        }
-
-        const streakMedals: string[] = [];
-        if (sa >= 4) streakMedals.push('👻 Fantasma');
-        if (sf >= 3) streakMedals.push('🥶 Enfriado');
-        if (sn >= 3) streakMedals.push('🔥 En Llamas');
-        if (sp >= 2) streakMedals.push('🐐🔥 Racha Cabra');
-
-        if (streakMedals.length > 0) {
-          finalUpdates.medallas = arrayUnion(...(updateData.medals || []), ...streakMedals);
-        }
-
-        batch.update(doc(db, 'users', userId), finalUpdates);
-      }
     }
 
     await batch.commit();
 
-    // TRIGGER JORNADA END LOGIC AND TITLES
+    // 4. Recálculo absoluto de puntos, plenos, rachas y medallas para los usuarios afectados
     if (status === 'finished') {
+      if (affectedUserIds.size > 0) {
+        await recalculateUsersAbsolute(Array.from(affectedUserIds), settings).catch(console.error);
+      }
       await evaluateEndOfJornada(match.group, settings);
       await recalculateStandings().catch(console.error);
     }
