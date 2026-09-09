@@ -108,28 +108,27 @@ export async function fetchSerpApiRaw(query: string, apiKeyOverride?: string): P
 }
 
 /**
- * Extracts the sports_results node or relevant knowledge graph / games nodes from SerpAPI payload
+ * Extracts the sports_results node, game spotlight, match events and search snippets from SerpAPI payload
+ * so Gemini has both structured goal data and text snippets containing red cards/expulsions.
  */
 function extractRelevantSerpApiNode(data: any): any {
-  if (data?.sports_results) {
-    return data.sports_results;
-  }
-  if (data?.knowledge_graph) {
-    return data.knowledge_graph;
-  }
-  if (data?.answer_box) {
-    return data.answer_box;
-  }
-  if (Array.isArray(data?.organic_results) && data.organic_results.length > 0) {
-    // Return first 3 organic snippets if sports_results is missing
-    return {
-      organic_summary: data.organic_results.slice(0, 3).map((r: any) => ({
+  const sportsResults = data?.sports_results || data?.answer_box || data?.knowledge_graph || null;
+  const organicSnippets = Array.isArray(data?.organic_results)
+    ? data.organic_results.slice(0, 5).map((r: any) => ({
         title: r.title,
         snippet: r.snippet
       }))
-    };
-  }
-  return data;
+    : [];
+
+  const spotlight = sportsResults?.game_spotlight || null;
+  const events = spotlight?.events || sportsResults?.events || [];
+
+  return {
+    sports_results: sportsResults,
+    game_spotlight: spotlight,
+    events: events,
+    search_snippets: organicSnippets
+  };
 }
 
 /**
@@ -145,7 +144,28 @@ export async function parseMatchWithGemini(
     throw new Error("Falta la API Key de Gemini para formatear los datos de SerpAPI.");
   }
 
-  const promptText = `Toma este objeto JSON crudo proveniente de SerpAPI. Extrae la información del partido y devuelve ÚNICAMENTE un JSON con esta estructura exacta: { "local": "Nombre", "goles_local": 0, "visitante": "Nombre", "goles_visitante": 0, "estado": "Finalizado/En vivo", "goleadores": [{"jugador": "Nombre", "minuto": 12}], "tarjetas": [{"jugador": "Nombre", "tipo": "Amarilla/Roja", "minuto": 33}] }. JSON Crudo: ${JSON.stringify(rawSportsResults)}`;
+  const promptText = `Toma este objeto JSON con datos deportivos y noticias de un partido de la UEFA Champions League entre "${matchContext.local}" (Local) y "${matchContext.visitante}" (Visitante).
+Extrae la información oficial y devuelve ÚNICAMENTE un objeto JSON con esta estructura exacta:
+{
+  "local": "${matchContext.local}",
+  "goles_local": 0,
+  "visitante": "${matchContext.visitante}",
+  "goles_visitante": 0,
+  "estado": "Finalizado",
+  "goleadores": [
+    { "jugador": "Nombre Completo", "equipo": "${matchContext.local} o ${matchContext.visitante}", "minuto": 12 }
+  ],
+  "tarjetas": [
+    { "jugador": "Nombre Completo", "equipo": "${matchContext.local} o ${matchContext.visitante}", "tipo": "Amarilla o Roja", "minuto": 33 }
+  ]
+}
+
+REGLAS CRÍTICAS DE EXTRACCIÓN:
+1. GOLEADORES CON EQUIPO OBLIGATORIO: Para cada gol en "goleadores", DEBES incluir la propiedad "equipo", cuyo valor DEBE ser exactamente "${matchContext.local}" o "${matchContext.visitante}". Hereda el equipo desde el club padre donde están anidados los goles en el JSON (ej. teams[0].goals o teams[1].goals). NUNCA dejes "equipo" vacío ni como "undefined".
+2. EXPULSIONES Y TARJETAS ROJAS OBLIGATORIAS: Revisa minuciosamente tanto los eventos estructurados como los fragmentos de texto en "search_snippets" o noticias. Si un jugador recibió tarjeta roja (o fue expulsado por roja directa o doble amarilla), DEBES incluirlo obligatoriamente en el array "tarjetas" con: "tipo": "Roja", el minuto (si se menciona o infiere) y su equipo exacto ("${matchContext.local}" o "${matchContext.visitante}").
+3. Si hay tarjetas amarillas conocidas en los eventos o texto, inclúyelas con "tipo": "Amarilla".
+4. Devuelve ÚNICAMENTE el JSON válido, sin explicaciones ni bloques de texto adicional.
+JSON de entrada: ${JSON.stringify(rawSportsResults)}`;
 
   let lastError: any = null;
 
@@ -173,14 +193,92 @@ export async function parseMatchWithGemini(
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
         const parsed = JSON.parse(rawText);
+
+        const rawTeams: any[] = 
+          rawSportsResults?.sports_results?.game_spotlight?.teams || 
+          rawSportsResults?.sports_results?.teams || 
+          rawSportsResults?.game_spotlight?.teams || [];
+
+        // 1. Process and normalize goalscorers
+        const normalizedGoleadores = (Array.isArray(parsed.goleadores) ? parsed.goleadores : []).map((g: any) => {
+          let jugador = String(g.jugador || g.player || '').trim();
+          let equipo = String(g.equipo || g.team || '').trim();
+          const minuto = Number(g.minuto ?? g.minute ?? 0);
+
+          // If equipo is missing or "undefined", try to deduce from rawTeams in SerpAPI
+          if (!equipo || equipo.toLowerCase() === 'undefined') {
+            for (const t of rawTeams) {
+              const teamName = String(t.name || '').trim();
+              const goals = Array.isArray(t.goals) ? t.goals : [];
+              const hasPlayer = goals.some((goalItem: any) => {
+                const pName = String(goalItem.player || goalItem.jugador || '').toLowerCase();
+                return pName.includes(jugador.toLowerCase()) || jugador.toLowerCase().includes(pName);
+              });
+              if (hasPlayer) {
+                if (teamName.toLowerCase().includes(matchContext.local.toLowerCase()) || matchContext.local.toLowerCase().includes(teamName.toLowerCase())) {
+                  equipo = matchContext.local;
+                } else if (teamName.toLowerCase().includes(matchContext.visitante.toLowerCase()) || matchContext.visitante.toLowerCase().includes(teamName.toLowerCase())) {
+                  equipo = matchContext.visitante;
+                } else {
+                  equipo = teamName;
+                }
+                break;
+              }
+            }
+          }
+
+          // Fallback: check DEFAULT_PLAYERS catalogue
+          if (!equipo || equipo.toLowerCase() === 'undefined') {
+            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === jugador.toLowerCase());
+            if (foundPlayer && foundPlayer.team) {
+              equipo = foundPlayer.team;
+            }
+          }
+
+          return {
+            jugador,
+            equipo,
+            minuto: isNaN(minuto) ? 0 : minuto
+          };
+        });
+
+        // 2. Process and normalize cards
+        const normalizedTarjetas = (Array.isArray(parsed.tarjetas) ? parsed.tarjetas : []).map((c: any) => {
+          let jugador = String(c.jugador || c.player || '').trim();
+          let equipo = String(c.equipo || c.team || '').trim();
+          const rawTipo = String(c.tipo || c.type || '').toLowerCase();
+          const tipo = (rawTipo.includes('roja') || rawTipo.includes('red') || rawTipo.includes('expuls')) ? 'Roja' : 'Amarilla';
+          const minuto = Number(c.minuto ?? c.minute ?? 0);
+
+          if (!equipo || equipo.toLowerCase() === 'undefined') {
+            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === jugador.toLowerCase());
+            if (foundPlayer && foundPlayer.team) {
+              equipo = foundPlayer.team;
+            } else {
+              if (matchContext.local && jugador.toLowerCase().includes(matchContext.local.toLowerCase())) {
+                equipo = matchContext.local;
+              } else if (matchContext.visitante && jugador.toLowerCase().includes(matchContext.visitante.toLowerCase())) {
+                equipo = matchContext.visitante;
+              }
+            }
+          }
+
+          return {
+            jugador,
+            equipo,
+            tipo,
+            minuto: isNaN(minuto) ? 0 : minuto
+          };
+        });
+
         return {
           local: String(parsed.local || matchContext.local).trim(),
           goles_local: Number(parsed.goles_local ?? 0),
           visitante: String(parsed.visitante || matchContext.visitante).trim(),
           goles_visitante: Number(parsed.goles_visitante ?? 0),
           estado: String(parsed.estado || 'Finalizado').trim(),
-          goleadores: Array.isArray(parsed.goleadores) ? parsed.goleadores : [],
-          tarjetas: Array.isArray(parsed.tarjetas) ? parsed.tarjetas : []
+          goleadores: normalizedGoleadores,
+          tarjetas: normalizedTarjetas
         };
       }
     } catch (err: any) {
@@ -424,36 +522,45 @@ export async function ensurePlayersExist(
       }
     }
 
-    const existingNames = new Set(
-      currentPlayers.map(p => p.name.toLowerCase().trim())
-    );
-
-    const newPlayers: PlayerItem[] = [];
+    let hasUpdates = false;
+    const playerMap = new Map<string, PlayerItem>();
+    currentPlayers.forEach(p => {
+      playerMap.set(p.name.toLowerCase().trim(), { ...p });
+    });
 
     goalscorers.forEach(g => {
       const name = String(g.jugador || g.player || '').trim();
       if (!name) return;
-      
+      let teamName = String(g.equipo || g.team || '').trim();
+      if (teamName.toLowerCase() === 'undefined') teamName = '';
       const normalized = name.toLowerCase();
-      if (!existingNames.has(normalized)) {
-        existingNames.add(normalized);
-        const teamName = String(g.equipo || g.team || '').trim();
-        newPlayers.push({
+
+      const existing = playerMap.get(normalized);
+      if (existing) {
+        // If existing player has no team or 'undefined' team, update it if teamName is valid
+        if ((!existing.team || existing.team.toLowerCase() === 'undefined' || existing.team.trim() === '') && teamName) {
+          existing.team = teamName;
+          hasUpdates = true;
+          console.log(`[ensurePlayersExist] 🔄 Actualizando equipo de "${name}": "${teamName}"`);
+        }
+      } else {
+        playerMap.set(normalized, {
           id: `auto_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
           name,
           team: teamName,
           position: 'Delantero',
           nationality: ''
         });
+        hasUpdates = true;
         console.log(`[ensurePlayersExist] ⚽ Creando perfil de jugador al vuelo: "${name}" (${teamName})`);
       }
     });
 
-    if (newPlayers.length > 0) {
-      const updatedList = [...currentPlayers, ...newPlayers];
+    if (hasUpdates || !snap?.exists()) {
+      const updatedList = Array.from(playerMap.values());
       const payload = sanitizeForFirestore({ players: updatedList });
       await setDoc(playersDocRef, payload, { merge: true });
-      console.log(`[ensurePlayersExist] ✅ ${newPlayers.length} nuevo(s) perfil(es) guardado(s) en doc(system/players).`);
+      console.log(`[ensurePlayersExist] ✅ ${updatedList.length} perfiles de jugadores guardados en doc(system/players).`);
     }
   } catch (err: any) {
     console.warn('[ensurePlayersExist] Advertencia al verificar/crear perfiles al vuelo:', err?.message || err);

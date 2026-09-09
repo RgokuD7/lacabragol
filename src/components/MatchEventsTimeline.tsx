@@ -1,5 +1,6 @@
 import React from 'react';
 import { Match } from '../types';
+import { DEFAULT_PLAYERS } from '../data/players';
 
 export interface TimelineEvent {
   id: string;
@@ -26,9 +27,16 @@ export function parseMatchEvents(match: {
       if (typeof g === 'object') {
         const minute = Number(g.minuto ?? g.minute ?? 0);
         const playerName = String(g.jugador || g.player || 'Gol').trim();
-        const teamName = String(g.equipo || g.team || '').trim();
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-                       match.homeTeam.toLowerCase().includes(teamName.toLowerCase());
+        let teamName = String(g.equipo || g.team || '').trim();
+        if (teamName.toLowerCase() === 'undefined') teamName = '';
+        if (!teamName) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+          if (found?.team) teamName = found.team;
+        }
+        const isHome = teamName ? (
+          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
+          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
+        ) : false;
 
         events.push({
           id: `goal-${idx}-${minute}`,
@@ -42,8 +50,16 @@ export function parseMatchEvents(match: {
         const matchStr = g.match(/^(.*?)\s*(\d+)?['’]?\s*(?:\((.*?)\))?$/);
         const playerName = matchStr?.[1]?.trim() || g;
         const minute = matchStr?.[2] ? parseInt(matchStr[2], 10) : 0;
-        const teamName = matchStr?.[3]?.trim() || '';
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase());
+        let teamName = matchStr?.[3]?.trim() || '';
+        if (teamName.toLowerCase() === 'undefined') teamName = '';
+        if (!teamName) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+          if (found?.team) teamName = found.team;
+        }
+        const isHome = teamName ? (
+          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
+          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
+        ) : false;
 
         events.push({
           id: `goal-str-${idx}-${minute}`,
@@ -64,11 +80,18 @@ export function parseMatchEvents(match: {
       if (typeof c === 'object') {
         const minute = Number(c.minuto ?? c.minute ?? 0);
         const playerName = String(c.jugador || c.player || 'Tarjeta').trim();
-        const teamName = String(c.equipo || c.team || '').trim();
+        let teamName = String(c.equipo || c.team || '').trim();
+        if (teamName.toLowerCase() === 'undefined') teamName = '';
+        if (!teamName) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+          if (found?.team) teamName = found.team;
+        }
         const tipoStr = String(c.tipo || c.type || '').toLowerCase();
-        const cardType: 'amarilla' | 'roja' = (tipoStr.includes('roja') || tipoStr.includes('red')) ? 'roja' : 'amarilla';
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-                       match.homeTeam.toLowerCase().includes(teamName.toLowerCase());
+        const cardType: 'amarilla' | 'roja' = (tipoStr.includes('roja') || tipoStr.includes('red') || tipoStr.includes('expuls')) ? 'roja' : 'amarilla';
+        const isHome = teamName ? (
+          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
+          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
+        ) : false;
 
         events.push({
           id: `card-${idx}-${minute}`,
@@ -83,10 +106,18 @@ export function parseMatchEvents(match: {
         const matchStr = c.match(/^(.*?)\s*(\d+)?['’]?\s*(?:\((.*?)\))?(?:\s*-\s*(.*))?$/);
         const playerName = matchStr?.[1]?.trim() || c;
         const minute = matchStr?.[2] ? parseInt(matchStr[2], 10) : 0;
-        const teamName = matchStr?.[3]?.trim() || '';
+        let teamName = matchStr?.[3]?.trim() || '';
+        if (teamName.toLowerCase() === 'undefined') teamName = '';
+        if (!teamName) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+          if (found?.team) teamName = found.team;
+        }
         const rawTipo = matchStr?.[4]?.toLowerCase() || '';
-        const cardType: 'amarilla' | 'roja' = rawTipo.includes('roja') ? 'roja' : 'amarilla';
-        const isHome = teamName.toLowerCase().includes(match.homeTeam.toLowerCase());
+        const cardType: 'amarilla' | 'roja' = (rawTipo.includes('roja') || rawTipo.includes('red') || rawTipo.includes('expuls')) ? 'roja' : 'amarilla';
+        const isHome = teamName ? (
+          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
+          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
+        ) : false;
 
         events.push({
           id: `card-str-${idx}-${minute}`,

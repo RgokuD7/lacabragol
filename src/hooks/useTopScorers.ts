@@ -3,6 +3,7 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Match } from '../types';
 import { getTeamLogoByName } from '../data/fixtures';
+import { DEFAULT_PLAYERS } from '../data/players';
 
 export interface TopScorer {
   position: number;
@@ -52,9 +53,18 @@ export function useTopScorers() {
             teamName = matchStr?.[3]?.trim() || '';
           }
 
-          if (!playerName) return;
+          if (!playerName || playerName.toLowerCase() === 'undefined') return;
+          if (teamName.toLowerCase() === 'undefined') teamName = '';
 
-          // If teamName is not specified in the scorer object, associate with match team if possible
+          // 1. Fallback to DEFAULT_PLAYERS catalog if team is missing
+          if (!teamName) {
+            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+            if (foundPlayer && foundPlayer.team) {
+              teamName = foundPlayer.team;
+            }
+          }
+
+          // 2. Fallback to match teams
           if (!teamName) {
             teamName = match.homeTeam || match.awayTeam || '';
           }

@@ -755,5 +755,104 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
     team: "Atalanta",
     position: "Delantero",
     nationality: "Nigeria 🇳🇬"
+  },
+  // Jugadores destacados con gol/tarjeta en Fase de Liga 2026/27
+  {
+    id: 100101,
+    name: "Ayase Ueda",
+    team: "Lille",
+    position: "Delantero",
+    nationality: "Japón 🇯🇵"
+  },
+  {
+    id: 100102,
+    name: "Alexsandro",
+    team: "Lille",
+    position: "Defensa",
+    nationality: "Brasil 🇧🇷"
+  },
+  {
+    id: 100103,
+    name: "Marc Bartra",
+    team: "Real Betis",
+    position: "Defensa",
+    nationality: "España 🇪🇸"
+  },
+  {
+    id: 100104,
+    name: "Troy Parrott",
+    team: "Real Betis",
+    position: "Delantero",
+    nationality: "Irlanda 🇮🇪"
+  },
+  {
+    id: 100105,
+    name: "Ethan Mbappé",
+    team: "Lille",
+    position: "Centrocampista",
+    nationality: "Francia 🇫🇷"
+  },
+  {
+    id: 100106,
+    name: "Renato Veiga",
+    team: "Villarreal",
+    position: "Defensa",
+    nationality: "Portugal 🇵🇹"
+  },
+  {
+    id: 100107,
+    name: "Santiago Mouriño",
+    team: "Villarreal",
+    position: "Defensa",
+    nationality: "Uruguay 🇺🇾"
+  },
+  {
+    id: 100108,
+    name: "Nicolò Tresoldi",
+    team: "Club Brugge KV",
+    position: "Delantero",
+    nationality: "Italia 🇮🇹"
+  },
+  {
+    id: 100109,
+    name: "Hugo Vetlesen",
+    team: "Club Brugge KV",
+    position: "Centrocampista",
+    nationality: "Noruega 🇳🇴"
+  },
+  {
+    id: 100110,
+    name: "John McGinn",
+    team: "Aston Villa",
+    position: "Centrocampista",
+    nationality: "Escocia 🏴󠁧󠁢󠁳󠁣󠁴󠁿"
+  },
+  {
+    id: 100111,
+    name: "Emiliano Buendía",
+    team: "Aston Villa",
+    position: "Centrocampista",
+    nationality: "Argentina 🇦🇷"
+  },
+  {
+    id: 100112,
+    name: "Nicolas Jackson",
+    team: "Aston Villa",
+    position: "Delantero",
+    nationality: "Senegal 🇸🇳"
+  },
+  {
+    id: 100113,
+    name: "Răzvan Marin",
+    team: "AEK Athens",
+    position: "Centrocampista",
+    nationality: "Rumanía 🇷🇴"
+  },
+  {
+    id: 100114,
+    name: "Carlos Augusto",
+    team: "Inter",
+    position: "Defensa",
+    nationality: "Brasil 🇧🇷"
   }
 ];
