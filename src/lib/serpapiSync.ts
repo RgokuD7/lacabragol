@@ -593,10 +593,32 @@ export async function syncJornadaMatchesWithSerpApi(
 
     const matchRef = doc(db, 'matches', match.id);
 
+    const now = Date.now();
+    const matchTime = new Date(match.date).getTime();
+
+    // REGLA ESTRICTA: Jamás consultar partidos cuya fecha/hora esté en el futuro
+    if (isNaN(matchTime) || now < matchTime) {
+      console.log(`[syncJornadaMatchesWithSerpApi] ⏩ Omitiendo partido futuro que no ha comenzado: ${matchLabel} (${match.date})`);
+      
+      // Auto-reparación: Si un partido futuro fue marcado erróneamente como 'finished', restaurarlo a 'pending'
+      if (match.status === 'finished') {
+        console.log(`[syncJornadaMatchesWithSerpApi] 🛠️ Auto-reparando partido futuro erróneamente finalizado: ${matchLabel}`);
+        await updateDoc(matchRef, {
+          status: 'pending',
+          homeScore: null,
+          awayScore: null,
+          is_synced: false,
+          is_updating: false,
+          goalscorers: [],
+          cards: []
+        });
+      }
+      continue;
+    }
+
     try {
       console.log(`[syncJornadaMatchesWithSerpApi] (${i + 1}/${targetMatches.length}) Consultando: ${matchLabel}...`);
       
-      // En contingencia manual se ignora el bloqueo de fecha futura
       const queryStr = `${match.homeTeam} vs ${match.awayTeam}`;
       const rawNode = await fetchSerpApiRaw(queryStr);
       const parsed = await parseMatchWithGemini(

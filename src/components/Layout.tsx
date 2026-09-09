@@ -288,7 +288,7 @@ export function Layout() {
   };
 
   return (
-    <div className="flex flex-col min-h-[100dvh] w-full bg-[#09090b] text-[#e4e4e7] font-sans relative">
+    <div className={`flex flex-col ${activeTab === 'standings' ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'} w-full bg-[#09090b] text-[#e4e4e7] font-sans relative`}>
       {/* Top Navbar Compacto para Teléfono */}
       <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">
@@ -342,7 +342,7 @@ export function Layout() {
       </header>
 
       {/* Main Content Area */}
-      <main className={`flex-1 w-full ${activeTab === 'standings' ? 'h-[calc(100dvh-56px)] overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'min-h-[100dvh] pb-28 sm:pb-32'}`}>
+      <main className={`flex-1 min-h-0 w-full flex flex-col ${activeTab === 'standings' ? 'overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'pb-28 sm:pb-32'}`}>
         <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'min-h-full pb-8'}`}>
           {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
           {activeTab === 'standings' && <StandingsTab />}

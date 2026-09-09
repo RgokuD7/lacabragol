@@ -140,14 +140,7 @@ export async function syncMatchResult(match: Match, settings: Setting | null, fo
         userUpdates[p.userId].streakType = streakType;
       });
 
-      // 2. Identify missing predictions
-      Object.keys(allUsers).forEach(userId => {
-        if (!userUpdates[userId]) {
-          userUpdates[userId] = { pointsDiff: 0, exactDiff: 0, medals: [], streakType: 'ausente', hasPrediction: false };
-        }
-      });
-
-      // 3. Apply streaks and create user batch updates
+      // 2. Apply streaks and create user batch updates for participants of this match
       for (const [userId, updateData] of Object.entries(userUpdates as Record<string, any>)) {
         const u = allUsers[userId];
         if (!u) continue; // safety

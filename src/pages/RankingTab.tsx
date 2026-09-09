@@ -56,6 +56,8 @@ export function RankingTab() {
         ...user,
         points: memberScores[user.uid]?.points || 0,
         exactMatches: memberScores[user.uid]?.exactMatches || 0,
+        streak_pleno: memberScores[user.uid]?.streak_pleno ?? user.streak_pleno,
+        streak_normal: memberScores[user.uid]?.streak_normal ?? user.streak_normal,
       }));
 
       uWithScores.sort((a,b) => (b.points || 0) - (a.points || 0) || (b.exactMatches || 0) - (a.exactMatches || 0));
@@ -90,9 +92,11 @@ export function RankingTab() {
   const top3 = users[2];
 
   const renderStreakBadge = (u: User) => {
+    const sp = memberScores[u.uid]?.streak_pleno ?? u.streak_pleno;
+    const sn = memberScores[u.uid]?.streak_normal ?? u.streak_normal;
     if (u.streak_ausente && u.streak_ausente >= 4) return `👻 ${u.streak_ausente}`;
-    if (u.streak_pleno && u.streak_pleno >= 2) return `🐐🔥 ${u.streak_pleno}`;
-    if (u.streak_normal && u.streak_normal >= 3) return `🔥 ${u.streak_normal}`;
+    if (sp && sp >= 2) return `🐐🔥 ${sp}`;
+    if (sn && sn >= 3) return `🔥 ${sn}`;
     if (u.streak_falla && u.streak_falla >= 3) return `🥶 ${u.streak_falla}`;
     return null;
   };
@@ -140,11 +144,19 @@ export function RankingTab() {
                 2
               </span>
             </div>
-            <p className="font-bold text-xs text-white truncate max-w-full">
-              {top2?.title && <span className="mr-1">{top2.title}</span>}
-              {top2?.nickname || top2?.displayName || 'Participante'}
-              {top2 && renderStreakBadge(top2) && <span className="text-[10px] ml-1 bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top2)}</span>}
-            </p>
+            <div className="flex flex-col items-center justify-center text-center gap-0.5 w-full min-w-0 px-1">
+              <span className="font-bold text-xs text-white truncate max-w-full block leading-tight">
+                {top2?.nickname || top2?.displayName || 'Participante'}
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-1 mt-0.5">
+                {top2?.title && <span className="text-[9px] text-zinc-400 font-medium">{top2.title}</span>}
+                {top2 && renderStreakBadge(top2) && (
+                  <span className="text-[10px] bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">
+                    {renderStreakBadge(top2)}
+                  </span>
+                )}
+              </div>
+            </div>
             {top2?.medallas && top2?.medallas.length > 0 && (
                 <div className="flex justify-center gap-0.5 mt-0.5" title={top2.medallas.join(', ')}>
                   {Array.from(new Set(top2.medallas.map(m => Array.from(m as string)[0]))).map((emoji, i) => (
@@ -172,15 +184,24 @@ export function RankingTab() {
                 1
               </span>
             </div>
-            <p className="font-black text-xs text-amber-100 truncate max-w-full flex items-center justify-center gap-1">
-              <span>{top1?.nickname || top1?.displayName || 'Líder'}</span>
-              {hasAnyPoints && (
-                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-black">
-                  🐐 Cabra
-                </span>
-              )}
-              {top1 && renderStreakBadge(top1) && <span className="text-[10px] bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top1)}</span>}
-            </p>
+            <div className="flex flex-col items-center justify-center text-center gap-0.5 w-full min-w-0 px-1">
+              <span className="font-black text-xs text-amber-100 truncate max-w-full block leading-tight">
+                {top1?.nickname || top1?.displayName || 'Líder'}
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-1 mt-0.5">
+                {hasAnyPoints && (
+                  <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1 py-0.2 rounded font-black">
+                    🐐 Cabra
+                  </span>
+                )}
+                {top1?.title && <span className="text-[9px] text-amber-200/80 font-medium">{top1.title}</span>}
+                {top1 && renderStreakBadge(top1) && (
+                  <span className="text-[10px] bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">
+                    {renderStreakBadge(top1)}
+                  </span>
+                )}
+              </div>
+            </div>
             <span className="font-mono font-black text-amber-400 text-sm mt-0.5">
               {top1?.points || 0} <span className="text-[9px] font-bold text-amber-500/80">PTS</span>
             </span>
@@ -200,11 +221,19 @@ export function RankingTab() {
                 3
               </span>
             </div>
-            <p className="font-bold text-xs text-white truncate max-w-full">
-              {top3?.title && <span className="mr-1">{top3.title}</span>}
-              {top3?.nickname || top3?.displayName || 'Participante'}
-              {top3 && renderStreakBadge(top3) && <span className="text-[10px] ml-1 bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">{renderStreakBadge(top3)}</span>}
-            </p>
+            <div className="flex flex-col items-center justify-center text-center gap-0.5 w-full min-w-0 px-1">
+              <span className="font-bold text-xs text-white truncate max-w-full block leading-tight">
+                {top3?.nickname || top3?.displayName || 'Participante'}
+              </span>
+              <div className="flex flex-wrap items-center justify-center gap-1 mt-0.5">
+                {top3?.title && <span className="text-[9px] text-zinc-400 font-medium">{top3.title}</span>}
+                {top3 && renderStreakBadge(top3) && (
+                  <span className="text-[10px] bg-zinc-800/80 px-1 rounded shadow-sm border border-zinc-700">
+                    {renderStreakBadge(top3)}
+                  </span>
+                )}
+              </div>
+            </div>
             {top3?.medallas && top3?.medallas.length > 0 && (
                 <div className="flex justify-center gap-0.5 mt-0.5" title={top3.medallas.join(', ')}>
                   {Array.from(new Set(top3.medallas.map(m => Array.from(m as string)[0]))).map((emoji, i) => (
