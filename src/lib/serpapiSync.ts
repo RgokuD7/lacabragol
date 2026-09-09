@@ -647,12 +647,13 @@ export async function syncJornadaMatchesWithSerpApi(
   let syncedMatches = 0;
   const errors: string[] = [];
 
-  for (let i = 0; i < targetMatches.length; i++) {
-    const match = targetMatches[i];
+  let currentIdx = 0;
+  for (const match of targetMatches) {
+    currentIdx++;
     const matchLabel = `${match.homeTeam} vs ${match.awayTeam}`;
     
     if (onProgress) {
-      onProgress(i + 1, targetMatches.length, matchLabel);
+      onProgress(currentIdx, targetMatches.length, matchLabel);
     }
 
     const matchRef = doc(db, 'matches', match.id);
@@ -681,7 +682,7 @@ export async function syncJornadaMatchesWithSerpApi(
     }
 
     try {
-      console.log(`[syncJornadaMatchesWithSerpApi] (${i + 1}/${targetMatches.length}) Consultando: ${matchLabel}...`);
+      console.log(`[syncJornadaMatchesWithSerpApi] (${currentIdx}/${targetMatches.length}) Consultando: ${matchLabel}...`);
       
       const queryStr = `${match.homeTeam} vs ${match.awayTeam}`;
       const rawNode = await fetchSerpApiRaw(queryStr);

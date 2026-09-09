@@ -42,9 +42,19 @@ export const ACHIEVEMENTS: Achievement[] = [
     name: 'Modo Play',
     emoji: '🎮',
     category: 'match',
-    rarity: 'raro',
-    description: 'Pronosticaste al ganador con 4+ goles y acertaste el desenlace en un partido con 3 o más goles reales.',
-    shortCondition: 'Ganador 4+ goles y desenlace acertado'
+    rarity: 'epico',
+    description: 'Apostaste por un festival con 7 o más goles y acertaste el ganador en un partido de 7+ goles reales.',
+    shortCondition: 'Pronóstico y partido con 7+ goles y ganador acertado'
+  },
+  {
+    id: 'partido_somnifero',
+    title: '🥱 Partido Somnífero',
+    name: 'Partido Somnífero',
+    emoji: '🥱',
+    category: 'match',
+    rarity: 'comun',
+    description: 'Le achuntaste al 0 a 0 exacto. La siesta fue histórica, pero los puntos son tuyos.',
+    shortCondition: 'Acertar marcador exacto 0 - 0'
   },
   {
     id: 'mundo_al_reves',
@@ -173,6 +183,11 @@ export function isAchievementUnlocked(achievement: Achievement, user: User | nul
   });
 
   if (hasDirectMedal) return true;
+
+  // Fallback for partido_somnifero: unlocked if user has Cerrajero (0-0 hit)
+  if (achievement.id === 'partido_somnifero') {
+    return medallas.some(m => typeof m === 'string' && (m.includes('Somnífero') || m.includes('Cerrajero')));
+  }
 
   // 2. Statistical fallback for streaks
   if (achievement.id === 'racha_cabra') {

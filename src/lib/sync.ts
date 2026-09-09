@@ -106,11 +106,14 @@ export async function syncMatchResult(match: Match, settings: Setting | null, fo
         const predDiff = pHome - pAway;
         const sameOutcome = (realDiff > 0 && predDiff > 0) || (realDiff < 0 && predDiff < 0) || (realDiff === 0 && predDiff === 0);
 
-        if (exact && pHome === 0 && pAway === 0) newMedals.push('🔒 Cerrajero');
+        if (exact && pHome === 0 && pAway === 0) {
+          newMedals.push('🔒 Cerrajero');
+          newMedals.push('🥱 Partido Somnífero');
+        }
         if (exact && ((pHome === 1 && pAway === 0) || (pHome === 0 && pAway === 1))) newMedals.push('👔 Bilardista');
         
-        const pWinnerGoles = pHome > pAway ? pHome : (pAway > pHome ? pAway : 0);
-        if (sameOutcome && pWinnerGoles >= 4 && (rHome + rAway) >= 3) {
+        // Modo Play: apuesta por un partido con 7+ goles y gana en un partido de 7+ goles
+        if (sameOutcome && (pHome + pAway) >= 7 && (rHome + rAway) >= 7) {
           newMedals.push('🎮 Modo Play');
         }
         if (rHome !== rAway && pHome === rAway && pAway === rHome) {
