@@ -13,6 +13,7 @@ import {
   Clock
 } from 'lucide-react';
 import { GeminiPartidoPreview } from '../lib/geminiSync';
+import { TeamBadge } from './TeamBadge';
 import { vibrateTap, vibrateSuccess } from '../lib/haptics';
 
 interface GeminiApiResultsModalProps {
@@ -91,14 +92,14 @@ export function GeminiApiResultsModal({
             <div>
               <div className="flex items-center gap-2">
                 <h2 className="text-sm font-black text-white uppercase tracking-wider">
-                  Resultados de Gemini IA
+                  Auditoría de Resultados (SerpAPI + Gemini)
                 </h2>
                 <span className="text-[9px] font-black uppercase tracking-widest bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded">
                   Auditoría Previa
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400">
-                {partidos.length} partido(s) analizados. Revisa antes de aplicar a la base de datos.
+                {partidos.length} partido(s) analizados. Revisa antes de confirmar e inyectar en la base de datos.
               </p>
             </div>
           </div>
@@ -171,12 +172,13 @@ export function GeminiApiResultsModal({
                     {/* Header del Partido: Local vs Visitante & Marcador */}
                     <div className="flex items-center justify-between gap-2 border-b border-zinc-800/60 pb-2">
                       <div className="flex-1 min-w-0">
-                        <div className="flex items-center justify-between gap-3">
-                          {/* Equipo Local */}
-                          <div className="flex-1 text-right min-w-0">
-                            <span className="font-black text-xs text-white truncate block">
+                        <div className="flex items-center justify-between gap-2.5">
+                          {/* Equipo Local con Escudo */}
+                          <div className="flex-1 flex items-center justify-end gap-2 min-w-0">
+                            <span className="font-black text-xs text-white truncate text-right">
                               {partido.local}
                             </span>
+                            <TeamBadge teamName={partido.local} size="sm" />
                           </div>
 
                           {/* Marcador Central */}
@@ -190,9 +192,10 @@ export function GeminiApiResultsModal({
                             </span>
                           </div>
 
-                          {/* Equipo Visitante */}
-                          <div className="flex-1 text-left min-w-0">
-                            <span className="font-black text-xs text-white truncate block">
+                          {/* Equipo Visitante con Escudo */}
+                          <div className="flex-1 flex items-center justify-start gap-2 min-w-0">
+                            <TeamBadge teamName={partido.visitante} size="sm" />
+                            <span className="font-black text-xs text-white truncate text-left">
                               {partido.visitante}
                             </span>
                           </div>

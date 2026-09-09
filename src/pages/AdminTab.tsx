@@ -4,7 +4,7 @@ import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
 import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
 import { Match, Prediction, User, Setting } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
@@ -17,9 +17,22 @@ import {
   commitGeminiMatchesToFirestore, 
   getGeminiApiKey, 
   setGeminiApiKey, 
-  GeminiPreviewResult 
+  GeminiPreviewResult,
+  mapGeminiEstadoToStatus,
+  GeminiPartidoPreview
 } from '../lib/geminiSync';
+import { 
+  getSerpApiKey, 
+  setSerpApiKey, 
+  fetchSerpApiRaw, 
+  parseMatchWithGemini, 
+  parseStandingsWithGemini, 
+  getMockRealMadridVsInterPreview, 
+  commitSerpApiStandingsToFirestore, 
+  SerpApiStandingItem 
+} from '../lib/serpapiSync';
 import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
+import { SerpApiStandingsModal } from '../components/SerpApiStandingsModal';
 import { syncMatchPredictionsAndPoints } from '../lib/sync';
 import { vibrateTap, vibrateSuccess, vibrateError } from '../lib/haptics';
 
@@ -56,6 +69,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [geminiKeySaved, setGeminiKeySaved] = useState(false);
   const [geminiPreviewData, setGeminiPreviewData] = useState<GeminiPreviewResult | null>(null);
   const [isCommittingGemini, setIsCommittingGemini] = useState(false);
+
+  // SerpAPI + Gemini hybrid sync state
+  const [serpApiKeyInput, setSerpApiKeyInput] = useState(getSerpApiKey());
+  const [serpKeySaved, setSerpKeySaved] = useState(false);
+  const [isSyncingSerpApiMatches, setIsSyncingSerpApiMatches] = useState(false);
+  const [isSyncingSerpApiStandings, setIsSyncingSerpApiStandings] = useState(false);
+  const [serpStandingsPreview, setSerpStandingsPreview] = useState<SerpApiStandingItem[] | null>(null);
+  const [serpStandingsRawJson, setSerpStandingsRawJson] = useState<string>('');
+  const [isCommittingStandings, setIsCommittingStandings] = useState(false);
 
   // Status and management states
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -373,6 +395,160 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setGeminiKeySaved(true);
     vibrateSuccess();
     setTimeout(() => setGeminiKeySaved(false), 2500);
+  };
+
+  const handleSaveSerpApiKey = () => {
+    if (!serpApiKeyInput.trim()) return;
+    setSerpApiKey(serpApiKeyInput.trim());
+    setSerpKeySaved(true);
+    vibrateSuccess();
+    setTimeout(() => setSerpKeySaved(false), 2500);
+  };
+
+  const handleRunMockTestCaseRealMadridVsInter = () => {
+    vibrateTap();
+    const mockPreview = getMockRealMadridVsInterPreview(matches);
+    setGeminiPreviewData(mockPreview as any);
+    vibrateSuccess();
+    setFeedback({
+      type: 'info',
+      text: 'Caso de Prueba cargado en el Modal: Real Madrid 2 - 1 Inter. Revisa marcadores, goleadores y minutos.'
+    });
+  };
+
+  const handleSyncSerpApiDailyMatches = async () => {
+    setIsSyncingSerpApiMatches(true);
+    vibrateTap();
+    setFeedback({ type: 'info', text: 'Buscando partidos en vivo/hoy en Google vía SerpAPI...' });
+
+    try {
+      const todayStr = new Date().toISOString().split('T')[0];
+      let candidateMatches = matches.filter(m => {
+        if (m.date && m.date.startsWith(todayStr)) return true;
+        if (m.status === 'in_progress') return true;
+        return false;
+      });
+
+      if (candidateMatches.length === 0) {
+        const pending = matches.filter(m => m.status === 'pending' || m.status === 'in_progress');
+        candidateMatches = pending.length > 0 ? pending.slice(0, 6) : matches.slice(0, 4);
+      }
+
+      if (candidateMatches.length === 0) {
+        setFeedback({ type: 'info', text: 'No hay partidos programados para consultar hoy.' });
+        setIsSyncingSerpApiMatches(false);
+        return;
+      }
+
+      const resultsList: GeminiPartidoPreview[] = [];
+      const queriesRun: string[] = [];
+
+      for (const m of candidateMatches) {
+        const query = `${m.homeTeam} vs ${m.awayTeam} hoy`;
+        queriesRun.push(query);
+        try {
+          const rawNode = await fetchSerpApiRaw(query, serpApiKeyInput);
+          const parsed = await parseMatchWithGemini(
+            rawNode,
+            { local: m.homeTeam, visitante: m.awayTeam },
+            geminiApiKeyInput
+          );
+
+          const newStatus = mapGeminiEstadoToStatus(parsed.estado);
+          const changed = m.status !== newStatus ||
+            m.homeScore !== parsed.goles_local ||
+            m.awayScore !== parsed.goles_visitante;
+
+          resultsList.push({
+            local: parsed.local,
+            goles_local: parsed.goles_local,
+            visitante: parsed.visitante,
+            goles_visitante: parsed.goles_visitante,
+            estado: parsed.estado,
+            goleadores: parsed.goleadores as any,
+            tarjetas: parsed.tarjetas as any,
+            matchedMatchId: m.id,
+            matchedMatch: m,
+            hasChanges: changed
+          });
+        } catch (matchErr: any) {
+          console.warn(`[SerpAPI] Error procesando ${m.homeTeam} vs ${m.awayTeam}:`, matchErr);
+        }
+      }
+
+      if (resultsList.length === 0) {
+        setFeedback({ type: 'error', text: 'No se pudieron extraer partidos válidos desde SerpAPI.' });
+        setIsSyncingSerpApiMatches(false);
+        return;
+      }
+
+      vibrateSuccess();
+      setGeminiPreviewData({
+        success: true,
+        message: `Se consultaron ${resultsList.length} partido(s) mediante SerpAPI y se estructuraron con Gemini.`,
+        partidos: resultsList,
+        rawJson: JSON.stringify({ partidos: resultsList }, null, 2),
+        totalQueried: candidateMatches.length,
+        searchQueries: queriesRun,
+        isGrounded: true,
+        searchSummary: `Datos extraídos en vivo de SerpAPI (nodo sports_results) y parseados a formato estricto con Gemini API.`
+      });
+      setFeedback(null);
+    } catch (err: any) {
+      vibrateError();
+      console.error("[handleSyncSerpApiDailyMatches] Error:", err);
+      setFeedback({ type: 'error', text: 'Error al sincronizar con SerpAPI: ' + err.message });
+    }
+    setIsSyncingSerpApiMatches(false);
+  };
+
+  const handleSyncSerpApiStandings = async () => {
+    setIsSyncingSerpApiStandings(true);
+    vibrateTap();
+    setFeedback({ type: 'info', text: 'Consultando tabla de posiciones en Google vía SerpAPI...' });
+
+    try {
+      const query = "tabla posiciones champions league";
+      const rawNode = await fetchSerpApiRaw(query, serpApiKeyInput);
+      const tabla = await parseStandingsWithGemini(rawNode, geminiApiKeyInput);
+
+      if (!tabla || tabla.length === 0) {
+        setFeedback({ type: 'error', text: 'No se detectaron posiciones válidas en la respuesta de SerpAPI.' });
+        setIsSyncingSerpApiStandings(false);
+        return;
+      }
+
+      vibrateSuccess();
+      setSerpStandingsPreview(tabla);
+      setSerpStandingsRawJson(JSON.stringify(tabla, null, 2));
+      setFeedback(null);
+    } catch (err: any) {
+      vibrateError();
+      console.error("[handleSyncSerpApiStandings] Error:", err);
+      setFeedback({ type: 'error', text: 'Error al consultar tabla en SerpAPI: ' + err.message });
+    }
+    setIsSyncingSerpApiStandings(false);
+  };
+
+  const handleConfirmCommitStandings = async () => {
+    if (!serpStandingsPreview || serpStandingsPreview.length === 0) return;
+    setIsCommittingStandings(true);
+    vibrateTap();
+    try {
+      const res = await commitSerpApiStandingsToFirestore(serpStandingsPreview);
+      if (res.success) {
+        vibrateSuccess();
+        setFeedback({ type: 'success', text: res.message });
+        setSerpStandingsPreview(null);
+      } else {
+        vibrateError();
+        setFeedback({ type: 'error', text: res.message });
+      }
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error al guardar tabla en Firestore: ' + err.message });
+    }
+    setIsCommittingStandings(false);
   };
 
   const toggleUserPaid = async (uid: string, current: boolean) => {
@@ -761,61 +937,117 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
       {adminTab === 'actions' && (
         <div className="space-y-6">
-          {/* Sincronización Inteligente con Gemini IA */}
+          {/* Sincronización Híbrida: SerpAPI (Google Data) + Gemini (Parseo Estricto) */}
           <div className="bg-[#121215] border border-blue-500/30 rounded-xl p-3 sm:p-4 space-y-4 bg-gradient-to-b from-blue-950/20 to-transparent">
             <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
               <div className="flex items-center gap-2">
                 <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-blue-400">
-                  <Sparkles className="w-4 h-4" />
+                  <Sparkles className="w-4 h-4 text-amber-300" />
                 </div>
                 <div>
-                  <h3 className="text-xs font-black text-white uppercase tracking-wider">Sincronización Inteligente Gemini IA</h3>
-                  <p className="text-[10px] text-zinc-400">Actualiza resultados de hoy y en juego vía Google Gemini API</p>
+                  <div className="flex items-center gap-1.5">
+                    <h3 className="text-xs font-black text-white uppercase tracking-wider">Sincronización Híbrida (SerpAPI + Gemini)</h3>
+                    <span className="text-[9px] font-black uppercase tracking-widest bg-blue-500/20 text-blue-300 border border-blue-500/40 px-1.5 py-0.2 rounded">
+                      Google Live
+                    </span>
+                  </div>
+                  <p className="text-[10px] text-zinc-400">Extracción de datos reales con SerpAPI + Formateo estricto con Gemini API</p>
                 </div>
               </div>
               <button
                 type="button"
                 onClick={() => setShowGeminiConfig(!showGeminiConfig)}
-                className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/60"
-                title="Configurar Gemini API Key"
+                className="p-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-400 hover:text-white rounded-lg transition-colors border border-zinc-700/60 flex items-center gap-1 text-[11px] font-bold cursor-pointer"
+                title="Configurar claves de API"
               >
                 <Key className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">APIs</span>
               </button>
             </div>
 
+            {/* Configuración de API Keys */}
             {showGeminiConfig && (
-              <div className="bg-black/60 border border-zinc-800 rounded-xl p-3 space-y-2 animate-in fade-in">
-                <label className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">Gemini API Key</label>
-                <div className="flex gap-2">
-                  <input
-                    type="password"
-                    value={geminiApiKeyInput}
-                    onChange={e => setGeminiApiKeyInput(e.target.value)}
-                    placeholder="AQ.Ab8..."
-                    className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-blue-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={handleSaveGeminiKey}
-                    className="px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1 shrink-0"
-                  >
-                    {geminiKeySaved ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
-                    <span>{geminiKeySaved ? 'Guardado' : 'Guardar'}</span>
-                  </button>
+              <div className="bg-black/70 border border-zinc-800 rounded-xl p-3 space-y-3 animate-in fade-in">
+                {/* SerpAPI Key */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">SerpAPI Key (Búsqueda en Google)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={serpApiKeyInput}
+                      onChange={e => setSerpApiKeyInput(e.target.value)}
+                      placeholder="30ebec1be..."
+                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveSerpApiKey}
+                      className="px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      {serpKeySaved ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{serpKeySaved ? 'Guardado' : 'Guardar'}</span>
+                    </button>
+                  </div>
                 </div>
-                <p className="text-[9px] text-zinc-500">Se guarda localmente en el navegador para consultas de administrador.</p>
+
+                {/* Gemini API Key */}
+                <div className="space-y-1">
+                  <label className="block text-[10px] uppercase font-bold text-zinc-400 tracking-wider">Gemini API Key (Parseo a JSON Estricto)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="password"
+                      value={geminiApiKeyInput}
+                      onChange={e => setGeminiApiKeyInput(e.target.value)}
+                      placeholder="AQ.Ab8..."
+                      className="flex-1 bg-zinc-900 border border-zinc-700 rounded-lg px-3 py-1.5 text-xs text-white font-mono outline-none focus:border-blue-500"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleSaveGeminiKey}
+                      className="px-3 bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs rounded-lg transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                    >
+                      {geminiKeySaved ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{geminiKeySaved ? 'Guardado' : 'Guardar'}</span>
+                    </button>
+                  </div>
+                </div>
+                <p className="text-[9px] text-zinc-500">Ambas claves se guardan localmente en el navegador para uso administrativo seguro.</p>
               </div>
             )}
 
-            <div className="flex flex-col sm:flex-row gap-2.5">
+            {/* Botones de Acción */}
+            <div className="space-y-2.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {/* Botón 1: Sincronizar Partidos del Día */}
+                <button
+                  type="button"
+                  onClick={handleSyncSerpApiDailyMatches}
+                  disabled={isSyncingSerpApiMatches}
+                  className="bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/25 cursor-pointer"
+                >
+                  {isSyncingSerpApiMatches ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
+                  <span>{isSyncingSerpApiMatches ? 'Consultando SerpAPI...' : 'Sincronizar Partidos del Día'}</span>
+                </button>
+
+                {/* Botón 2: Forzar Sincronización de Tabla */}
+                <button
+                  type="button"
+                  onClick={handleSyncSerpApiStandings}
+                  disabled={isSyncingSerpApiStandings}
+                  className="bg-amber-600 hover:bg-amber-500 active:scale-98 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-amber-600/25 cursor-pointer"
+                >
+                  {isSyncingSerpApiStandings ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4 text-yellow-300" />}
+                  <span>{isSyncingSerpApiStandings ? 'Obteniendo Tabla...' : 'Forzar Sincronización de Tabla'}</span>
+                </button>
+              </div>
+
+              {/* Botón Caso de Prueba: Real Madrid vs Inter (Mock Test) */}
               <button
                 type="button"
-                onClick={handleSyncGeminiDaily}
-                disabled={isSyncingGemini}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 active:scale-98 text-white font-black py-3 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-blue-600/25 cursor-pointer"
+                onClick={handleRunMockTestCaseRealMadridVsInter}
+                className="w-full bg-purple-900/30 hover:bg-purple-900/50 border border-purple-500/40 text-purple-300 hover:text-purple-200 font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98"
               >
-                {isSyncingGemini ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
-                <span>{isSyncingGemini ? 'Consultando Gemini IA...' : 'Consultar Resultados de Hoy (Gemini IA)'}</span>
+                <span>🧪 Probar Caso de Prueba: Real Madrid 2 - 1 Inter (Mock Test)</span>
               </button>
             </div>
           </div>
@@ -1405,7 +1637,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         </BaseBottomSheet>
       )}
 
-      {/* Gemini API Results & Validation Modal */}
+      {/* Gemini / SerpAPI Match Results & Validation Modal */}
       <GeminiApiResultsModal
         isOpen={geminiPreviewData !== null}
         onClose={() => setGeminiPreviewData(null)}
@@ -1416,6 +1648,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         searchSummary={geminiPreviewData?.searchSummary || ''}
         onConfirm={handleConfirmCommitGemini}
         isSaving={isCommittingGemini}
+      />
+
+      {/* SerpAPI Forced Standings Validation Modal */}
+      <SerpApiStandingsModal
+        isOpen={serpStandingsPreview !== null}
+        onClose={() => setSerpStandingsPreview(null)}
+        tabla={serpStandingsPreview || []}
+        rawJson={serpStandingsRawJson}
+        onConfirm={handleConfirmCommitStandings}
+        isSaving={isCommittingStandings}
       />
     </div>
   );
