@@ -17,7 +17,6 @@ import { MatchEventsModal } from '../components/MatchEventsModal';
 import { MatchEventsTimeline } from '../components/MatchEventsTimeline';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
-import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
 import { 
   Check, 
   Calendar, 
@@ -219,25 +218,6 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
     return () => unsubPreds();
   }, [user, activeGroupId]);
-
-  // Sistema de Actualización Inteligente y Automática por Partido (SerpAPI + Gemini + Candado)
-  useEffect(() => {
-    if (!matches || matches.length === 0) return;
-
-    // Ejecuta la verificación automática cuando los partidos cargan o cambian
-    checkAndAutoSyncFinishedMatches(matches, settings).catch(err => {
-      console.warn("[PredictionsTab] Error en auto-sync de partidos:", err);
-    });
-
-    // Revisa periódicamente cada 60 segundos
-    const interval = setInterval(() => {
-      checkAndAutoSyncFinishedMatches(matches, settings).catch(err => {
-        console.warn("[PredictionsTab] Error en intervalo de auto-sync:", err);
-      });
-    }, 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [matches, settings]);
 
   const handleScoreChange = (matchId: string, type: 'home' | 'away', val: string) => {
     const cleanVal = val.replace(/[^0-9]/g, '').slice(0, 2);
@@ -598,7 +578,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           const liveInfo = getMatchLiveInfo(match);
           const isInProgress = isTutorialItem ? false : (liveInfo.isLive || match.status === 'in_progress');
           const isScheduleLocked = isTutorialItem ? false : isMatchLocked(match.date);
-          const locked = isTutorialItem ? false : (isFinished || isInProgress || isScheduleLocked);
+          const locked = isTutorialItem ? false : (isFinished || isInProgress || isScheduleLocked || !!match.is_updating);
           const pred = isTutorialItem
             ? ({ id: 'tutorial-pred-me', userId: user?.uid || 'me', matchId: match.id, homeScore: 2, awayScore: 1, pointsEarned: 5, updatedAt: Date.now() } as Prediction)
             : predictions[match.id];
@@ -655,7 +635,12 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
               <div className="flex items-center justify-between text-[10px] text-zinc-400 pb-1.5 mb-1.5 border-b border-zinc-800/50">
                 <div className="flex items-center gap-2">
                   <div className="flex items-center justify-center">
-                    {isFinished ? (
+                    {match.is_updating ? (
+                      <span className="text-[9px] font-black uppercase tracking-widest text-cyan-300 bg-cyan-500/20 px-1.5 py-0.5 rounded border border-cyan-500/40 flex items-center gap-1 animate-pulse">
+                        <RefreshCw className="w-2.5 h-2.5 animate-spin" />
+                        <span>🔄 Actualizando...</span>
+                      </span>
+                    ) : isFinished ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-800/50 px-1.5 py-0.5 rounded border border-zinc-700/50">Finalizado</span>
                     ) : isInProgress ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 flex items-center gap-1">

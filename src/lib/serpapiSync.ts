@@ -82,32 +82,61 @@ export async function fetchSerpApiRaw(query: string, apiKeyOverride?: string): P
 
   console.log(`[SerpAPI] Consultando Google: "${query}"...`);
 
-  // Try direct fetch first
-  try {
-    const res = await fetch(directUrl, { method: 'GET' });
-    if (res.ok) {
-      const data = await res.json();
-      console.log(`[SerpAPI] Respuesta directa exitosa para "${query}".`);
-      return extractRelevantSerpApiNode(data);
+  // Lista priorizada de proxies para sortear restricciones CORS en el navegador
+  const proxyAttempts: Array<{ type: string; url: string; isGetWrapper?: boolean }> = [
+    { type: 'direct', url: directUrl },
+    { type: 'allorigins-raw', url: `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}` },
+    { type: 'allorigins-get', url: `https://api.allorigins.win/get?url=${encodeURIComponent(directUrl)}`, isGetWrapper: true },
+    { type: 'corsproxy', url: `https://corsproxy.io/?url=${encodeURIComponent(directUrl)}` },
+    { type: 'codetabs', url: `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(directUrl)}` },
+  ];
+
+  let lastErr: any = null;
+
+  for (const attempt of proxyAttempts) {
+    try {
+      const controller = new AbortController();
+      // Timeout de 10s por intento para no colgar el flujo
+      const timeoutId = setTimeout(() => controller.abort(), attempt.type === 'direct' ? 4000 : 10000);
+
+      const res = await fetch(attempt.url, {
+        method: 'GET',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+
+      if (!res.ok) {
+        throw new Error(`HTTP ${res.status} ${res.statusText}`);
+      }
+
+      let data: any;
+      if (attempt.isGetWrapper) {
+        const wrapper = await res.json();
+        if (wrapper && typeof wrapper.contents === 'string') {
+          data = JSON.parse(wrapper.contents);
+        } else {
+          data = wrapper;
+        }
+      } else {
+        data = await res.json();
+      }
+
+      if (data && (data.sports_results || data.answer_box || data.organic_results || data.knowledge_graph)) {
+        console.log(`[SerpAPI] Respuesta exitosa (${attempt.type}) para "${query}".`);
+        return extractRelevantSerpApiNode(data);
+      } else if (data && data.error) {
+        throw new Error(data.error);
+      } else if (data) {
+        console.log(`[SerpAPI] Respuesta estructurada recibida (${attempt.type}) para "${query}".`);
+        return extractRelevantSerpApiNode(data);
+      }
+    } catch (err: any) {
+      lastErr = err;
+      console.warn(`[SerpAPI] Intento ${attempt.type} falló para "${query}":`, err?.message || err);
     }
-  } catch (err: any) {
-    console.warn(`[SerpAPI] Llamada directa bloqueada por CORS o red. Usando fallback de proxy...`, err.message);
   }
 
-  // Fallback via CORS proxy (allorigins)
-  const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(directUrl)}`;
-  try {
-    const proxyRes = await fetch(proxyUrl, { method: 'GET' });
-    if (!proxyRes.ok) {
-      throw new Error(`Proxy HTTP ${proxyRes.status} ${proxyRes.statusText}`);
-    }
-    const proxyData = await proxyRes.json();
-    console.log(`[SerpAPI] Respuesta exitosa mediante proxy para "${query}".`);
-    return extractRelevantSerpApiNode(proxyData);
-  } catch (proxyErr: any) {
-    console.error(`[SerpAPI] Error al consultar SerpAPI:`, proxyErr);
-    throw new Error(`Error de conexión con SerpAPI: ${proxyErr.message}`);
-  }
+  throw new Error(`Error de conexión con SerpAPI: ${lastErr?.message || 'Failed to fetch'}`);
 }
 
 /**
@@ -804,7 +833,7 @@ export async function checkAndAutoSyncFinishedMatches(
     if (passedMilestones.length === 0) continue; // No ha llegado a +5 min
 
     const targetMilestone = Math.max(...passedMilestones);
-    const lastSynced = m.last_synced_milestone ?? 0;
+    const lastSynced = m.ultimo_hito_sincronizado ?? m.last_synced_milestone ?? 0;
 
     // Si ya se sincronizó en este hito o uno superior, omitir
     if (lastSynced >= targetMilestone) continue;
@@ -845,11 +874,15 @@ export async function checkAndAutoSyncFinishedMatches(
   let finishedCount = 0;
 
   try {
-    // 2. Consultas a SerpAPI en paralelo para obtener la data cruda de cada partido activo
-    console.log(`[AutoSync] 📡 Consultando SerpAPI en paralelo para ${candidates.length} partidos activos...`);
+    // 2. Consultas a SerpAPI concurrentes con desfase para evitar saturación de proxy
+    console.log(`[AutoSync] 📡 Consultando SerpAPI de forma concurrente para ${candidates.length} partidos activos...`);
     const serpResults = await Promise.allSettled(
-      candidates.map(async c => {
-        const query = `${c.match.homeTeam} vs ${c.match.awayTeam} hoy`;
+      candidates.map(async (c, idx) => {
+        if (idx > 0) {
+          // Desfase escalonado de 350ms para no saturar el proxy ni recibir 429 / Failed to fetch
+          await new Promise(r => setTimeout(r, idx * 350));
+        }
+        const query = `${c.match.homeTeam} vs ${c.match.awayTeam}`;
         const rawNode = await fetchSerpApiRaw(query);
         return {
           matchId: c.match.id,
@@ -929,6 +962,7 @@ export async function checkAndAutoSyncFinishedMatches(
         status,
         goalscorers: parsed.goleadores || [],
         cards: parsed.tarjetas || [],
+        ultimo_hito_sincronizado: c.targetMilestone,
         last_synced_milestone: c.targetMilestone,
         last_synced_at: Date.now(),
         is_synced: status === 'finished',
@@ -1063,6 +1097,7 @@ export async function syncJornadaMatchesWithSerpApi(
 
     try {
       console.log(`[syncJornadaMatchesWithSerpApi] (${currentIdx}/${targetMatches.length}) Consultando: ${matchLabel}...`);
+      await updateDoc(matchRef, { is_updating: true, is_updating_at: Date.now() }).catch(() => {});
       
       const queryStr = `${match.homeTeam} vs ${match.awayTeam}`;
       const rawNode = await fetchSerpApiRaw(queryStr);
@@ -1092,6 +1127,7 @@ export async function syncJornadaMatchesWithSerpApi(
         status,
         goalscorers: parsed.goleadores || [],
         cards: parsed.tarjetas || [],
+        ultimo_hito_sincronizado: isFinished ? 115 : 90,
         last_synced_milestone: isFinished ? 115 : 90,
         last_synced_at: Date.now(),
         is_synced: isFinished,
@@ -1120,6 +1156,7 @@ export async function syncJornadaMatchesWithSerpApi(
       console.log(`[syncJornadaMatchesWithSerpApi] ✓ Partido ${matchLabel} guardado: ${parsed.goles_local}-${parsed.goles_visitante} (${status})`);
     } catch (err: any) {
       console.error(`[syncJornadaMatchesWithSerpApi] Error procesando ${matchLabel}:`, err);
+      await updateDoc(matchRef, { is_updating: false }).catch(() => {});
       errors.push(`${matchLabel}: ${err.message}`);
     }
   }

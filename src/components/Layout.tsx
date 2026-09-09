@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Home, 
   Trophy, 
@@ -39,6 +39,8 @@ import { startInteractiveTutorial, destroyActiveTutorial, startPlayersUpdateTuto
 import { getGroupPodium, findAnyUserPodium } from '../lib/podium';
 import { hasUserCustomPlayer } from '../data/players';
 import { User as UserIcon } from 'lucide-react';
+import { Match } from '../types';
+import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
 
 export function Layout() {
   const [activeTab, setActiveTab] = useState('predictions');
@@ -62,6 +64,38 @@ export function Layout() {
   
   const activeGroup = groups.find(g => g.id === activeGroupId);
   const inviteLink = `${window.location.origin}?invite=${activeGroup?.code || ''}`;
+
+  // Reloj Interno: Auto-sincronización en vivo cada 60 segundos con batching de Gemini
+  const matchesRef = useRef<Match[]>([]);
+  const settingsRef = useRef(settings);
+  settingsRef.current = settings;
+
+  useEffect(() => {
+    // 1. Escucha en tiempo real de todos los partidos en Firestore
+    const unsubMatches = onSnapshot(collection(db, 'matches'), (snap) => {
+      matchesRef.current = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
+      // Evaluación automática al actualizar o cargar la lista
+      checkAndAutoSyncFinishedMatches(matchesRef.current, settingsRef.current).catch(err => {
+        console.warn("[Reloj Interno] Error en auto-sync inicial:", err);
+      });
+    }, (err) => {
+      console.warn("[Reloj Interno] Error en snapshot de matches:", err);
+    });
+
+    // 2. Cronómetro interno con setInterval cada 60 segundos
+    const interval = setInterval(() => {
+      if (matchesRef.current.length > 0) {
+        checkAndAutoSyncFinishedMatches(matchesRef.current, settingsRef.current).catch(err => {
+          console.warn("[Reloj Interno Tick] Error en auto-sync:", err);
+        });
+      }
+    }, 60 * 1000);
+
+    return () => {
+      unsubMatches();
+      clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     if (!activeGroupId) {
