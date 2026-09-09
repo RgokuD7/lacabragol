@@ -1,14 +1,17 @@
-import { collection, getDocs, doc, updateDoc, setDoc, getDoc } from 'firebase/firestore';
+import { collection, getDocs, doc, updateDoc, setDoc, getDoc, writeBatch } from 'firebase/firestore';
 import { db } from './firebase';
 import { Match, Setting } from '../types';
 import { syncMatchPredictionsAndPoints, syncMatchResult } from './sync';
 import { recalculateStandings, findUclTeam, StandingRow, StandingTeam } from './standings';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { DEFAULT_PLAYERS, PlayerItem } from '../data/players';
-import { getGeminiApiKey } from './geminiSync';
+import { getGeminiApiKey, areTeamsEquivalent } from './geminiSync';
 import { sanitizeForFirestore } from './utils';
 
 export const DEFAULT_SERPAPI_KEY = "30ebec1be507cf06e25598686b84f4aa3c9c56abd6bc7c2e13ac23ce0851cd8e";
+
+// Hitos de tiempo escalonados desde la hora de inicio programada del partido
+export const SYNC_MILESTONES = [5, 25, 47, 65, 75, 90, 115] as const;
 
 export function getSerpApiKey(): string {
   if (typeof window !== 'undefined') {
@@ -132,6 +135,101 @@ function extractRelevantSerpApiNode(data: any): any {
 }
 
 /**
+ * Normaliza goleadores y tarjetas asegurando que 'equipo' nunca sea undefined ni vacío,
+ * deduciéndolo de matchContext (local/visitante), los equipos crudos de SerpAPI, o DEFAULT_PLAYERS.
+ */
+export function normalizeGoleadoresAndTarjetas(
+  parsedMatch: any,
+  matchContext: { local: string; visitante: string },
+  rawSportsResults?: any
+): { goleadores: SerpApiMatchResult['goleadores']; tarjetas: SerpApiMatchResult['tarjetas'] } {
+  const rawTeams: any[] = 
+    rawSportsResults?.sports_results?.game_spotlight?.teams || 
+    rawSportsResults?.sports_results?.teams || 
+    rawSportsResults?.game_spotlight?.teams || [];
+
+  // 1. Process and normalize goalscorers
+  const normalizedGoleadores = (Array.isArray(parsedMatch.goleadores) ? parsedMatch.goleadores : []).map((g: any) => {
+    let jugador = String(g.jugador || g.player || '').trim();
+    let equipo = String(g.equipo || g.team || '').trim();
+    const minuto = Number(g.minuto ?? g.minute ?? 0);
+
+    // If equipo is missing or "undefined", try to deduce from rawTeams in SerpAPI
+    if (!equipo || equipo.toLowerCase() === 'undefined') {
+      for (const t of rawTeams) {
+        const teamName = String(t.name || '').trim();
+        const goals = Array.isArray(t.goals) ? t.goals : [];
+        const hasPlayer = goals.some((goalItem: any) => {
+          const pName = String(goalItem.player || goalItem.jugador || '').toLowerCase();
+          return pName.includes(jugador.toLowerCase()) || jugador.toLowerCase().includes(pName);
+        });
+        if (hasPlayer) {
+          if (teamName.toLowerCase().includes(matchContext.local.toLowerCase()) || matchContext.local.toLowerCase().includes(teamName.toLowerCase())) {
+            equipo = matchContext.local;
+          } else if (teamName.toLowerCase().includes(matchContext.visitante.toLowerCase()) || matchContext.visitante.toLowerCase().includes(teamName.toLowerCase())) {
+            equipo = matchContext.visitante;
+          } else {
+            equipo = teamName;
+          }
+          break;
+        }
+      }
+    }
+
+    // Fallback: check DEFAULT_PLAYERS catalogue
+    if (!equipo || equipo.toLowerCase() === 'undefined') {
+      const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === jugador.toLowerCase());
+      if (foundPlayer && foundPlayer.team) {
+        equipo = foundPlayer.team;
+      } else {
+        if (matchContext.local && jugador.toLowerCase().includes(matchContext.local.toLowerCase())) {
+          equipo = matchContext.local;
+        } else if (matchContext.visitante && jugador.toLowerCase().includes(matchContext.visitante.toLowerCase())) {
+          equipo = matchContext.visitante;
+        }
+      }
+    }
+
+    return {
+      jugador,
+      equipo,
+      minuto: isNaN(minuto) ? 0 : minuto
+    };
+  });
+
+  // 2. Process and normalize cards
+  const normalizedTarjetas = (Array.isArray(parsedMatch.tarjetas) ? parsedMatch.tarjetas : []).map((c: any) => {
+    let jugador = String(c.jugador || c.player || '').trim();
+    let equipo = String(c.equipo || c.team || '').trim();
+    const rawTipo = String(c.tipo || c.type || '').toLowerCase();
+    const tipo = (rawTipo.includes('roja') || rawTipo.includes('red') || rawTipo.includes('expuls')) ? 'Roja' : 'Amarilla';
+    const minuto = Number(c.minuto ?? c.minute ?? 0);
+
+    if (!equipo || equipo.toLowerCase() === 'undefined') {
+      const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === jugador.toLowerCase());
+      if (foundPlayer && foundPlayer.team) {
+        equipo = foundPlayer.team;
+      } else {
+        if (matchContext.local && jugador.toLowerCase().includes(matchContext.local.toLowerCase())) {
+          equipo = matchContext.local;
+        } else if (matchContext.visitante && jugador.toLowerCase().includes(matchContext.visitante.toLowerCase())) {
+          equipo = matchContext.visitante;
+        }
+      }
+    }
+
+    return {
+      jugador,
+      equipo,
+      tipo,
+      minuto: isNaN(minuto) ? 0 : minuto
+    };
+  });
+
+  return { goleadores: normalizedGoleadores, tarjetas: normalizedTarjetas };
+}
+
+/**
  * Sends the raw sports_results node to Gemini exclusively to parse it into our strict match format.
  */
 export async function parseMatchWithGemini(
@@ -193,83 +291,7 @@ JSON de entrada: ${JSON.stringify(rawSportsResults)}`;
       const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
       if (rawText) {
         const parsed = JSON.parse(rawText);
-
-        const rawTeams: any[] = 
-          rawSportsResults?.sports_results?.game_spotlight?.teams || 
-          rawSportsResults?.sports_results?.teams || 
-          rawSportsResults?.game_spotlight?.teams || [];
-
-        // 1. Process and normalize goalscorers
-        const normalizedGoleadores = (Array.isArray(parsed.goleadores) ? parsed.goleadores : []).map((g: any) => {
-          let jugador = String(g.jugador || g.player || '').trim();
-          let equipo = String(g.equipo || g.team || '').trim();
-          const minuto = Number(g.minuto ?? g.minute ?? 0);
-
-          // If equipo is missing or "undefined", try to deduce from rawTeams in SerpAPI
-          if (!equipo || equipo.toLowerCase() === 'undefined') {
-            for (const t of rawTeams) {
-              const teamName = String(t.name || '').trim();
-              const goals = Array.isArray(t.goals) ? t.goals : [];
-              const hasPlayer = goals.some((goalItem: any) => {
-                const pName = String(goalItem.player || goalItem.jugador || '').toLowerCase();
-                return pName.includes(jugador.toLowerCase()) || jugador.toLowerCase().includes(pName);
-              });
-              if (hasPlayer) {
-                if (teamName.toLowerCase().includes(matchContext.local.toLowerCase()) || matchContext.local.toLowerCase().includes(teamName.toLowerCase())) {
-                  equipo = matchContext.local;
-                } else if (teamName.toLowerCase().includes(matchContext.visitante.toLowerCase()) || matchContext.visitante.toLowerCase().includes(teamName.toLowerCase())) {
-                  equipo = matchContext.visitante;
-                } else {
-                  equipo = teamName;
-                }
-                break;
-              }
-            }
-          }
-
-          // Fallback: check DEFAULT_PLAYERS catalogue
-          if (!equipo || equipo.toLowerCase() === 'undefined') {
-            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === jugador.toLowerCase());
-            if (foundPlayer && foundPlayer.team) {
-              equipo = foundPlayer.team;
-            }
-          }
-
-          return {
-            jugador,
-            equipo,
-            minuto: isNaN(minuto) ? 0 : minuto
-          };
-        });
-
-        // 2. Process and normalize cards
-        const normalizedTarjetas = (Array.isArray(parsed.tarjetas) ? parsed.tarjetas : []).map((c: any) => {
-          let jugador = String(c.jugador || c.player || '').trim();
-          let equipo = String(c.equipo || c.team || '').trim();
-          const rawTipo = String(c.tipo || c.type || '').toLowerCase();
-          const tipo = (rawTipo.includes('roja') || rawTipo.includes('red') || rawTipo.includes('expuls')) ? 'Roja' : 'Amarilla';
-          const minuto = Number(c.minuto ?? c.minute ?? 0);
-
-          if (!equipo || equipo.toLowerCase() === 'undefined') {
-            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === jugador.toLowerCase());
-            if (foundPlayer && foundPlayer.team) {
-              equipo = foundPlayer.team;
-            } else {
-              if (matchContext.local && jugador.toLowerCase().includes(matchContext.local.toLowerCase())) {
-                equipo = matchContext.local;
-              } else if (matchContext.visitante && jugador.toLowerCase().includes(matchContext.visitante.toLowerCase())) {
-                equipo = matchContext.visitante;
-              }
-            }
-          }
-
-          return {
-            jugador,
-            equipo,
-            tipo,
-            minuto: isNaN(minuto) ? 0 : minuto
-          };
-        });
+        const { goleadores, tarjetas } = normalizeGoleadoresAndTarjetas(parsed, matchContext, rawSportsResults);
 
         return {
           local: String(parsed.local || matchContext.local).trim(),
@@ -277,8 +299,8 @@ JSON de entrada: ${JSON.stringify(rawSportsResults)}`;
           visitante: String(parsed.visitante || matchContext.visitante).trim(),
           goles_visitante: Number(parsed.goles_visitante ?? 0),
           estado: String(parsed.estado || 'Finalizado').trim(),
-          goleadores: normalizedGoleadores,
-          tarjetas: normalizedTarjetas
+          goleadores,
+          tarjetas
         };
       }
     } catch (err: any) {
@@ -288,6 +310,164 @@ JSON de entrada: ${JSON.stringify(rawSportsResults)}`;
   }
 
   throw new Error(`No se pudo parsear el resultado con Gemini: ${lastError?.message || 'Sin respuesta'}`);
+}
+
+export interface BatchMatchInput {
+  matchId: string;
+  local: string;
+  visitante: string;
+  targetMilestone: number;
+  rawSportsResults: any;
+}
+
+/**
+ * OPTIMIZACIÓN CRÍTICA (BATCHING GEMINI):
+ * Agrupa los resultados crudos de múltiples partidos en UNA SOLA LLAMADA a Gemini API.
+ * Solicita un Array de JSON estructurados con cada partido identificado por su matchId.
+ */
+export async function parseMultipleMatchesWithGemini(
+  batchData: BatchMatchInput[],
+  geminiApiKeyOverride?: string
+): Promise<Record<string, SerpApiMatchResult>> {
+  if (batchData.length === 0) return {};
+
+  const apiKey = (geminiApiKeyOverride || getGeminiApiKey()).trim();
+  if (!apiKey) {
+    throw new Error("Falta la API Key de Gemini para formatear el lote de partidos.");
+  }
+
+  // Si solo hay un partido, parsear directamente
+  if (batchData.length === 1) {
+    const single = batchData[0];
+    const parsedSingle = await parseMatchWithGemini(
+      single.rawSportsResults,
+      { local: single.local, visitante: single.visitante },
+      apiKey
+    );
+    return { [single.matchId]: parsedSingle };
+  }
+
+  const matchItemsPayload = batchData.map(item => ({
+    matchId: item.matchId,
+    partido: `${item.local} (Local) vs ${item.visitante} (Visitante)`,
+    hito_minutos: `+${item.targetMilestone} min`,
+    datos_crudos_serpapi: item.rawSportsResults
+  }));
+
+  const promptText = `Eres un asistente de datos deportivos para la UEFA Champions League.
+A continuación tienes un LOTE de ${batchData.length} partidos activos con datos crudos de SerpAPI (resultados deportivos, eventos y noticias).
+
+Tu tarea es analizar TODO el bloque unificado y devolver ÚNICAMENTE un objeto JSON válido con un array "partidos", donde cada elemento corresponda a un partido del lote con su respectivo "matchId":
+
+{
+  "partidos": [
+    {
+      "matchId": "id_del_partido",
+      "local": "Nombre Exacto Local",
+      "goles_local": 0,
+      "visitante": "Nombre Exacto Visitante",
+      "goles_visitante": 0,
+      "estado": "Finalizado / En vivo / Descanso / Primer tiempo / Segundo tiempo / No iniciado",
+      "goleadores": [
+        {
+          "jugador": "Nombre Completo",
+          "equipo": "Nombre de su Equipo",
+          "minuto": 25
+        }
+      ],
+      "tarjetas": [
+        {
+          "jugador": "Nombre Completo",
+          "equipo": "Nombre de su Equipo",
+          "tipo": "Amarilla o Roja",
+          "minuto": 40
+        }
+      ]
+    }
+  ]
+}
+
+LOTE DE PARTIDOS A PROCESAR:
+${JSON.stringify(matchItemsPayload)}
+
+REGLAS CRÍTICAS:
+1. Incluye en el array "partidos" TODOS los ${batchData.length} partidos del lote, conservando estrictamente su "matchId" exacto.
+2. Si un partido no ha comenzado o no tiene goles reportados, define goles_local: 0, goles_visitante: 0 y estado: "No iniciado".
+3. Si el partido está en juego (1T, 2T, entretiempo, minuto en progreso, etc.), define estado como "En vivo" o equivalente. Si ya terminó oficialmente (FT, Final, Concluido), define estado como "Finalizado".
+4. En goleadores y tarjetas, asigna siempre el equipo respectivo del jugador (Local o Visitante) según la información deportiva del partido. NUNCA lo dejes vacío ni como "undefined".
+5. Extrae tarjetas rojas y expulsiones obligatoriamente si aparecen en noticias, eventos o fragmentos del texto.
+6. Devuelve ÚNICAMENTE el código JSON puro, sin bloques markdown ni texto adicional.`;
+
+  let lastError: any = null;
+
+  for (const model of GEMINI_MODELS) {
+    try {
+      console.log(`[parseMultipleMatchesWithGemini] Enviando lote de ${batchData.length} partidos a Gemini (${model})...`);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptText }] }],
+          generationConfig: {
+            temperature: 0.1,
+            responseMimeType: "application/json"
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData?.error?.message || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (rawText) {
+        const parsedJson = JSON.parse(rawText);
+        const partidosArray: any[] = Array.isArray(parsedJson.partidos) 
+          ? parsedJson.partidos 
+          : Array.isArray(parsedJson) 
+          ? parsedJson 
+          : [];
+
+        const resultsMap: Record<string, SerpApiMatchResult> = {};
+
+        batchData.forEach(input => {
+          const found = partidosArray.find(p => 
+            p.matchId === input.matchId ||
+            (p.local && p.visitante && areTeamsEquivalent(p.local, input.local) && areTeamsEquivalent(p.visitante, input.visitante))
+          );
+
+          if (found) {
+            const { goleadores, tarjetas } = normalizeGoleadoresAndTarjetas(
+              found,
+              { local: input.local, visitante: input.visitante },
+              input.rawSportsResults
+            );
+
+            resultsMap[input.matchId] = {
+              local: String(found.local || input.local).trim(),
+              goles_local: Number(found.goles_local ?? 0),
+              visitante: String(found.visitante || input.visitante).trim(),
+              goles_visitante: Number(found.goles_visitante ?? 0),
+              estado: String(found.estado || 'En vivo').trim(),
+              goleadores,
+              tarjetas
+            };
+          }
+        });
+
+        console.log(`[parseMultipleMatchesWithGemini] ✅ Éxito con ${model}. Partidos parseados: ${Object.keys(resultsMap).length}/${batchData.length}`);
+        return resultsMap;
+      }
+    } catch (err: any) {
+      lastError = err;
+      console.warn(`[parseMultipleMatchesWithGemini] Falló con ${model}:`, err.message);
+    }
+  }
+
+  throw new Error(`Error al procesar lote con Gemini: ${lastError?.message || 'Sin respuesta'}`);
 }
 
 /**
@@ -568,151 +748,244 @@ export async function ensurePlayersExist(
 }
 
 /**
- * Sistema de Actualización Inteligente y Automática por Partido (SerpAPI + Gemini + Candado de Concurrencia).
+ * SISTEMA DE ACTUALIZACIÓN ESCALONADA 'EN VIVO PARCIAL' Y CIERRE (BATCHING SERPAPI + GEMINI + WRITEBATCH):
  * 
- * Lógica:
- * - Filtra partidos donde: hora_actual > (hora_inicio + 115 minutos) y status !== 'finished'.
- * - Candado Anti-Colisión (Firestore):
- *   - Si is_updating === true y el candado tiene menos de 5 minutos, otro cliente está actualizándolo -> se omite.
- *   - Antes de llamar a la API, el cliente actualiza el documento con { is_updating: true, is_updating_at: Date.now() }.
- * - Consulta SerpAPI: `[Local] vs [Visitante] hoy`.
- * - Gemini extrae y parsea el nodo sports_results al formato estricto de partido.
- * - Si el partido está finalizado:
- *   - Se guarda el marcador, goleadores, tarjetas, status = 'finished'.
- *   - Se libera el candado: is_updating: false.
- *   - Se recalculan pronósticos, puntos y tabla de posiciones.
- * - Si no está finalizado o si ocurre un error, se libera el candado: is_updating: false.
+ * 1. Cronograma de Hitos Escalonados (calculados desde la hora_inicio programada):
+ *    +5 min: Arranque del partido.
+ *    +25 min: Promediando el primer tiempo.
+ *    +47 min: Final del primer tiempo.
+ *    +65 min: Arranque del segundo tiempo.
+ *    +75 min: Recta final.
+ *    +90 min: Fin del tiempo reglamentario.
+ *    +115 min: Cierre definitivo.
+ * 
+ * 2. Estrategia de Batching (SerpAPI + Gemini):
+ *    - Filtra todos los partidos en curso que cruzaron un hito y no han sido sincronizados en ese hito.
+ *    - Ejecuta consultas a SerpAPI en paralelo para cada partido activo.
+ *    - OPTIMIZACIÓN CRÍTICA: Agrupa todos los resultados crudos de SerpAPI en un único bloque y realiza
+ *      UNA SOLA LLAMADA a Gemini API.
+ * 
+ * 3. Escritura en Lote (Firestore writeBatch):
+ *    - Actualiza todos los partidos en vivo/finalizados de una sola vez de forma atómica.
+ *    - Si algún partido finalizó, asegura jugadores "al vuelo", recalcula puntos y tabla de posiciones.
  */
 export async function checkAndAutoSyncFinishedMatches(
   matches: Match[],
   settings: Setting | null
-): Promise<{ syncedCount: number; errors: string[] }> {
+): Promise<{
+  syncedCount: number;
+  liveCount: number;
+  finishedCount: number;
+  errors: string[];
+}> {
   const now = Date.now();
-  const MATCH_DURATION_MS = 115 * 60 * 1000;
   const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos de expiración para evitar bloqueos permanentes
 
-  // Filtrar candidatos según tiempo y estado
-  const candidates = matches.filter(m => {
-    if (m.status === 'finished') return false;
+  interface CandidateInfo {
+    match: Match;
+    targetMilestone: number;
+    matchTime: number;
+  }
+
+  // 1. Filtrar candidatos según hitos escalonados y estado
+  const candidates: CandidateInfo[] = [];
+
+  for (const m of matches) {
+    if (m.status === 'finished' && m.is_synced) continue;
+
     const matchTime = new Date(m.date).getTime();
-    if (isNaN(matchTime)) return false;
+    if (isNaN(matchTime)) continue;
 
     // REGLA INQUEBRANTABLE: Prohibido buscar automáticamente información de un partido que aún no ha comenzado
-    if (now < matchTime) {
-      return false;
-    }
+    if (now < matchTime) continue;
 
-    const isOver115Min = now >= (matchTime + MATCH_DURATION_MS);
-    if (!isOver115Min) return false;
+    const elapsedMins = (now - matchTime) / (60 * 1000);
+    const passedMilestones = SYNC_MILESTONES.filter(ms => elapsedMins >= ms);
+    if (passedMilestones.length === 0) continue; // No ha llegado a +5 min
+
+    const targetMilestone = Math.max(...passedMilestones);
+    const lastSynced = m.last_synced_milestone ?? 0;
+
+    // Si ya se sincronizó en este hito o uno superior, omitir
+    if (lastSynced >= targetMilestone) continue;
 
     // Throttle local en memoria
-    if (inFlightSyncMatchIds.has(m.id)) return false;
+    if (inFlightSyncMatchIds.has(m.id)) continue;
 
     // Candado remoto en Firestore
     if (m.is_updating && m.is_updating_at && (now - m.is_updating_at < LOCK_TIMEOUT_MS)) {
       console.log(`[AutoSync] Partido ${m.homeTeam} vs ${m.awayTeam} está bloqueado por otro cliente (is_updating: true).`);
-      return false;
+      continue;
     }
 
-    return true;
-  });
-
-  if (candidates.length === 0) {
-    return { syncedCount: 0, errors: [] };
+    candidates.push({ match: m, targetMilestone, matchTime });
   }
 
-  console.log(`[AutoSync] Verificando ${candidates.length} partido(s) pendiente(s) tras 115 minutos...`);
-  let syncedCount = 0;
-  const errors: string[] = [];
+  if (candidates.length === 0) {
+    return { syncedCount: 0, liveCount: 0, finishedCount: 0, errors: [] };
+  }
 
-  for (const match of candidates) {
-    inFlightSyncMatchIds.add(match.id);
-    const matchRef = doc(db, 'matches', match.id);
+  console.log(`[AutoSync] 🚀 Se detectaron ${candidates.length} partidos para sincronización escalonada en lote...`);
 
-    try {
-      // 1. Verificación atómica en Firestore antes de llamar a la API
-      const snap = await getDoc(matchRef);
-      if (snap.exists()) {
-        const fresh = snap.data() as Match;
-        if (fresh.status === 'finished') {
-          inFlightSyncMatchIds.delete(match.id);
-          continue;
-        }
-        if (fresh.is_updating && fresh.is_updating_at && (Date.now() - fresh.is_updating_at < LOCK_TIMEOUT_MS)) {
-          console.log(`[AutoSync] Partido ${match.homeTeam} vs ${match.awayTeam} fue bloqueado concurrentemente por otro cliente.`);
-          inFlightSyncMatchIds.delete(match.id);
-          continue;
-        }
-      }
+  // Marcar throttle en memoria
+  candidates.forEach(c => inFlightSyncMatchIds.add(c.match.id));
 
-      // 2. Activar candado de concurrencia en Firestore
-      await updateDoc(matchRef, {
+  // Activar candado de concurrencia en Firestore para todos los candidatos
+  await Promise.allSettled(
+    candidates.map(c =>
+      updateDoc(doc(db, 'matches', c.match.id), {
         is_updating: true,
         is_updating_at: Date.now()
-      });
-      console.log(`[AutoSync] 🔒 Candado activado para: ${match.homeTeam} vs ${match.awayTeam}`);
+      })
+    )
+  );
 
-      // 3. Consultar SerpAPI
-      const queryStr = `${match.homeTeam} vs ${match.awayTeam} hoy`;
-      const rawNode = await fetchSerpApiRaw(queryStr);
-      const parsed = await parseMatchWithGemini(rawNode, { local: match.homeTeam, visitante: match.awayTeam });
+  const errors: string[] = [];
+  let liveCount = 0;
+  let finishedCount = 0;
 
+  try {
+    // 2. Consultas a SerpAPI en paralelo para obtener la data cruda de cada partido activo
+    console.log(`[AutoSync] 📡 Consultando SerpAPI en paralelo para ${candidates.length} partidos activos...`);
+    const serpResults = await Promise.allSettled(
+      candidates.map(async c => {
+        const query = `${c.match.homeTeam} vs ${c.match.awayTeam} hoy`;
+        const rawNode = await fetchSerpApiRaw(query);
+        return {
+          matchId: c.match.id,
+          local: c.match.homeTeam,
+          visitante: c.match.awayTeam,
+          targetMilestone: c.targetMilestone,
+          rawSportsResults: rawNode
+        };
+      })
+    );
+
+    const successfulSerpData: BatchMatchInput[] = [];
+    serpResults.forEach((res, idx) => {
+      if (res.status === 'fulfilled') {
+        successfulSerpData.push(res.value);
+      } else {
+        const m = candidates[idx].match;
+        console.warn(`[AutoSync] SerpAPI falló para ${m.homeTeam} vs ${m.awayTeam}:`, res.reason);
+        errors.push(`SerpAPI (${m.homeTeam} vs ${m.awayTeam}): ${res.reason?.message || res.reason}`);
+      }
+    });
+
+    if (successfulSerpData.length === 0) {
+      throw new Error("No se pudo obtener datos de SerpAPI para ningún partido del lote.");
+    }
+
+    // 3. OPTIMIZACIÓN CRÍTICA: UNA SOLA LLAMADA a Gemini API con el lote unificado
+    console.log(`[AutoSync] 🤖 Agrupando ${successfulSerpData.length} partidos crudos en 1 sola llamada a Gemini API...`);
+    const geminiResultsMap = await parseMultipleMatchesWithGemini(successfulSerpData);
+
+    // 4. ESCRITURA EN LOTE (writeBatch de Firestore)
+    const batch = writeBatch(db);
+    const updatedCandidates: Array<{ candidate: CandidateInfo; result: SerpApiMatchResult; status: 'finished' | 'in_progress' }> = [];
+    const allGoalscorersToEnsure: any[] = [];
+
+    candidates.forEach(c => {
+      const parsed = geminiResultsMap[c.match.id];
+      if (!parsed) {
+        // Si Gemini no devolvió este partido, liberar su candado
+        batch.update(doc(db, 'matches', c.match.id), { is_updating: false });
+        return;
+      }
+
+      const estadoLower = parsed.estado.toLowerCase();
       const isFinished = 
-        parsed.estado.toLowerCase().includes('final') ||
-        parsed.estado.toLowerCase().includes('ft') ||
-        parsed.estado.toLowerCase().includes('terminado');
+        estadoLower.includes('final') ||
+        estadoLower.includes('ft') ||
+        estadoLower.includes('terminado') ||
+        estadoLower.includes('concl') ||
+        (c.targetMilestone >= 115); // Hito +115 min es cierre definitivo
 
-      if (isFinished) {
-        console.log(`[AutoSync] ⚽ Partido finalizado confirmado: ${parsed.local} ${parsed.goles_local} - ${parsed.goles_visitante} ${parsed.visitante}`);
+      const isLive = 
+        estadoLower.includes('vivo') ||
+        estadoLower.includes('live') ||
+        estadoLower.includes('juego') ||
+        estadoLower.includes('1t') ||
+        estadoLower.includes('2t') ||
+        estadoLower.includes('descanso') ||
+        estadoLower.includes('ht');
 
-        // Crear perfiles de goleadores al vuelo si no existen en la BD
-        await ensurePlayersExist(parsed.goleadores || []);
+      const status: 'finished' | 'in_progress' = isFinished ? 'finished' : (isLive ? 'in_progress' : 'in_progress');
 
-        // 4. Guardar resultado final y liberar candado
-        await updateDoc(matchRef, {
-          homeScore: parsed.goles_local,
-          awayScore: parsed.goles_visitante,
-          status: 'finished',
-          goalscorers: parsed.goleadores || [],
-          cards: parsed.tarjetas || [],
-          is_synced: true,
-          is_updating: false,
-          updated_at: Date.now()
-        });
+      if (status === 'finished') {
+        finishedCount++;
+      } else {
+        liveCount++;
+      }
 
+      if (Array.isArray(parsed.goleadores)) {
+        allGoalscorersToEnsure.push(...parsed.goleadores);
+      }
+
+      const matchRef = doc(db, 'matches', c.match.id);
+      batch.update(matchRef, sanitizeForFirestore({
+        homeScore: parsed.goles_local,
+        awayScore: parsed.goles_visitante,
+        status,
+        goalscorers: parsed.goleadores || [],
+        cards: parsed.tarjetas || [],
+        last_synced_milestone: c.targetMilestone,
+        last_synced_at: Date.now(),
+        is_synced: status === 'finished',
+        is_updating: false,
+        updated_at: Date.now()
+      }));
+
+      updatedCandidates.push({ candidate: c, result: parsed, status });
+    });
+
+    console.log(`[AutoSync] 💾 Escribiendo ${updatedCandidates.length} partidos en Firestore con writeBatch...`);
+    await batch.commit();
+    console.log(`[AutoSync] ✅ Lote guardado con éxito. En vivo: ${liveCount}, Finalizados: ${finishedCount}`);
+
+    // 5. Post-procesamiento para partidos finalizados
+    if (allGoalscorersToEnsure.length > 0) {
+      await ensurePlayersExist(allGoalscorersToEnsure).catch(console.warn);
+    }
+
+    const finishedMatchesToSync = updatedCandidates.filter(u => u.status === 'finished');
+    if (finishedMatchesToSync.length > 0) {
+      console.log(`[AutoSync] 🔄 Sincronizando puntos y tabla para ${finishedMatchesToSync.length} partidos finalizados...`);
+      for (const item of finishedMatchesToSync) {
         const updatedMatch: Match = {
-          ...match,
-          homeScore: parsed.goles_local,
-          awayScore: parsed.goles_visitante,
+          ...item.candidate.match,
+          homeScore: item.result.goles_local,
+          awayScore: item.result.goles_visitante,
           status: 'finished',
-          goalscorers: parsed.goleadores || [],
-          cards: parsed.tarjetas || [],
+          goalscorers: item.result.goleadores || [],
+          cards: item.result.tarjetas || [],
           is_synced: true,
           is_updating: false
         };
-
-        // 5. Recalcular puntos, medallas, rachas y tabla de posiciones
-        await syncMatchResult(updatedMatch, settings, true);
-        syncedCount++;
-      } else {
-        console.log(`[AutoSync] Partido aún no finalizado (${parsed.estado}). Liberando candado.`);
-        await updateDoc(matchRef, {
-          is_updating: false
+        await syncMatchResult(updatedMatch, settings, true).catch(err => {
+          console.error(`[AutoSync] Error sincronizando puntos de ${updatedMatch.homeTeam} vs ${updatedMatch.awayTeam}:`, err);
         });
       }
-    } catch (err: any) {
-      console.error(`[AutoSync] Error actualizando partido ${match.homeTeam} vs ${match.awayTeam}:`, err);
-      errors.push(`${match.homeTeam} vs ${match.awayTeam}: ${err.message}`);
-      // Liberar candado en caso de error
-      await updateDoc(matchRef, {
-        is_updating: false
-      }).catch(() => null);
-    } finally {
-      inFlightSyncMatchIds.delete(match.id);
+      await recalculateStandings().catch(console.error);
     }
+
+  } catch (err: any) {
+    console.error('[AutoSync] Error crítico en sincronización escalonada por lotes:', err);
+    errors.push(err.message || 'Error general en batching');
+
+    // Liberar candados en Firestore en caso de error
+    await Promise.allSettled(
+      candidates.map(c =>
+        updateDoc(doc(db, 'matches', c.match.id), { is_updating: false }).catch(() => null)
+      )
+    );
+  } finally {
+    // Liberar throttle en memoria
+    candidates.forEach(c => inFlightSyncMatchIds.delete(c.match.id));
   }
 
-  return { syncedCount, errors };
+  const syncedCount = liveCount + finishedCount;
+  return { syncedCount, liveCount, finishedCount, errors };
 }
 
 /**
@@ -819,6 +1092,8 @@ export async function syncJornadaMatchesWithSerpApi(
         status,
         goalscorers: parsed.goleadores || [],
         cards: parsed.tarjetas || [],
+        last_synced_milestone: isFinished ? 115 : 90,
+        last_synced_at: Date.now(),
         is_synced: isFinished,
         is_updating: false,
         updated_at: Date.now()

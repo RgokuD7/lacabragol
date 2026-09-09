@@ -608,13 +608,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const handleRunAutoSyncNow = async () => {
     setIsAutoSyncing(true);
     vibrateTap();
-    setFeedback({ type: 'info', text: 'Verificando partidos finalizados (+115m) con candado de concurrencia...' });
+    setFeedback({ type: 'info', text: 'Evaluando partidos activos en sus hitos (+5m, +25m, +47m, +65m, +75m, +90m, +115m) con batching de Gemini...' });
     try {
       const res = await checkAndAutoSyncFinishedMatches(matches, settings);
       vibrateSuccess();
       setFeedback({
         type: 'success',
-        text: `Auto-sync finalizado: ${res.syncedCount} partido(s) actualizado(s)${res.errors.length > 0 ? `. Hubo ${res.errors.length} advertencia(s).` : '.'}`
+        text: `Auto-sync completado: ${res.syncedCount} partido(s) sincronizado(s) (${res.liveCount} en vivo, ${res.finishedCount} finalizados) con batching de Gemini y writeBatch${res.errors.length > 0 ? `. Advertencias: ${res.errors.join(', ')}` : '.'}`
       });
     } catch (err: any) {
       vibrateError();
@@ -1153,7 +1153,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 </button>
               </div>
 
-              {/* Botón Auto-Sync Inteligente por Partido con Candado */}
+              {/* Botón Auto-Sync Escalonado en Lote (En Vivo + Cierre) */}
               <button
                 type="button"
                 onClick={handleRunAutoSyncNow}
@@ -1161,7 +1161,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 className="w-full bg-emerald-900/30 hover:bg-emerald-900/50 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm active:scale-98 disabled:opacity-50"
               >
                 {isAutoSyncing ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-emerald-400" />}
-                <span>{isAutoSyncing ? 'Ejecutando Auto-Sync...' : '⚡ Auto-Sync Inteligente (+115m con Candado)'}</span>
+                <span>{isAutoSyncing ? 'Ejecutando Sincronización en Lote...' : '⚡ Sincronización Escalonada en Lote (En Vivo + Cierre)'}</span>
               </button>
 
               {/* Sincronización Manual por Jornada (Botón de Contingencia) */}

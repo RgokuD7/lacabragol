@@ -69,6 +69,8 @@ export interface Match {
   is_updating_at?: number;
   goalscorers?: any[];
   cards?: any[];
+  last_synced_milestone?: number;
+  last_synced_at?: number;
 }
 
 export interface Prediction {
