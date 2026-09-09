@@ -68,12 +68,33 @@ export interface GeminiCommitResult {
   error?: string;
 }
 
-const GEMINI_MODELS = [
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-flash-latest',
-  'gemini-3.7-flash',
-  'gemini-2.5-flash'
+export class GeminiRateLimitError extends Error {
+  status: number;
+  constructor(message = "Límite de la IA alcanzado. Reintentando en el próximo ciclo.") {
+    super(message);
+    this.name = "GeminiRateLimitError";
+    this.status = 429;
+  }
+}
+
+export function isGeminiRateLimit(err: any): boolean {
+  if (!err) return false;
+  if (err instanceof GeminiRateLimitError || err.status === 429) return true;
+  const str = String(err.message || err).toLowerCase();
+  return str.includes('429') || str.includes('resource_exhausted') || str.includes('quota') || str.includes('rate limit') || str.includes('límite de la ia');
+}
+
+export function notifyGeminiRateLimit(customMessage?: string) {
+  const message = customMessage || "Límite de la IA alcanzado. Reintentando en el próximo ciclo.";
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('gemini-rate-limit', { detail: { message } }));
+  }
+}
+
+export const GEMINI_MODELS = [
+  'gemini-2.5-flash',
+  'gemini-2.0-flash',
+  'gemini-1.5-flash'
 ];
 
 /**
@@ -153,6 +174,10 @@ IMPORTANTE: Consulta fuentes deportivas oficiales en la web en vivo. Si un parti
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
         throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
       }
 
@@ -173,6 +198,9 @@ IMPORTANTE: Consulta fuentes deportivas oficiales en la web en vivo. Si un parti
         };
       }
     } catch (err: any) {
+      if (isGeminiRateLimit(err)) {
+        throw err;
+      }
       lastError = err;
       console.warn(`[Gemini Paso 1] Falló con ${modelName}:`, err.message);
     }
@@ -254,6 +282,10 @@ REGLAS ESTRICTAS:
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
         throw new Error(errData?.error?.message || `HTTP ${response.status} ${response.statusText}`);
       }
 
@@ -266,6 +298,9 @@ REGLAS ESTRICTAS:
         return partText.trim();
       }
     } catch (err: any) {
+      if (isGeminiRateLimit(err)) {
+        throw err;
+      }
       lastError = err;
       console.warn(`[Gemini Paso 2] Falló con ${modelName}:`, err.message);
     }

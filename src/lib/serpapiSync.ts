@@ -5,8 +5,17 @@ import { syncMatchPredictionsAndPoints, syncMatchResult } from './sync';
 import { recalculateStandings, findUclTeam, StandingRow, StandingTeam } from './standings';
 import { UCL_36_TEAMS, getTeamLogoByName } from '../data/fixtures';
 import { DEFAULT_PLAYERS, PlayerItem } from '../data/players';
-import { getGeminiApiKey, areTeamsEquivalent } from './geminiSync';
+import { 
+  getGeminiApiKey, 
+  areTeamsEquivalent, 
+  GeminiRateLimitError, 
+  isGeminiRateLimit, 
+  notifyGeminiRateLimit, 
+  GEMINI_MODELS 
+} from './geminiSync';
 import { sanitizeForFirestore } from './utils';
+
+export { GeminiRateLimitError, isGeminiRateLimit, notifyGeminiRateLimit };
 
 export const DEFAULT_SERPAPI_KEY = "30ebec1be507cf06e25598686b84f4aa3c9c56abd6bc7c2e13ac23ce0851cd8e";
 
@@ -58,13 +67,7 @@ export interface SerpApiStandingItem {
   diferencia_goles: number;
 }
 
-const GEMINI_MODELS = [
-  'gemini-3.6-flash',
-  'gemini-3.5-flash',
-  'gemini-flash-latest',
-  'gemini-3.7-flash',
-  'gemini-2.5-flash'
-];
+let isGlobalAutoSyncRunning = false;
 
 /**
  * Executes a fetch to SerpAPI.
@@ -318,6 +321,10 @@ JSON de entrada: ${JSON.stringify(rawSportsResults)}`;
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
         throw new Error(errData?.error?.message || `HTTP ${response.status}`);
       }
 
@@ -338,6 +345,9 @@ JSON de entrada: ${JSON.stringify(rawSportsResults)}`;
         };
       }
     } catch (err: any) {
+      if (isGeminiRateLimit(err)) {
+        throw err;
+      }
       lastError = err;
       console.warn(`[parseMatchWithGemini] Falló con ${model}:`, err.message);
     }
@@ -358,6 +368,7 @@ export interface BatchMatchInput {
  * OPTIMIZACIÓN CRÍTICA (BATCHING GEMINI):
  * Agrupa los resultados crudos de múltiples partidos en UNA SOLA LLAMADA a Gemini API.
  * Solicita un Array de JSON estructurados con cada partido identificado por su matchId.
+ * Se aplica tanto para 1 partido como para el lote entero sin hacer llamadas individuales repetitivas.
  */
 export async function parseMultipleMatchesWithGemini(
   batchData: BatchMatchInput[],
@@ -368,17 +379,6 @@ export async function parseMultipleMatchesWithGemini(
   const apiKey = (geminiApiKeyOverride || getGeminiApiKey()).trim();
   if (!apiKey) {
     throw new Error("Falta la API Key de Gemini para formatear el lote de partidos.");
-  }
-
-  // Si solo hay un partido, parsear directamente
-  if (batchData.length === 1) {
-    const single = batchData[0];
-    const parsedSingle = await parseMatchWithGemini(
-      single.rawSportsResults,
-      { local: single.local, visitante: single.visitante },
-      apiKey
-    );
-    return { [single.matchId]: parsedSingle };
   }
 
   const matchItemsPayload = batchData.map(item => ({
@@ -452,6 +452,10 @@ REGLAS CRÍTICAS:
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
         throw new Error(errData?.error?.message || `HTTP ${response.status}`);
       }
 
@@ -496,6 +500,9 @@ REGLAS CRÍTICAS:
         return resultsMap;
       }
     } catch (err: any) {
+      if (isGeminiRateLimit(err)) {
+        throw err;
+      }
       lastError = err;
       console.warn(`[parseMultipleMatchesWithGemini] Falló con ${model}:`, err.message);
     }
@@ -537,6 +544,10 @@ export async function parseStandingsWithGemini(
 
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
         throw new Error(errData?.error?.message || `HTTP ${response.status}`);
       }
 
@@ -556,6 +567,9 @@ export async function parseStandingsWithGemini(
         }));
       }
     } catch (err: any) {
+      if (isGeminiRateLimit(err)) {
+        throw err;
+      }
       lastError = err;
       console.warn(`[parseStandingsWithGemini] Falló con ${model}:`, err.message);
     }
@@ -812,6 +826,11 @@ export async function checkAndAutoSyncFinishedMatches(
   finishedCount: number;
   errors: string[];
 }> {
+  if (isGlobalAutoSyncRunning) {
+    console.log('[AutoSync] Proceso global ya en ejecución. Omitiendo tick.');
+    return { syncedCount: 0, liveCount: 0, finishedCount: 0, errors: [] };
+  }
+
   const now = Date.now();
   const LOCK_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutos de expiración para evitar bloqueos permanentes
 
@@ -860,6 +879,8 @@ export async function checkAndAutoSyncFinishedMatches(
   }
 
   console.log(`[AutoSync] 🚀 Se detectaron ${candidates.length} partidos para sincronización escalonada en lote...`);
+
+  isGlobalAutoSyncRunning = true;
 
   // Marcar throttle en memoria
   candidates.forEach(c => inFlightSyncMatchIds.add(c.match.id));
@@ -1023,9 +1044,13 @@ export async function checkAndAutoSyncFinishedMatches(
     }
 
   } catch (err: any) {
+    if (isGeminiRateLimit(err)) {
+      notifyGeminiRateLimit();
+    }
     console.error('[AutoSync] Error crítico en sincronización escalonada por lotes:', err);
     errors.push(err.message || 'Error general en batching');
   } finally {
+    isGlobalAutoSyncRunning = false;
     // Garantizar que NINGÚN candidato se quede con is_updating: true en Firestore
     try {
       await Promise.allSettled(
@@ -1047,9 +1072,12 @@ export async function checkAndAutoSyncFinishedMatches(
 /**
  * NUEVA FUNCIÓN: Sincronización Manual por Jornada (Botón de Contingencia).
  * 
- * Permite al Administrador Supremo forzar la actualización de todos los partidos de una jornada específica
- * (ignorando el bloqueo temporal para partidos pasados o que no se sincronizaron bien).
- * Al terminar de inyectar los datos en Firestore, ejecuta obligatoriamente recalculateStandings().
+ * BATCHING ESTRICTO (UN SOLO FETCH A GEMINI):
+ * 1. Recopila la data cruda de SerpAPI de todos los partidos activos de la jornada.
+ * 2. Hace UNA SOLA LLAMADA a Gemini para parsear el lote completo (respetando límite de 5 RPM).
+ * 3. Inyecta los resultados en Firestore con writeBatch de forma atómica.
+ * 4. Si hay error 429, notifica al usuario y libera is_updating en todos los partidos.
+ * 5. Ejecuta obligatoriamente recalculateStandings().
  */
 export async function syncJornadaMatchesWithSerpApi(
   jornadaName: string,
@@ -1063,7 +1091,7 @@ export async function syncJornadaMatchesWithSerpApi(
   errors: string[];
   message: string;
 }> {
-  console.log(`[syncJornadaMatchesWithSerpApi] Iniciando sincronización manual para "${jornadaName}"...`);
+  console.log(`[syncJornadaMatchesWithSerpApi] Iniciando sincronización manual para "${jornadaName}" con batching de Gemini...`);
 
   // Filtrar los partidos que pertenecen a la jornada seleccionada
   const targetMatches = allMatches.filter(m => 
@@ -1080,31 +1108,20 @@ export async function syncJornadaMatchesWithSerpApi(
     };
   }
 
-  let syncedMatches = 0;
-  const errors: string[] = [];
+  const now = Date.now();
+  const activeCandidates: Match[] = [];
 
-  let currentIdx = 0;
+  // REGLA ESTRICTA: Jamás consultar partidos cuya fecha/hora esté en el futuro
   for (const match of targetMatches) {
-    currentIdx++;
-    const matchLabel = `${match.homeTeam} vs ${match.awayTeam}`;
-    
-    if (onProgress) {
-      onProgress(currentIdx, targetMatches.length, matchLabel);
-    }
-
-    const matchRef = doc(db, 'matches', match.id);
-
-    const now = Date.now();
     const matchTime = new Date(match.date).getTime();
+    const matchLabel = `${match.homeTeam} vs ${match.awayTeam}`;
 
-    // REGLA ESTRICTA: Jamás consultar partidos cuya fecha/hora esté en el futuro
     if (isNaN(matchTime) || now < matchTime) {
-      console.log(`[syncJornadaMatchesWithSerpApi] ⏩ Omitiendo partido futuro que no ha comenzado: ${matchLabel} (${match.date})`);
-      
+      console.log(`[syncJornadaMatchesWithSerpApi] ⏩ Omitiendo partido futuro: ${matchLabel} (${match.date})`);
       // Auto-reparación: Si un partido futuro fue marcado erróneamente como 'finished', restaurarlo a 'pending'
       if (match.status === 'finished') {
         console.log(`[syncJornadaMatchesWithSerpApi] 🛠️ Auto-reparando partido futuro erróneamente finalizado: ${matchLabel}`);
-        await updateDoc(matchRef, {
+        updateDoc(doc(db, 'matches', match.id), {
           status: 'pending',
           homeScore: null,
           awayScore: null,
@@ -1112,88 +1129,181 @@ export async function syncJornadaMatchesWithSerpApi(
           is_updating: false,
           goalscorers: [],
           cards: []
-        });
+        }).catch(() => {});
       }
       continue;
     }
 
-    try {
-      console.log(`[syncJornadaMatchesWithSerpApi] (${currentIdx}/${targetMatches.length}) Consultando: ${matchLabel}...`);
-      await updateDoc(matchRef, { is_updating: true, is_updating_at: Date.now() }).catch(() => {});
-      
-      const queryStr = `${match.homeTeam} vs ${match.awayTeam}`;
-      const rawNode = await fetchSerpApiRaw(queryStr);
-      const parsed = await parseMatchWithGemini(
-        rawNode,
-        { local: match.homeTeam, visitante: match.awayTeam }
-      );
-
-      const elapsedMins = (now - matchTime) / (60 * 1000);
-      const isFinished = 
-        parsed.estado.toLowerCase().includes('final') ||
-        parsed.estado.toLowerCase().includes('ft') ||
-        parsed.estado.toLowerCase().includes('terminado') ||
-        elapsedMins >= 115;
-
-      const isLive = 
-        parsed.estado.toLowerCase().includes('vivo') ||
-        parsed.estado.toLowerCase().includes('live') ||
-        parsed.estado.toLowerCase().includes('juego') ||
-        parsed.estado.toLowerCase().includes('1t') ||
-        parsed.estado.toLowerCase().includes('2t');
-
-      const status: Match['status'] = isFinished ? 'finished' : (isLive ? 'in_progress' : (elapsedMins > 0 ? 'in_progress' : match.status));
-
-      // Inyectar datos en Firestore
-      await updateDoc(matchRef, {
-        homeScore: parsed.goles_local,
-        awayScore: parsed.goles_visitante,
-        status,
-        goalscorers: parsed.goleadores || [],
-        cards: parsed.tarjetas || [],
-        ultimo_hito_sincronizado: isFinished ? 115 : 90,
-        last_synced_milestone: isFinished ? 115 : 90,
-        last_synced_at: Date.now(),
-        is_synced: isFinished,
-        is_updating: false,
-        updated_at: Date.now()
-      });
-
-      const updatedMatch: Match = {
-        ...match,
-        homeScore: parsed.goles_local,
-        awayScore: parsed.goles_visitante,
-        status,
-        goalscorers: parsed.goleadores || [],
-        cards: parsed.tarjetas || [],
-        is_synced: isFinished,
-        is_updating: false
-      };
-
-      // Si el partido está finalizado, actualizar predicciones, puntos y rachas
-      if (status === 'finished') {
-        await ensurePlayersExist(parsed.goleadores || []);
-        await syncMatchResult(updatedMatch, settings, true);
-      }
-
-      syncedMatches++;
-      console.log(`[syncJornadaMatchesWithSerpApi] ✓ Partido ${matchLabel} guardado: ${parsed.goles_local}-${parsed.goles_visitante} (${status})`);
-    } catch (err: any) {
-      console.error(`[syncJornadaMatchesWithSerpApi] Error procesando ${matchLabel}:`, err);
-      errors.push(`${matchLabel}: ${err.message}`);
-    } finally {
-      await updateDoc(matchRef, { is_updating: false }).catch(() => {});
-    }
+    activeCandidates.push(match);
   }
 
-  // OBLIGATORIO: Disparar recalculateStandings() al culminar la inyección de la jornada
-  console.log('[syncJornadaMatchesWithSerpApi] Inyección completa. Disparando recalculateStandings()...');
+  if (activeCandidates.length === 0) {
+    return {
+      success: false,
+      totalMatches: targetMatches.length,
+      syncedMatches: 0,
+      errors: [`Todos los partidos de "${jornadaName}" están programados en el futuro.`],
+      message: `No hay partidos iniciados o finalizados para sincronizar en "${jornadaName}".`
+    };
+  }
+
+  // Activar candado is_updating: true para todos los candidatos
+  await Promise.allSettled(
+    activeCandidates.map(m =>
+      updateDoc(doc(db, 'matches', m.id), { is_updating: true, is_updating_at: Date.now() }).catch(() => null)
+    )
+  );
+
+  let syncedMatches = 0;
+  const errors: string[] = [];
+
   try {
-    await recalculateStandings();
-    console.log('[syncJornadaMatchesWithSerpApi] ✅ recalculateStandings() finalizado con éxito.');
-  } catch (recalcErr: any) {
-    console.error('[syncJornadaMatchesWithSerpApi] Error al recalcular tabla:', recalcErr);
-    errors.push(`Error recalculando tabla: ${recalcErr.message}`);
+    // 1. Recopilar la data cruda de SerpAPI de TODOS los partidos del lote
+    console.log(`[syncJornadaMatchesWithSerpApi] 📡 Consultando SerpAPI para ${activeCandidates.length} partidos activos...`);
+    const serpResults = await Promise.allSettled(
+      activeCandidates.map(async (match, idx) => {
+        if (idx > 0) {
+          // Desfase escalonado para no saturar proxy ni SerpAPI
+          await new Promise(r => setTimeout(r, idx * 300));
+        }
+        const matchLabel = `${match.homeTeam} vs ${match.awayTeam}`;
+        if (onProgress) {
+          onProgress(idx + 1, activeCandidates.length, matchLabel);
+        }
+        const queryStr = `${match.homeTeam} vs ${match.awayTeam}`;
+        const rawNode = await fetchSerpApiRaw(queryStr);
+        return {
+          matchId: match.id,
+          local: match.homeTeam,
+          visitante: match.awayTeam,
+          targetMilestone: 115,
+          rawSportsResults: rawNode,
+          match
+        };
+      })
+    );
+
+    const successfulSerpData: Array<BatchMatchInput & { match: Match }> = [];
+    serpResults.forEach((res, idx) => {
+      if (res.status === 'fulfilled') {
+        successfulSerpData.push(res.value);
+      } else {
+        const m = activeCandidates[idx];
+        const label = `${m.homeTeam} vs ${m.awayTeam}`;
+        console.warn(`[syncJornadaMatchesWithSerpApi] SerpAPI falló para ${label}:`, res.reason);
+        errors.push(`SerpAPI (${label}): ${res.reason?.message || res.reason}`);
+      }
+    });
+
+    if (successfulSerpData.length === 0) {
+      throw new Error("No se pudo obtener datos de SerpAPI para ningún partido de la jornada.");
+    }
+
+    // 2. OPTIMIZACIÓN CRÍTICA: UN SOLO FETCH A GEMINI para procesar el lote entero
+    console.log(`[syncJornadaMatchesWithSerpApi] 🤖 Enviando lote de ${successfulSerpData.length} partidos en 1 SOLA LLAMADA a Gemini...`);
+    const geminiResultsMap = await parseMultipleMatchesWithGemini(successfulSerpData);
+
+    // 3. Inyección en Firestore con writeBatch
+    const batch = writeBatch(db);
+    const finishedMatchesToSync: Array<{ match: Match; result: SerpApiMatchResult }> = [];
+    const allGoalscorersToEnsure: any[] = [];
+
+    activeCandidates.forEach(match => {
+      const parsed = geminiResultsMap[match.id];
+      const matchTime = new Date(match.date).getTime();
+      const elapsedMins = (now - matchTime) / (60 * 1000);
+
+      if (parsed) {
+        const estadoLower = (parsed.estado || '').toLowerCase();
+        const isFinished = 
+          estadoLower.includes('final') ||
+          estadoLower.includes('ft') ||
+          estadoLower.includes('terminado') ||
+          estadoLower.includes('concl') ||
+          elapsedMins >= 115;
+
+        const isLive = 
+          estadoLower.includes('vivo') ||
+          estadoLower.includes('live') ||
+          estadoLower.includes('juego') ||
+          estadoLower.includes('1t') ||
+          estadoLower.includes('2t');
+
+        const status: Match['status'] = isFinished ? 'finished' : (isLive ? 'in_progress' : (elapsedMins > 0 ? 'in_progress' : match.status));
+
+        if (Array.isArray(parsed.goleadores)) {
+          allGoalscorersToEnsure.push(...parsed.goleadores);
+        }
+
+        const matchRef = doc(db, 'matches', match.id);
+        batch.update(matchRef, sanitizeForFirestore({
+          homeScore: parsed.goles_local,
+          awayScore: parsed.goles_visitante,
+          status,
+          goalscorers: parsed.goleadores || [],
+          cards: parsed.tarjetas || [],
+          ultimo_hito_sincronizado: isFinished ? 115 : 90,
+          last_synced_milestone: isFinished ? 115 : 90,
+          last_synced_at: Date.now(),
+          is_synced: isFinished,
+          is_updating: false,
+          updated_at: Date.now()
+        }));
+
+        syncedMatches++;
+        if (status === 'finished') {
+          finishedMatchesToSync.push({ match, result: parsed });
+        }
+      } else {
+        const matchRef = doc(db, 'matches', match.id);
+        batch.update(matchRef, { is_updating: false });
+      }
+    });
+
+    console.log(`[syncJornadaMatchesWithSerpApi] 💾 Guardando ${syncedMatches} partidos en Firestore con writeBatch...`);
+    await batch.commit();
+
+    // 4. Post-procesamiento: asegurar jugadores y sincronizar predicciones
+    if (allGoalscorersToEnsure.length > 0) {
+      await ensurePlayersExist(allGoalscorersToEnsure).catch(console.warn);
+    }
+
+    for (const item of finishedMatchesToSync) {
+      const updatedMatch: Match = {
+        ...item.match,
+        homeScore: item.result.goles_local,
+        awayScore: item.result.goles_visitante,
+        status: 'finished',
+        goalscorers: item.result.goleadores || [],
+        cards: item.result.tarjetas || [],
+        is_synced: true,
+        is_updating: false
+      };
+      await syncMatchResult(updatedMatch, settings, true).catch(err => {
+        console.error(`[syncJornadaMatchesWithSerpApi] Error sincronizando puntos de ${updatedMatch.homeTeam} vs ${updatedMatch.awayTeam}:`, err);
+      });
+    }
+
+    // 5. Recalcular tabla oficial
+    console.log('[syncJornadaMatchesWithSerpApi] Inyección completa. Disparando recalculateStandings()...');
+    await recalculateStandings().catch(recalcErr => {
+      console.error('[syncJornadaMatchesWithSerpApi] Error al recalcular tabla:', recalcErr);
+      errors.push(`Error recalculando tabla: ${recalcErr.message}`);
+    });
+
+  } catch (err: any) {
+    if (isGeminiRateLimit(err)) {
+      notifyGeminiRateLimit();
+    }
+    console.error(`[syncJornadaMatchesWithSerpApi] Error crítico en sincronización de ${jornadaName}:`, err);
+    errors.push(err.message || 'Error general en sincronización');
+  } finally {
+    // Garantizar que NINGÚN partido se quede con is_updating: true en Firestore
+    await Promise.allSettled(
+      activeCandidates.map(m =>
+        updateDoc(doc(db, 'matches', m.id), { is_updating: false }).catch(() => null)
+      )
+    );
   }
 
   return {
@@ -1201,6 +1311,6 @@ export async function syncJornadaMatchesWithSerpApi(
     totalMatches: targetMatches.length,
     syncedMatches,
     errors,
-    message: `Sincronización de ${jornadaName} completada: ${syncedMatches} de ${targetMatches.length} partidos actualizados. Tabla de posiciones recalculada con éxito.`
+    message: `Sincronización de ${jornadaName} completada: ${syncedMatches} de ${targetMatches.length} partidos actualizados con 1 sola llamada a Gemini. Tabla de posiciones recalculada con éxito.`
   };
 }

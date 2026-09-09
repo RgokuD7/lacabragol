@@ -13,8 +13,10 @@ import {
   X,
   Scan,
   Plus,
-  MessageCircle
-, Shield} from 'lucide-react';
+  MessageCircle,
+  Shield,
+  AlertTriangle
+} from 'lucide-react';
 import { cn, handleFirestoreError, OperationType } from '../lib/utils';
 import { PredictionsTab } from '../pages/PredictionsTab';
 import { StandingsTab } from '../pages/StandingsTab';
@@ -69,6 +71,22 @@ export function Layout() {
   const matchesRef = useRef<Match[]>([]);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
+  const isSyncingCronRef = useRef(false);
+
+  // Banner / Toast de Rate Limit (HTTP 429)
+  const [rateLimitNotice, setRateLimitNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    const handleRateLimit = (e: any) => {
+      const msg = e.detail?.message || "Límite de la IA alcanzado. Reintentando en el próximo ciclo.";
+      setRateLimitNotice(msg);
+      setTimeout(() => {
+        setRateLimitNotice(prev => (prev === msg ? null : prev));
+      }, 8000);
+    };
+    window.addEventListener('gemini-rate-limit', handleRateLimit);
+    return () => window.removeEventListener('gemini-rate-limit', handleRateLimit);
+  }, []);
 
   useEffect(() => {
     // 1. Escucha en tiempo real de todos los partidos en Firestore (actualiza ref en memoria sin ciclos)
@@ -78,12 +96,21 @@ export function Layout() {
       console.warn("[Reloj Interno] Error en snapshot de matches:", err);
     });
 
-    // 2. Cronómetro interno con setInterval cada 60 segundos
-    const runCronTick = () => {
+    // 2. Cronómetro interno con setInterval cada 60 segundos y candado estricto
+    const runCronTick = async () => {
+      if (isSyncingCronRef.current) {
+        console.log("[Reloj Interno Tick] Sincronización previa aún en curso. Omitiendo tick.");
+        return;
+      }
       if (matchesRef.current.length > 0) {
-        checkAndAutoSyncFinishedMatches(matchesRef.current, settingsRef.current).catch(err => {
+        isSyncingCronRef.current = true;
+        try {
+          await checkAndAutoSyncFinishedMatches(matchesRef.current, settingsRef.current);
+        } catch (err) {
           console.warn("[Reloj Interno Tick] Error en auto-sync:", err);
-        });
+        } finally {
+          isSyncingCronRef.current = false;
+        }
       }
     };
 
@@ -375,6 +402,26 @@ export function Layout() {
           </div>
         </div>
       </header>
+
+      {/* Floating Toast: Límite de Cuota IA (HTTP 429) */}
+      {rateLimitNotice && (
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[999] w-[92%] max-w-md bg-amber-950/95 border border-amber-500/70 backdrop-blur-md rounded-xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+          <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+            <AlertTriangle className="w-4 h-4" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-amber-200">Aviso de Cuota IA (Gemini 429)</p>
+            <p className="text-[11px] text-amber-300/90 leading-snug">{rateLimitNotice}</p>
+          </div>
+          <button
+            onClick={() => setRateLimitNotice(null)}
+            className="text-amber-400/80 hover:text-amber-300 p-1"
+            title="Cerrar"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+      )}
 
       {/* Main Content Area */}
       <main className={`flex-1 min-h-0 w-full flex flex-col ${activeTab === 'standings' ? 'overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'pb-28 sm:pb-32'}`}>

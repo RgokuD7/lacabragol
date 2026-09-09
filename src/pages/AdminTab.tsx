@@ -27,12 +27,15 @@ import {
   setSerpApiKey, 
   fetchSerpApiRaw, 
   parseMatchWithGemini, 
+  parseMultipleMatchesWithGemini,
   parseStandingsWithGemini, 
   getMockRealMadridVsInterPreview, 
   commitSerpApiStandingsToFirestore, 
   SerpApiStandingItem,
   checkAndAutoSyncFinishedMatches,
-  syncJornadaMatchesWithSerpApi
+  syncJornadaMatchesWithSerpApi,
+  isGeminiRateLimit,
+  BatchMatchInput
 } from '../lib/serpapiSync';
 import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
 import { SerpApiStandingsModal } from '../components/SerpApiStandingsModal';
@@ -89,7 +92,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [jornadaSyncProgress, setJornadaSyncProgress] = useState<{ current: number; total: number; match: string } | null>(null);
 
   // Status and management states
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info' | 'warning'; text: string } | null>(null);
   const [isDeletingTests, setIsDeletingTests] = useState(false);
   const [showConfirmDelete, setShowConfirmDelete] = useState(false);
   const [isRestoringOfficial, setIsRestoringOfficial] = useState(false);
@@ -477,7 +480,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       const localDay = String(localD.getDate()).padStart(2, '0');
       const localTodayPrefix = `${localYear}-${localMonth}-${localDay}`;
 
-      let candidateMatches = matches.filter(m => {
+      const candidateMatches = matches.filter(m => {
         if (m.status === 'in_progress') return true;
         const matchTime = new Date(m.date).getTime();
         // REGLA: Prohibido buscar automáticamente partidos que aún no han comenzado
@@ -494,24 +497,52 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         return;
       }
 
-      const resultsList: GeminiPartidoPreview[] = [];
+      // 1. Recopilar la data cruda de SerpAPI en paralelo con un desfase prudente
       const queriesRun: string[] = [];
-
-      for (const m of candidateMatches) {
-        const query = `${m.homeTeam} vs ${m.awayTeam} hoy`;
-        queriesRun.push(query);
-        try {
+      const serpResults = await Promise.allSettled(
+        candidateMatches.map(async (m, idx) => {
+          if (idx > 0) {
+            await new Promise(r => setTimeout(r, idx * 300));
+          }
+          const query = `${m.homeTeam} vs ${m.awayTeam} hoy`;
+          queriesRun.push(query);
           const rawNode = await fetchSerpApiRaw(query, serpApiKeyInput);
-          const parsed = await parseMatchWithGemini(
-            rawNode,
-            { local: m.homeTeam, visitante: m.awayTeam },
-            geminiApiKeyInput
-          );
+          return {
+            matchId: m.id,
+            local: m.homeTeam,
+            visitante: m.awayTeam,
+            targetMilestone: 90,
+            rawSportsResults: rawNode,
+            match: m
+          };
+        })
+      );
 
+      const successfulBatchData: Array<BatchMatchInput & { match: Match }> = [];
+      serpResults.forEach(res => {
+        if (res.status === 'fulfilled') {
+          successfulBatchData.push(res.value);
+        }
+      });
+
+      if (successfulBatchData.length === 0) {
+        setFeedback({ type: 'error', text: 'No se pudieron extraer datos válidos desde SerpAPI para los partidos de hoy.' });
+        setIsSyncingSerpApiMatches(false);
+        return;
+      }
+
+      // 2. UN SOLO FETCH A GEMINI para estructurar todo el lote
+      setFeedback({ type: 'info', text: `Estructurando lote de ${successfulBatchData.length} partidos con 1 sola llamada a Gemini API...` });
+      const geminiResultsMap = await parseMultipleMatchesWithGemini(successfulBatchData, geminiApiKeyInput);
+
+      const resultsList: GeminiPartidoPreview[] = [];
+      successfulBatchData.forEach(item => {
+        const parsed = geminiResultsMap[item.matchId];
+        if (parsed) {
           const newStatus = mapGeminiEstadoToStatus(parsed.estado);
-          const changed = m.status !== newStatus ||
-            m.homeScore !== parsed.goles_local ||
-            m.awayScore !== parsed.goles_visitante;
+          const changed = item.match.status !== newStatus ||
+            item.match.homeScore !== parsed.goles_local ||
+            item.match.awayScore !== parsed.goles_visitante;
 
           resultsList.push({
             local: parsed.local,
@@ -521,17 +552,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             estado: parsed.estado,
             goleadores: parsed.goleadores as any,
             tarjetas: parsed.tarjetas as any,
-            matchedMatchId: m.id,
-            matchedMatch: m,
+            matchedMatchId: item.match.id,
+            matchedMatch: item.match,
             hasChanges: changed
           });
-        } catch (matchErr: any) {
-          console.warn(`[SerpAPI] Error procesando ${m.homeTeam} vs ${m.awayTeam}:`, matchErr);
         }
-      }
+      });
 
       if (resultsList.length === 0) {
-        setFeedback({ type: 'error', text: 'No se pudieron extraer partidos válidos desde SerpAPI.' });
+        setFeedback({ type: 'error', text: 'No se pudieron estructurar partidos con Gemini.' });
         setIsSyncingSerpApiMatches(false);
         return;
       }
@@ -539,19 +568,23 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       vibrateSuccess();
       setGeminiPreviewData({
         success: true,
-        message: `Se consultaron ${resultsList.length} partido(s) mediante SerpAPI y se estructuraron con Gemini.`,
+        message: `Se consultaron ${resultsList.length} partido(s) mediante SerpAPI y se estructuraron con 1 sola llamada a Gemini.`,
         partidos: resultsList,
         rawJson: JSON.stringify({ partidos: resultsList }, null, 2),
         totalQueried: candidateMatches.length,
         searchQueries: queriesRun,
         isGrounded: true,
-        searchSummary: `Datos extraídos en vivo de SerpAPI (nodo sports_results) y parseados a formato estricto con Gemini API.`
+        searchSummary: `Datos extraídos en vivo de SerpAPI (sports_results) y parseados en lote con 1 sola llamada a Gemini API.`
       });
       setFeedback(null);
     } catch (err: any) {
       vibrateError();
       console.error("[handleSyncSerpApiDailyMatches] Error:", err);
-      setFeedback({ type: 'error', text: 'Error al sincronizar con SerpAPI: ' + err.message });
+      if (isGeminiRateLimit(err)) {
+        setFeedback({ type: 'warning', text: 'Límite de la IA alcanzado. Reintentando en el próximo ciclo.' });
+      } else {
+        setFeedback({ type: 'error', text: 'Error al sincronizar con SerpAPI: ' + err.message });
+      }
     }
     setIsSyncingSerpApiMatches(false);
   };
@@ -618,7 +651,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       });
     } catch (err: any) {
       vibrateError();
-      setFeedback({ type: 'error', text: `Error en auto-sync: ${err.message}` });
+      if (isGeminiRateLimit(err)) {
+        setFeedback({ type: 'warning', text: 'Límite de la IA alcanzado. Reintentando en el próximo ciclo.' });
+      } else {
+        setFeedback({ type: 'error', text: `Error en auto-sync: ${err.message}` });
+      }
     } finally {
       setIsAutoSyncing(false);
     }
@@ -656,7 +693,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       }
     } catch (err: any) {
       vibrateError();
-      setFeedback({ type: 'error', text: `Error en sincronización por jornada: ${err.message}` });
+      if (isGeminiRateLimit(err)) {
+        setFeedback({ type: 'warning', text: 'Límite de la IA alcanzado. Reintentando en el próximo ciclo.' });
+      } else {
+        setFeedback({ type: 'error', text: `Error en sincronización por jornada: ${err.message}` });
+      }
     } finally {
       setIsSyncingJornada(false);
       setJornadaSyncProgress(null);
@@ -986,10 +1027,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             ? 'bg-emerald-950/40 border-emerald-800/60 text-emerald-300' 
             : feedback.type === 'error'
             ? 'bg-rose-950/40 border-rose-800/60 text-rose-300'
+            : feedback.type === 'warning'
+            ? 'bg-amber-950/50 border-amber-600/60 text-amber-300'
             : 'bg-blue-950/40 border-blue-800/60 text-blue-300'
         }`}>
           {feedback.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />}
           {feedback.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />}
+          {feedback.type === 'warning' && <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />}
           {feedback.type === 'info' && <ShieldCheck className="w-5 h-5 shrink-0 text-blue-400 mt-0.5" />}
           <div className="flex-1 text-xs leading-relaxed font-medium">
             {feedback.text}
