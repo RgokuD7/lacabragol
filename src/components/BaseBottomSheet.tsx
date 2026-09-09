@@ -9,9 +9,20 @@ interface BaseBottomSheetProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  zIndexClassName?: string;
+  contentClassName?: string;
 }
 
-export function BaseBottomSheet({ id, closeButtonId, isOpen, onClose, title, children }: BaseBottomSheetProps) {
+export function BaseBottomSheet({ 
+  id, 
+  closeButtonId, 
+  isOpen, 
+  onClose, 
+  title, 
+  children,
+  zIndexClassName,
+  contentClassName 
+}: BaseBottomSheetProps) {
   const [isRendered, setIsRendered] = useState(isOpen);
 
   useEffect(() => {
@@ -29,7 +40,8 @@ export function BaseBottomSheet({ id, closeButtonId, isOpen, onClose, title, chi
 
   return (
     <div className={cn(
-      "fixed inset-0 z-[100] flex flex-col justify-end transition-opacity duration-300",
+      "fixed inset-0 flex flex-col justify-end transition-opacity duration-300",
+      zIndexClassName || "z-[1050]",
       isOpen ? "opacity-100" : "opacity-0 pointer-events-none"
     )}>
       {/* Backdrop */}
@@ -64,7 +76,7 @@ export function BaseBottomSheet({ id, closeButtonId, isOpen, onClose, title, chi
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-zinc-800">
+        <div className={cn("flex-1 overflow-y-auto px-6 py-4 scrollbar-thin scrollbar-thumb-zinc-800", contentClassName)}>
           {children}
         </div>
       </div>

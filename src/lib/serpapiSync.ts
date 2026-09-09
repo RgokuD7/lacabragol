@@ -428,7 +428,13 @@ export async function checkAndAutoSyncFinishedMatches(
     if (m.status === 'finished') return false;
     const matchTime = new Date(m.date).getTime();
     if (isNaN(matchTime)) return false;
-    const isOver115Min = now > (matchTime + MATCH_DURATION_MS);
+
+    // REGLA INQUEBRANTABLE: Prohibido buscar automáticamente información de un partido que aún no ha comenzado
+    if (now < matchTime) {
+      return false;
+    }
+
+    const isOver115Min = now >= (matchTime + MATCH_DURATION_MS);
     if (!isOver115Min) return false;
 
     // Throttle local en memoria
@@ -536,4 +542,133 @@ export async function checkAndAutoSyncFinishedMatches(
   }
 
   return { syncedCount, errors };
+}
+
+/**
+ * NUEVA FUNCIÓN: Sincronización Manual por Jornada (Botón de Contingencia).
+ * 
+ * Permite al Administrador Supremo forzar la actualización de todos los partidos de una jornada específica
+ * (ignorando el bloqueo temporal para partidos pasados o que no se sincronizaron bien).
+ * Al terminar de inyectar los datos en Firestore, ejecuta obligatoriamente recalculateStandings().
+ */
+export async function syncJornadaMatchesWithSerpApi(
+  jornadaName: string,
+  allMatches: Match[],
+  settings: Setting | null,
+  onProgress?: (current: number, total: number, currentMatch: string) => void
+): Promise<{
+  success: boolean;
+  totalMatches: number;
+  syncedMatches: number;
+  errors: string[];
+  message: string;
+}> {
+  console.log(`[syncJornadaMatchesWithSerpApi] Iniciando sincronización manual para "${jornadaName}"...`);
+
+  // Filtrar los partidos que pertenecen a la jornada seleccionada
+  const targetMatches = allMatches.filter(m => 
+    (m.group || '').trim().toLowerCase() === jornadaName.trim().toLowerCase()
+  );
+
+  if (targetMatches.length === 0) {
+    return {
+      success: false,
+      totalMatches: 0,
+      syncedMatches: 0,
+      errors: [`No se encontraron partidos registrados para la jornada "${jornadaName}".`],
+      message: `No se encontraron partidos para "${jornadaName}".`
+    };
+  }
+
+  let syncedMatches = 0;
+  const errors: string[] = [];
+
+  for (let i = 0; i < targetMatches.length; i++) {
+    const match = targetMatches[i];
+    const matchLabel = `${match.homeTeam} vs ${match.awayTeam}`;
+    
+    if (onProgress) {
+      onProgress(i + 1, targetMatches.length, matchLabel);
+    }
+
+    const matchRef = doc(db, 'matches', match.id);
+
+    try {
+      console.log(`[syncJornadaMatchesWithSerpApi] (${i + 1}/${targetMatches.length}) Consultando: ${matchLabel}...`);
+      
+      // En contingencia manual se ignora el bloqueo de fecha futura
+      const queryStr = `${match.homeTeam} vs ${match.awayTeam}`;
+      const rawNode = await fetchSerpApiRaw(queryStr);
+      const parsed = await parseMatchWithGemini(
+        rawNode,
+        { local: match.homeTeam, visitante: match.awayTeam }
+      );
+
+      const isFinished = 
+        parsed.estado.toLowerCase().includes('final') ||
+        parsed.estado.toLowerCase().includes('ft') ||
+        parsed.estado.toLowerCase().includes('terminado');
+
+      const isLive = 
+        parsed.estado.toLowerCase().includes('vivo') ||
+        parsed.estado.toLowerCase().includes('live') ||
+        parsed.estado.toLowerCase().includes('juego') ||
+        parsed.estado.toLowerCase().includes('1t') ||
+        parsed.estado.toLowerCase().includes('2t');
+
+      const status = isFinished ? 'finished' : isLive ? 'in_progress' : match.status;
+
+      // Inyectar datos en Firestore
+      await updateDoc(matchRef, {
+        homeScore: parsed.goles_local,
+        awayScore: parsed.goles_visitante,
+        status,
+        goalscorers: parsed.goleadores || [],
+        cards: parsed.tarjetas || [],
+        is_synced: isFinished,
+        is_updating: false,
+        updated_at: Date.now()
+      });
+
+      const updatedMatch: Match = {
+        ...match,
+        homeScore: parsed.goles_local,
+        awayScore: parsed.goles_visitante,
+        status,
+        goalscorers: parsed.goleadores || [],
+        cards: parsed.tarjetas || [],
+        is_synced: isFinished,
+        is_updating: false
+      };
+
+      // Si el partido está finalizado, actualizar predicciones, puntos y rachas
+      if (status === 'finished') {
+        await syncMatchResult(updatedMatch, settings, true);
+      }
+
+      syncedMatches++;
+      console.log(`[syncJornadaMatchesWithSerpApi] ✓ Partido ${matchLabel} guardado: ${parsed.goles_local}-${parsed.goles_visitante} (${status})`);
+    } catch (err: any) {
+      console.error(`[syncJornadaMatchesWithSerpApi] Error procesando ${matchLabel}:`, err);
+      errors.push(`${matchLabel}: ${err.message}`);
+    }
+  }
+
+  // OBLIGATORIO: Disparar recalculateStandings() al culminar la inyección de la jornada
+  console.log('[syncJornadaMatchesWithSerpApi] Inyección completa. Disparando recalculateStandings()...');
+  try {
+    await recalculateStandings();
+    console.log('[syncJornadaMatchesWithSerpApi] ✅ recalculateStandings() finalizado con éxito.');
+  } catch (recalcErr: any) {
+    console.error('[syncJornadaMatchesWithSerpApi] Error al recalcular tabla:', recalcErr);
+    errors.push(`Error recalculando tabla: ${recalcErr.message}`);
+  }
+
+  return {
+    success: syncedMatches > 0,
+    totalMatches: targetMatches.length,
+    syncedMatches,
+    errors,
+    message: `Sincronización de ${jornadaName} completada: ${syncedMatches} de ${targetMatches.length} partidos actualizados. Tabla de posiciones recalculada con éxito.`
+  };
 }

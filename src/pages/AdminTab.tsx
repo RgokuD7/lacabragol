@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
@@ -30,7 +30,8 @@ import {
   getMockRealMadridVsInterPreview, 
   commitSerpApiStandingsToFirestore, 
   SerpApiStandingItem,
-  checkAndAutoSyncFinishedMatches
+  checkAndAutoSyncFinishedMatches,
+  syncJornadaMatchesWithSerpApi
 } from '../lib/serpapiSync';
 import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
 import { SerpApiStandingsModal } from '../components/SerpApiStandingsModal';
@@ -80,6 +81,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [serpStandingsRawJson, setSerpStandingsRawJson] = useState<string>('');
   const [isCommittingStandings, setIsCommittingStandings] = useState(false);
   const [isAutoSyncing, setIsAutoSyncing] = useState(false);
+  const [selectedJornadaSync, setSelectedJornadaSync] = useState('Jornada 1');
+  const [isSyncingJornada, setIsSyncingJornada] = useState(false);
+  const [jornadaSyncProgress, setJornadaSyncProgress] = useState<{ current: number; total: number; match: string } | null>(null);
 
   // Status and management states
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
@@ -141,6 +145,19 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       unsubPlayers();
     };
   }, []);
+
+  const availableJornadas = useMemo(() => {
+    const set = new Set<string>();
+    matches.forEach(m => {
+      if (m.group && m.group.trim()) {
+        set.add(m.group.trim());
+      }
+    });
+    if (set.size === 0) {
+      for (let i = 1; i <= 8; i++) set.add(`Jornada ${i}`);
+    }
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [matches]);
 
   if (!profile?.isAdmin) {
     return (
@@ -424,20 +441,26 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setFeedback({ type: 'info', text: 'Buscando partidos en vivo/hoy en Google vía SerpAPI...' });
 
     try {
-      const todayStr = new Date().toISOString().split('T')[0];
+      const now = Date.now();
+      const localD = new Date();
+      const localYear = localD.getFullYear();
+      const localMonth = String(localD.getMonth() + 1).padStart(2, '0');
+      const localDay = String(localD.getDate()).padStart(2, '0');
+      const localTodayPrefix = `${localYear}-${localMonth}-${localDay}`;
+
       let candidateMatches = matches.filter(m => {
-        if (m.date && m.date.startsWith(todayStr)) return true;
         if (m.status === 'in_progress') return true;
-        return false;
+        const matchTime = new Date(m.date).getTime();
+        // REGLA: Prohibido buscar automáticamente partidos que aún no han comenzado
+        if (now < matchTime) return false;
+        
+        // Verificar fecha local
+        const matchLocalStr = new Date(m.date).toLocaleDateString('en-CA'); // YYYY-MM-DD local
+        return matchLocalStr === localTodayPrefix;
       });
 
       if (candidateMatches.length === 0) {
-        const pending = matches.filter(m => m.status === 'pending' || m.status === 'in_progress');
-        candidateMatches = pending.length > 0 ? pending.slice(0, 6) : matches.slice(0, 4);
-      }
-
-      if (candidateMatches.length === 0) {
-        setFeedback({ type: 'info', text: 'No hay partidos programados para consultar hoy.' });
+        setFeedback({ type: 'info', text: 'No hay partidos que hayan iniciado el día de hoy. Si deseas sincronizar una fecha previa o forzada, usa la Sincronización de Contingencia por Jornada.' });
         setIsSyncingSerpApiMatches(false);
         return;
       }
@@ -569,6 +592,45 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       setFeedback({ type: 'error', text: `Error en auto-sync: ${err.message}` });
     } finally {
       setIsAutoSyncing(false);
+    }
+  };
+
+  const handleSyncJornada = async () => {
+    if (!selectedJornadaSync) return;
+    setIsSyncingJornada(true);
+    setJornadaSyncProgress(null);
+    vibrateTap();
+    setFeedback({ type: 'info', text: `Iniciando sincronización forzada de ${selectedJornadaSync} con SerpAPI...` });
+
+    try {
+      const res = await syncJornadaMatchesWithSerpApi(
+        selectedJornadaSync,
+        matches,
+        settings,
+        (current, total, matchName) => {
+          setJornadaSyncProgress({ current, total, match: matchName });
+        }
+      );
+
+      if (res.success) {
+        vibrateSuccess();
+        setFeedback({
+          type: 'success',
+          text: res.message
+        });
+      } else {
+        vibrateError();
+        setFeedback({
+          type: 'error',
+          text: `No se pudieron sincronizar partidos: ${res.errors.join(', ')}`
+        });
+      }
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: `Error en sincronización por jornada: ${err.message}` });
+    } finally {
+      setIsSyncingJornada(false);
+      setJornadaSyncProgress(null);
     }
   };
 
@@ -1073,6 +1135,59 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 <span>{isAutoSyncing ? 'Ejecutando Auto-Sync...' : '⚡ Auto-Sync Inteligente (+115m con Candado)'}</span>
               </button>
 
+              {/* Sincronización Manual por Jornada (Botón de Contingencia) */}
+              <div className="pt-2.5 border-t border-zinc-800/80 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-black uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <span>🚨 Sincronización de Contingencia por Jornada</span>
+                  </span>
+                  <span className="text-[10px] text-zinc-400">Fuerza actualización y recálculo</span>
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <select
+                    value={selectedJornadaSync}
+                    onChange={(e) => setSelectedJornadaSync(e.target.value)}
+                    disabled={isSyncingJornada}
+                    className="bg-zinc-900 border border-zinc-700/80 text-white text-xs font-bold rounded-xl px-3 py-2.5 outline-none focus:border-amber-500 transition-colors disabled:opacity-50 cursor-pointer shrink-0 sm:w-48"
+                  >
+                    {availableJornadas.map(j => (
+                      <option key={j} value={j} className="bg-zinc-900 text-white">
+                        {j}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    type="button"
+                    onClick={handleSyncJornada}
+                    disabled={isSyncingJornada}
+                    className="flex-1 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 active:scale-98 text-white font-black py-2.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-md shadow-amber-600/20 cursor-pointer"
+                  >
+                    {isSyncingJornada ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4 text-white" />}
+                    <span>{isSyncingJornada ? 'Sincronizando...' : `Sincronizar ${selectedJornadaSync}`}</span>
+                  </button>
+                </div>
+
+                {jornadaSyncProgress && (
+                  <div className="bg-amber-950/40 border border-amber-800/60 rounded-lg p-2.5 space-y-1.5 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between text-[11px] font-bold text-amber-300">
+                      <span>Procesando ({jornadaSyncProgress.current} de {jornadaSyncProgress.total}):</span>
+                      <span className="font-mono">{Math.round((jornadaSyncProgress.current / jornadaSyncProgress.total) * 100)}%</span>
+                    </div>
+                    <p className="text-[10px] text-zinc-300 truncate font-mono">
+                      ⚽ {jornadaSyncProgress.match}
+                    </p>
+                    <div className="w-full bg-zinc-800 rounded-full h-1.5 overflow-hidden">
+                      <div 
+                        className="bg-amber-500 h-full transition-all duration-300 rounded-full"
+                        style={{ width: `${(jornadaSyncProgress.current / jornadaSyncProgress.total) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                )}
+              </div>
+
               {/* Botón Caso de Prueba: Real Madrid vs Inter (Mock Test) */}
               <button
                 type="button"
@@ -1516,8 +1631,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           isOpen={!!editingMatch}
           onClose={() => setEditingMatch(null)}
           title="Editar Resultado Oficial"
+          zIndexClassName="z-[1050]"
         >
-          <div className="space-y-6 pb-6 pt-2">
+          <div className="space-y-6 pb-28 pt-2">
             {/* Teams Header with Badges */}
             <div className="flex items-center justify-around bg-zinc-900/60 p-4 rounded-2xl border border-zinc-800/80">
               {/* Home Team */}
