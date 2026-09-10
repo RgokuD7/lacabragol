@@ -67,39 +67,42 @@ function PredictionCard({
             {p.homeScore} - {p.awayScore}
           </span>
           {isFinished && isExact && (
-            <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)] flex items-center gap-1">
+            <span className="w-20 justify-center text-[10px] font-black text-emerald-300 bg-emerald-500/20 px-2 py-0.5 rounded-md border border-emerald-500/40 shadow-[0_0_8px_rgba(16,185,129,0.3)] flex items-center gap-1 shrink-0">
               <span>🎯</span>
               <span>+{effectivePoints} pts</span>
             </span>
           )}
           {isFinished && !isExact && effectivePoints > 0 && (
-            <span className="text-[10px] font-black text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded-md border border-blue-500/30 flex items-center gap-1">
+            <span className="w-20 justify-center text-[10px] font-black text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded-md border border-blue-500/30 flex items-center gap-1 shrink-0">
               <span>⚽</span>
               <span>+{effectivePoints} pts</span>
             </span>
           )}
           {isFinished && effectivePoints === 0 && (
-            <span className="text-[10px] font-bold text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700/50">
-              0 pts
+            <span className="w-20 justify-center text-[10px] font-bold text-zinc-500 bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700/50 flex items-center gap-1 shrink-0">
+              <span className="text-zinc-500 text-xs">✕</span>
+              <span>0 pts</span>
             </span>
           )}
           {matchStatus === 'in_progress' && hasRealScores && (
             isExact ? (
-              <span className="text-[9px] font-black text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 animate-pulse">
-                🎯 {effectivePoints}p en vivo
+              <span className="w-24 justify-center text-[9px] font-black text-emerald-400 bg-emerald-500/15 px-1.5 py-0.5 rounded border border-emerald-500/30 animate-pulse flex items-center gap-1 shrink-0">
+                <span>🎯</span>
+                <span>{effectivePoints}p vivo</span>
               </span>
             ) : effectivePoints > 0 ? (
-              <span className="text-[9px] font-black text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded border border-blue-500/30">
-                ⚽ {effectivePoints}p en vivo
+              <span className="w-24 justify-center text-[9px] font-black text-blue-400 bg-blue-500/15 px-1.5 py-0.5 rounded border border-blue-500/30 flex items-center gap-1 shrink-0">
+                <span>⚽</span>
+                <span>{effectivePoints}p vivo</span>
               </span>
             ) : null
           )}
         </div>
       </div>
       
-      {/* Reactions Bar - Rendered strictly when validReactions > 0 without gray badge backgrounds */}
-      {validReactions.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 pt-2 border-t border-zinc-800/50">
+      {/* Reactions Bar with Accessible Add-Reaction Button */}
+      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-zinc-800/50 min-h-[28px]">
+        <div className="flex flex-wrap items-center gap-1.5">
           {validReactions.map(([emoji, count]) => {
             const numCount = Array.isArray(count) ? count.length : count as number;
             if (numCount === 0) return null;
@@ -108,16 +111,38 @@ function PredictionCard({
             return (
               <button
                 key={emoji}
-                onClick={() => { handleReaction(p.id, emoji); vibrateTap(); }}
-                className="flex items-center gap-1 text-xs hover:scale-110 active:scale-95 transition-transform py-0.5 px-1 select-none cursor-pointer"
+                type="button"
+                onClick={(e) => { 
+                  e.stopPropagation();
+                  handleReaction(p.id, emoji); 
+                  vibrateTap(); 
+                }}
+                className={`flex items-center gap-1 text-xs hover:scale-110 active:scale-95 transition-transform py-0.5 px-2 rounded-full select-none cursor-pointer border ${
+                  hasReacted ? 'bg-blue-500/20 border-blue-500/40 text-blue-300' : 'bg-zinc-800/60 border-zinc-700/50 text-zinc-400 hover:text-zinc-200'
+                }`}
               >
                 <span className="text-sm">{emoji}</span>
-                <span className={`text-[11px] font-bold ${hasReacted ? 'text-blue-400' : 'text-zinc-400'}`}>{numCount}</span>
+                <span className="text-[11px] font-bold">{numCount}</span>
               </button>
             );
           })}
         </div>
-      )}
+
+        {/* Add Reaction Button */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            vibrateTap();
+            setActiveEmojiPicker(p.id);
+          }}
+          className="text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 rounded-lg hover:bg-zinc-800/80 transition-colors flex items-center gap-1 text-[11px] font-medium ml-auto select-none cursor-pointer"
+          title="Reaccionar"
+        >
+          <span className="text-sm">😊</span>
+          <span className="text-[10px] text-zinc-500 font-bold">+</span>
+        </button>
+      </div>
     </div>
   );
 }
@@ -183,16 +208,21 @@ export function MatchPredictions({
       const pred = predictions.find(p => p.id === predId);
       if (!pred) return;
       
-      const currentReactions = pred.reactions || {};
-      const newReactions = { ...currentReactions };
+      const currentReactions: Record<string, any> = pred.reactions || {};
+      const newReactions: Record<string, string[]> = {};
+
+      // Normalize current reactions so each key maps to string[]
+      Object.entries(currentReactions).forEach(([key, val]) => {
+        if (Array.isArray(val)) {
+          newReactions[key] = [...val];
+        }
+      });
       
-      // Remove user from ALL emojis first (WhatsApp logic: 1 emoji per user)
+      // WhatsApp logic: 1 reaction per user across all emojis
       Object.keys(newReactions).forEach(key => {
-        if (Array.isArray(newReactions[key])) {
-          newReactions[key] = newReactions[key].filter(id => id !== currentUser.uid);
-          if (newReactions[key].length === 0) {
-            delete newReactions[key];
-          }
+        newReactions[key] = newReactions[key].filter(id => id !== currentUser.uid);
+        if (newReactions[key].length === 0) {
+          delete newReactions[key];
         }
       });
       
@@ -200,15 +230,20 @@ export function MatchPredictions({
       const hasReacted = usersReactedToTarget.includes(currentUser.uid);
       
       if (!hasReacted) {
-         if (!newReactions[emoji]) newReactions[emoji] = [];
-         newReactions[emoji].push(currentUser.uid);
+        if (!newReactions[emoji]) newReactions[emoji] = [];
+        newReactions[emoji].push(currentUser.uid);
       }
+
+      // Optimistic UI update for instant feedback
+      setPredictions(prev => prev.map(p => p.id === predId ? { ...p, reactions: newReactions } : p));
+      vibrateTap();
         
       await updateDoc(doc(db, 'predictions', predId), {
         reactions: newReactions
       });
     } catch(e) {
-      console.error(e);
+      console.error('Error updating reaction:', e);
+      loadPredictions();
     }
   };
 

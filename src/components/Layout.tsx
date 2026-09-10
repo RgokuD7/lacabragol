@@ -131,20 +131,31 @@ export function Layout() {
       setUnreadChatCount(0);
       return;
     }
-    const lastRead = Number(localStorage.getItem(`last_read_chat_${activeGroupId}`) || Date.now());
+    // Read or initialize last read timestamp
+    let stored = localStorage.getItem(`last_read_chat_${activeGroupId}`);
+    if (!stored) {
+      stored = Date.now().toString();
+      localStorage.setItem(`last_read_chat_${activeGroupId}`, stored);
+    }
+    const lastRead = Number(stored);
+
     const q = query(
-      collection(db, 'chatMessages'),
+      collection(db, 'messages'),
       where('groupId', '==', activeGroupId),
       where('createdAt', '>', lastRead)
     );
     const unsub = onSnapshot(q, (snap) => {
+      if (isChatOpen) {
+        setUnreadChatCount(0);
+        return;
+      }
       const count = snap.docs.filter(d => d.data().userId !== user?.uid).length;
       setUnreadChatCount(count);
     }, (err) => {
       console.warn("Unread chat listener:", err);
     });
     return () => unsub();
-  }, [activeGroupId, user?.uid]);
+  }, [activeGroupId, user?.uid, isChatOpen]);
 
   const openChat = () => {
     setIsChatOpen(true);
@@ -445,7 +456,7 @@ export function Layout() {
         >
           <MessageCircle className="w-6 h-6" />
           {unreadChatCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-rose-500 border-2 border-[#09090b] rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-lg animate-bounce">
+            <span className="absolute -top-1 -right-1 min-w-[20px] h-5 px-1 bg-red-500 border-2 border-[#09090b] rounded-full flex items-center justify-center text-[10px] font-black text-white shadow-lg animate-bounce">
               {unreadChatCount > 99 ? '99+' : unreadChatCount}
             </span>
           )}

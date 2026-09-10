@@ -134,10 +134,12 @@ service cloud.firestore {
                     incoming().userId == request.auth.uid &&
                     incoming().pointsEarned == 0 &&
                     (isAdmin() || get(/databases/$(database)/documents/matches/$(incoming().matchId)).data.status == 'pending');
-      allow update: if isSignedIn() && isValidId(predictionId) && isValidPrediction(incoming()) && (
-        (incoming().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['homeScore', 'awayScore', 'updatedAt']) && (isAdmin() || get(/databases/$(database)/documents/matches/$(existing().matchId)).data.status == 'pending')) ||
-        (incoming().diff(existing()).affectedKeys().hasOnly(['reactions'])) ||
-        (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['pointsEarned', 'updatedAt']))
+      allow update: if isSignedIn() && (
+        (incoming().diff(existing()).affectedKeys().hasOnly(['reactions']) && (!('reactions' in incoming()) || incoming().reactions is map)) ||
+        (isValidId(predictionId) && isValidPrediction(incoming()) && (
+          (incoming().userId == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['homeScore', 'awayScore', 'updatedAt']) && (isAdmin() || get(/databases/$(database)/documents/matches/$(existing().matchId)).data.status == 'pending')) ||
+          (isAdmin() && incoming().diff(existing()).affectedKeys().hasAny(['pointsEarned', 'updatedAt']))
+        ))
       );
     }
 

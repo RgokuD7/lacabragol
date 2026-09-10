@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { db } from '../lib/firebase';
 import { collection, query, where, orderBy, limit, onSnapshot, addDoc, getDocs, updateDoc, doc, documentId, writeBatch } from 'firebase/firestore';
 import { useAuth } from './AuthProvider';
-import { Send, MessageSquare, Reply, Plus, X, Trash2 } from 'lucide-react';
+import { Send, MessageSquare, Reply, Plus, X, Trash2, Smile } from 'lucide-react';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { useGroups } from './GroupsProvider';
 import { EmojiPicker } from './EmojiPicker';
@@ -173,8 +173,15 @@ export function GroupChat({
   
   const [replyToMsg, setReplyToMsg] = useState<Message | null>(null);
   const [activeEmojiPicker, setActiveEmojiPicker] = useState<string | null>(null);
+  const [isInputEmojiOpen, setIsInputEmojiOpen] = useState(false);
   const [contextMenuMsgId, setContextMenuMsgId] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState({ top: 0, left: 0 });
+
+  const handleInputFocus = () => {
+    setTimeout(() => {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    }, 100);
+  };
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
   const canClearChat = isCabraSuprema(profile, user?.email) || activeGroup?.adminId === user?.uid;
@@ -463,7 +470,7 @@ export function GroupChat({
         )}
 
         {/* Input Area */}
-        <div className="relative p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-24 sm:pb-28">
+        <div className="relative p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[max(env(safe-area-inset-bottom),12px)] sm:pb-4">
           {/* Mentions Auto-complete */}
           {showMentions && filteredMembers.length > 0 && (
             <div className="absolute bottom-[calc(100%+8px)] left-4 right-4 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto z-20">
@@ -482,12 +489,24 @@ export function GroupChat({
             </div>
           )}
 
-          <form onSubmit={handleSendMessage} className="flex gap-2 w-full">
+          <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 w-full">
+            <button
+              type="button"
+              onClick={() => {
+                vibrateTap();
+                setIsInputEmojiOpen(true);
+              }}
+              className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center shrink-0 transition-colors border border-zinc-800 cursor-pointer"
+              title="Insertar emoji"
+            >
+              <Smile className="w-5 h-5" />
+            </button>
             <input
               id="chat-input"
               type="text"
               value={newMessage}
               onChange={handleInputChange}
+              onFocus={handleInputFocus}
               placeholder="Escribe un mensaje..."
               className="flex-1 bg-black border border-zinc-800 rounded-full px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 transition-colors placeholder:text-zinc-600"
               maxLength={500}
@@ -503,6 +522,15 @@ export function GroupChat({
           </form>
         </div>
       </div>
+
+      <BaseBottomSheet isOpen={isInputEmojiOpen} onClose={() => setIsInputEmojiOpen(false)} title="Seleccionar Emoji">
+        <EmojiPicker 
+          onSelect={(emoji) => {
+            setNewMessage(prev => prev + emoji);
+          }}
+          onClose={() => setIsInputEmojiOpen(false)}
+        />
+      </BaseBottomSheet>
     </div>
   </div>
 );

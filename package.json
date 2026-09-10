@@ -21,6 +21,7 @@
     "date-fns": "^4.3.0",
     "dotenv": "^17.2.3",
     "driver.js": "^1.8.0",
+    "emoji-picker-react": "^4.20.7",
     "express": "^4.21.2",
     "firebase": "^12.13.0",
     "firebase-admin": "^14.3.0",
