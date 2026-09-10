@@ -19,8 +19,6 @@ import { onSnapshot } from 'firebase/firestore';
 function PredictionCard({ 
   p, 
   currentUser, 
-  activeEmojiPicker, 
-  setActiveEmojiPicker, 
   handleReaction, 
   setContextMenuPos, 
   setContextMenuPredId, 
@@ -49,15 +47,36 @@ function PredictionCard({
     Array.isArray(users) ? users.length > 0 : (users as number) > 0
   );
 
+  const cardRef = useRef<HTMLDivElement>(null);
+
   const handleLongPress = (e: React.TouchEvent | React.MouseEvent, pos: {x: number, y: number}) => {
-    setContextMenuPos({ top: pos.y, left: pos.x });
+    let top = pos.y;
+    let left = pos.x;
+    if ((!left && !top) && cardRef.current) {
+      const rect = cardRef.current.getBoundingClientRect();
+      top = rect.top + rect.height / 2;
+      left = rect.left + rect.width / 2;
+    }
+    setContextMenuPos({ top, left });
     setContextMenuPredId(p.id);
   };
 
   const longPressProps = useLongPress({ onLongPress: handleLongPress });
 
   return (
-    <div {...longPressProps} className="bg-zinc-900/50 rounded-xl p-3 border border-zinc-800/80 space-y-3 select-none">
+    <div 
+      ref={cardRef}
+      {...longPressProps} 
+      onContextMenu={(e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        vibratePop();
+        setContextMenuPos({ top: e.clientY, left: e.clientX });
+        setContextMenuPredId(p.id);
+      }}
+      className="bg-zinc-900/50 rounded-xl p-3 border border-zinc-800/80 select-none transition-all active:scale-[0.99] cursor-pointer"
+      title="Mantén presionado para reaccionar"
+    >
       <div className="flex items-center justify-between">
         <span className={`text-xs font-black truncate pr-2 ${isMe ? "text-blue-400" : "text-zinc-300"}`}>
           {isMe ? 'Tú' : (p.user?.nickname || p.user?.displayName || 'Usuario')}
@@ -100,9 +119,9 @@ function PredictionCard({
         </div>
       </div>
       
-      {/* Reactions Bar with Accessible Add-Reaction Button */}
-      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-2 border-t border-zinc-800/50 min-h-[28px]">
-        <div className="flex flex-wrap items-center gap-1.5">
+      {/* Reactions Bar - Solo si alguien ha reaccionado (agranda la card dinámicamente) */}
+      {validReactions.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 pt-2 mt-2 border-t border-zinc-800/50">
           {validReactions.map(([emoji, count]) => {
             const numCount = Array.isArray(count) ? count.length : count as number;
             if (numCount === 0) return null;
@@ -112,6 +131,8 @@ function PredictionCard({
               <button
                 key={emoji}
                 type="button"
+                onMouseDown={(e) => e.stopPropagation()}
+                onTouchStart={(e) => e.stopPropagation()}
                 onClick={(e) => { 
                   e.stopPropagation();
                   handleReaction(p.id, emoji); 
@@ -127,24 +148,7 @@ function PredictionCard({
             );
           })}
         </div>
-
-        {/* Add Reaction Button */}
-        <button
-          type="button"
-          onClick={(e) => {
-            e.stopPropagation();
-            vibrateTap();
-            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-            setContextMenuPos({ top: rect.top, left: rect.left + rect.width / 2 });
-            setContextMenuPredId(p.id);
-          }}
-          className="text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 rounded-lg hover:bg-zinc-800/80 transition-colors flex items-center gap-1 text-[11px] font-medium ml-auto select-none cursor-pointer"
-          title="Reaccionar"
-        >
-          <span className="text-sm">😊</span>
-          <span className="text-[10px] text-zinc-500 font-bold">+</span>
-        </button>
-      </div>
+      )}
     </div>
   );
 }
@@ -444,8 +448,6 @@ export function MatchPredictions({
                   key={p.id}
                   p={p}
                   currentUser={currentUser}
-                  activeEmojiPicker={activeEmojiPicker}
-                  setActiveEmojiPicker={setActiveEmojiPicker}
                   handleReaction={handleReaction}
                   setContextMenuPos={setContextMenuPos}
                   setContextMenuPredId={setContextMenuPredId}
@@ -458,18 +460,9 @@ export function MatchPredictions({
             </div>
           )}
         </div>
-        
-        <BaseBottomSheet isOpen={!!activeEmojiPicker} onClose={() => setActiveEmojiPicker(null)} title="Reacciones">
-          <EmojiPicker 
-            onSelect={(emoji) => {
-              if (activeEmojiPicker) handleReaction(activeEmojiPicker, emoji);
-            }}
-            onClose={() => setActiveEmojiPicker(null)}
-          />
-        </BaseBottomSheet>
       </BaseBottomSheet>
       
-      {/* Context Menu rendered outside the bottom sheet stacking context */}
+      {/* Context Menu for quick reactions & long press */}
       {contextMenuPredId && (
         <ContextMenu
           position={contextMenuPos}
@@ -478,6 +471,21 @@ export function MatchPredictions({
           onMoreEmojis={() => setActiveEmojiPicker(contextMenuPredId)}
         />
       )}
+
+      {/* Full Emoji Picker Sheet with proper z-index */}
+      <BaseBottomSheet 
+        isOpen={!!activeEmojiPicker} 
+        onClose={() => setActiveEmojiPicker(null)} 
+        title="Reacciones"
+        zIndexClassName="z-[1250]"
+      >
+        <EmojiPicker 
+          onSelect={(emoji) => {
+            if (activeEmojiPicker) handleReaction(activeEmojiPicker, emoji);
+          }}
+          onClose={() => setActiveEmojiPicker(null)}
+        />
+      </BaseBottomSheet>
     </>
   );
 }
