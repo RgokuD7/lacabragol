@@ -2,6 +2,8 @@ import { getMessaging, getToken, onMessage, isSupported, Messaging } from 'fireb
 import { doc, updateDoc, arrayUnion, arrayRemove } from 'firebase/firestore';
 import { app, db } from './firebase';
 
+export const VAPID_KEY = 'BFr5nC2ag_S6CW3ZjMD73n3yPuReepLnwn0-RJnpTNWwFjsxcqt-rz51mWCArZatISAnotzmNq81L6p8lObwIb8';
+
 let messagingInstance: Messaging | null = null;
 
 /**
@@ -88,8 +90,8 @@ export async function requestNotificationPermission(userId?: string): Promise<{
       return { success: false, error: 'Firebase Messaging no está disponible en este entorno.' };
     }
 
-    // Read optional VAPID Public Key from environment if provided
-    const vapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || undefined;
+    // Read VAPID Public Key from environment with official generated fallback
+    const vapidKey = (import.meta as any).env?.VITE_FIREBASE_VAPID_KEY || VAPID_KEY;
 
     const token = await getToken(messaging, {
       vapidKey,
