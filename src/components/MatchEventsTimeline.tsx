@@ -1,6 +1,8 @@
 import React from 'react';
 import { Match } from '../types';
 import { DEFAULT_PLAYERS } from '../data/players';
+import { TeamBadge } from './TeamBadge';
+import { Info } from 'lucide-react';
 
 export interface TimelineEvent {
   id: string;
@@ -10,6 +12,32 @@ export interface TimelineEvent {
   playerName: string;
   teamName: string;
   isHomeTeam: boolean;
+}
+
+function normalizeTeamStr(name: string): string {
+  return (name || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '') // remove accents
+    .replace(/\b(fc|cf|sc|ac|afc|fk|rb|cd|bsc)\b/gi, '') // remove club prefixes
+    .replace(/[^a-z0-9]/g, '') // alphanumeric only
+    .trim();
+}
+
+function matchTeamSide(target: string, homeTeam: string, awayTeam: string): 'home' | 'away' | null {
+  const normTarget = normalizeTeamStr(target);
+  const normHome = normalizeTeamStr(homeTeam);
+  const normAway = normalizeTeamStr(awayTeam);
+
+  if (!normTarget) return null;
+
+  if (normHome && (normHome.includes(normTarget) || normTarget.includes(normHome))) {
+    return 'home';
+  }
+  if (normAway && (normAway.includes(normTarget) || normTarget.includes(normAway))) {
+    return 'away';
+  }
+  return null;
 }
 
 export function parseMatchEvents(match: {
@@ -29,14 +57,24 @@ export function parseMatchEvents(match: {
         const playerName = String(g.jugador || g.player || 'Gol').trim();
         let teamName = String(g.equipo || g.team || '').trim();
         if (teamName.toLowerCase() === 'undefined') teamName = '';
-        if (!teamName) {
-          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-          if (found?.team) teamName = found.team;
+
+        let side: 'home' | 'away' | null = null;
+        if (g.is_home === true || g.isHome === true) side = 'home';
+        if (g.is_home === false || g.isHome === false) side = 'away';
+
+        if (!side && teamName) {
+          side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
         }
-        const isHome = teamName ? (
-          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
-        ) : false;
+
+        if (!side) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === playerName.toLowerCase().trim());
+          if (found?.team) {
+            side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+            if (!teamName) teamName = found.team;
+          }
+        }
+
+        const isHome = side !== 'away';
 
         events.push({
           id: `goal-${idx}-${minute}`,
@@ -52,18 +90,24 @@ export function parseMatchEvents(match: {
         const minute = matchStr?.[2] ? parseInt(matchStr[2], 10) : 0;
         let teamName = matchStr?.[3]?.trim() || '';
         if (teamName.toLowerCase() === 'undefined') teamName = '';
-        if (!teamName) {
-          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-          if (found?.team) teamName = found.team;
+
+        let side: 'home' | 'away' | null = null;
+        if (teamName) {
+          side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
         }
-        const isHome = teamName ? (
-          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
-        ) : false;
+        if (!side) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === playerName.toLowerCase().trim());
+          if (found?.team) {
+            side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+            if (!teamName) teamName = found.team;
+          }
+        }
+
+        const isHome = side !== 'away';
 
         events.push({
           id: `goal-str-${idx}-${minute}`,
-          minute,
+          minute: isNaN(minute) ? 0 : minute,
           type: 'goal',
           playerName,
           teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
@@ -82,16 +126,32 @@ export function parseMatchEvents(match: {
         const playerName = String(c.jugador || c.player || 'Tarjeta').trim();
         let teamName = String(c.equipo || c.team || '').trim();
         if (teamName.toLowerCase() === 'undefined') teamName = '';
-        if (!teamName) {
-          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-          if (found?.team) teamName = found.team;
+
+        const rawTipo = String(c.tipo || c.type || '').toLowerCase();
+        const cardType: 'amarilla' | 'roja' = (
+          rawTipo.includes('roja') || 
+          rawTipo.includes('red') || 
+          rawTipo.includes('expuls') || 
+          rawTipo.includes('segunda')
+        ) ? 'roja' : 'amarilla';
+
+        let side: 'home' | 'away' | null = null;
+        if (c.is_home === true || c.isHome === true) side = 'home';
+        if (c.is_home === false || c.isHome === false) side = 'away';
+
+        if (!side && teamName) {
+          side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
         }
-        const tipoStr = String(c.tipo || c.type || '').toLowerCase();
-        const cardType: 'amarilla' | 'roja' = (tipoStr.includes('roja') || tipoStr.includes('red') || tipoStr.includes('expuls')) ? 'roja' : 'amarilla';
-        const isHome = teamName ? (
-          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
-        ) : false;
+
+        if (!side) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === playerName.toLowerCase().trim());
+          if (found?.team) {
+            side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+            if (!teamName) teamName = found.team;
+          }
+        }
+
+        const isHome = side !== 'away';
 
         events.push({
           id: `card-${idx}-${minute}`,
@@ -108,20 +168,32 @@ export function parseMatchEvents(match: {
         const minute = matchStr?.[2] ? parseInt(matchStr[2], 10) : 0;
         let teamName = matchStr?.[3]?.trim() || '';
         if (teamName.toLowerCase() === 'undefined') teamName = '';
-        if (!teamName) {
-          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-          if (found?.team) teamName = found.team;
-        }
+
         const rawTipo = matchStr?.[4]?.toLowerCase() || '';
-        const cardType: 'amarilla' | 'roja' = (rawTipo.includes('roja') || rawTipo.includes('red') || rawTipo.includes('expuls')) ? 'roja' : 'amarilla';
-        const isHome = teamName ? (
-          teamName.toLowerCase().includes(match.homeTeam.toLowerCase()) || 
-          match.homeTeam.toLowerCase().includes(teamName.toLowerCase())
-        ) : false;
+        const cardType: 'amarilla' | 'roja' = (
+          rawTipo.includes('roja') || 
+          rawTipo.includes('red') || 
+          rawTipo.includes('expuls') || 
+          rawTipo.includes('segunda')
+        ) ? 'roja' : 'amarilla';
+
+        let side: 'home' | 'away' | null = null;
+        if (teamName) {
+          side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
+        }
+        if (!side) {
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === playerName.toLowerCase().trim());
+          if (found?.team) {
+            side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+            if (!teamName) teamName = found.team;
+          }
+        }
+
+        const isHome = side !== 'away';
 
         events.push({
           id: `card-str-${idx}-${minute}`,
-          minute,
+          minute: isNaN(minute) ? 0 : minute,
           type: 'card',
           cardType,
           playerName,
@@ -137,93 +209,123 @@ export function parseMatchEvents(match: {
   return events;
 }
 
-interface MatchEventsTimelineProps {
+export interface MatchEventsTimelineProps {
   match: Match;
-  compact?: boolean;
 }
 
-export function MatchEventsTimeline({ match, compact = false }: MatchEventsTimelineProps) {
+export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
   const events = parseMatchEvents(match);
   const isFinished = match.status === 'finished';
 
-  if (compact) {
-    if (events.length === 0) {
-      return (
-        <div className="py-2.5 px-3 bg-[#0d0d10] rounded-lg border border-zinc-800/80 text-center">
-          <p className="text-[11px] text-zinc-400 font-medium">
-            {isFinished 
-              ? 'Sin goles ni tarjetas registradas' 
-              : 'Los goles y tarjetas se mostrarán aquí una vez inicie el partido'}
-          </p>
-        </div>
-      );
-    }
-
+  if (events.length === 0) {
     return (
-      <div className="space-y-1.5 pt-1">
-        {events.map((e) => {
-          return (
-            <div 
-              key={e.id}
-              className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-[#141418] border border-zinc-800/70 text-xs"
-            >
-              <div className="flex items-center gap-2 min-w-0">
-                <span className="text-sm shrink-0 select-none">
-                  {e.type === 'goal' ? '⚽' : e.cardType === 'roja' ? '🟥' : '🟨'}
-                </span>
-                <div className="min-w-0">
-                  <span className="font-bold text-white text-[11px] truncate block leading-tight">
-                    {e.playerName}
-                  </span>
-                  <span className="text-[9px] text-zinc-400 truncate block leading-none mt-0.5">
-                    {e.teamName}
-                  </span>
-                </div>
-              </div>
-
-              <span className="shrink-0 font-mono font-black text-[10px] text-blue-400 bg-blue-950/70 border border-blue-800/50 px-1.5 py-0.5 rounded">
-                {e.minute > 0 ? `${e.minute}'` : 'GOL'}
-              </span>
-            </div>
-          );
-        })}
+      <div className="bg-[#141418] border border-zinc-800/80 rounded-2xl p-6 text-center space-y-2">
+        <div className="w-10 h-10 rounded-full bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center mx-auto text-zinc-500">
+          <Info className="w-5 h-5" />
+        </div>
+        <p className="text-xs font-bold text-white">
+          No hay goles ni tarjetas registradas
+        </p>
+        <p className="text-[11px] text-zinc-400 max-w-xs mx-auto leading-relaxed">
+          {isFinished 
+            ? 'Este encuentro finalizó sin eventos cargados en la base de datos o terminó 0-0.' 
+            : 'Los goles y tarjetas se sincronizarán automáticamente al disputarse el partido.'}
+        </p>
       </div>
     );
   }
 
-  // Full timeline view
   return (
-    <div className="relative pl-6 space-y-2.5 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-zinc-800">
-      {events.map((e) => (
-        <div 
-          key={e.id} 
-          className="relative flex items-center justify-between gap-2 bg-[#141418] border border-zinc-800/80 rounded-xl p-2.5 hover:border-zinc-700 transition-colors shadow-sm"
-        >
-          <div className="absolute -left-[23px] w-4 h-4 rounded-full bg-[#111114] border-2 border-zinc-700 flex items-center justify-center">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-          </div>
-
-          <div className="flex items-center gap-2.5 min-w-0">
-            <span className="text-base shrink-0 select-none">
-              {e.type === 'goal' ? '⚽' : e.cardType === 'roja' ? '🟥' : '🟨'}
-            </span>
-            <div className="min-w-0">
-              <p className="text-xs font-bold text-white truncate leading-tight">
-                {e.playerName}
-              </p>
-              <p className="text-[10px] text-zinc-400 truncate mt-0.5">
-                {e.teamName || (e.isHomeTeam ? match.homeTeam : match.awayTeam)}
-              </p>
-            </div>
-          </div>
-
-          <div className="shrink-0">
-            <span className="font-mono font-black text-xs text-blue-400 bg-blue-950/60 border border-blue-800/60 px-2 py-0.5 rounded-md shadow-sm">
-              {e.minute > 0 ? `${e.minute}'` : 'GOL'}
-            </span>
-          </div>
+    <div className="space-y-2">
+      {/* Team Column Headers */}
+      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-2 bg-[#121215] border border-zinc-800/80 rounded-xl text-[11px] font-black uppercase tracking-wider">
+        <div className="flex items-center gap-1.5 justify-start text-zinc-300 truncate">
+          <TeamBadge src={match.homeFlag} teamName={match.homeTeam} className="w-4 h-4 shrink-0" />
+          <span className="truncate">{match.homeTeam}</span>
         </div>
-      ))}
+        <div className="text-zinc-500 font-mono text-[9px] px-1.5">MIN</div>
+        <div className="flex items-center gap-1.5 justify-end text-zinc-300 text-right truncate">
+          <span className="truncate">{match.awayTeam}</span>
+          <TeamBadge src={match.awayFlag} teamName={match.awayTeam} className="w-4 h-4 shrink-0" />
+        </div>
+      </div>
+
+      {/* Dynamic Left / Right Timeline */}
+      <div className="relative py-2 space-y-3">
+        {/* Central Vertical Line */}
+        <div className="absolute left-1/2 top-2 bottom-2 -translate-x-1/2 w-0.5 bg-zinc-800" />
+
+        {events.map((e) => {
+          const isHome = e.isHomeTeam;
+          const isGoal = e.type === 'goal';
+          const isRed = e.cardType === 'roja';
+          const icon = isGoal ? '⚽' : isRed ? '🟥' : '🟨';
+          const eventLabel = isGoal ? 'Gol' : isRed ? 'Tarjeta Roja' : 'Tarjeta Amarilla';
+          const minuteLabel = e.minute > 0 ? `${e.minute}'` : 'GOL';
+
+          return (
+            <div 
+              key={e.id}
+              className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-4"
+            >
+              {/* Left Column (Home Team Event) */}
+              {isHome ? (
+                <div className="flex items-center justify-end gap-2 text-right pr-1">
+                  <div className="min-w-0">
+                    <p className="text-xs sm:text-sm font-black text-white leading-tight truncate">
+                      {e.playerName}
+                    </p>
+                    <p className={`text-[10px] font-semibold truncate ${
+                      isGoal ? 'text-emerald-400' : isRed ? 'text-rose-400' : 'text-amber-400'
+                    }`}>
+                      {eventLabel}
+                    </p>
+                  </div>
+                  <span className="text-base sm:text-lg shrink-0 select-none drop-shadow-sm">
+                    {icon}
+                  </span>
+                </div>
+              ) : (
+                <div />
+              )}
+
+              {/* Center Column (Minute Pill) */}
+              <div className="relative z-10 flex items-center justify-center">
+                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-black font-mono shadow-md border ${
+                  isGoal 
+                    ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.25)]' 
+                    : isRed
+                      ? 'bg-rose-950/90 border-rose-500/60 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.25)]'
+                      : 'bg-amber-950/90 border-amber-500/60 text-amber-300'
+                }`}>
+                  {minuteLabel}
+                </span>
+              </div>
+
+              {/* Right Column (Away Team Event) */}
+              {!isHome ? (
+                <div className="flex items-center justify-start gap-2 text-left pl-1">
+                  <span className="text-base sm:text-lg shrink-0 select-none drop-shadow-sm">
+                    {icon}
+                  </span>
+                  <div className="min-w-0">
+                    <p className="text-xs sm:text-sm font-black text-white leading-tight truncate">
+                      {e.playerName}
+                    </p>
+                    <p className={`text-[10px] font-semibold truncate ${
+                      isGoal ? 'text-emerald-400' : isRed ? 'text-rose-400' : 'text-amber-400'
+                    }`}>
+                      {eventLabel}
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div />
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

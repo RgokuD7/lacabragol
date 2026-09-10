@@ -2,8 +2,9 @@ import React from 'react';
 import { Match } from '../types';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { TeamBadge } from './TeamBadge';
-import { Calendar, Clock, Info } from 'lucide-react';
+import { Calendar, Clock } from 'lucide-react';
 import { formatMatchDate } from '../lib/utils';
+import { MatchEventsTimeline } from './MatchEventsTimeline';
 
 interface MatchEventsModalProps {
   isOpen: boolean;
@@ -11,14 +12,11 @@ interface MatchEventsModalProps {
   match: Match | null;
 }
 
-import { parseMatchEvents, MatchEventsTimeline } from './MatchEventsTimeline';
-
 export function MatchEventsModal({ isOpen, onClose, match }: MatchEventsModalProps) {
   if (!match) return null;
 
   const isFinished = match.status === 'finished';
   const isInProgress = match.status === 'in_progress';
-  const events = parseMatchEvents(match);
 
   return (
     <BaseBottomSheet
@@ -28,8 +26,8 @@ export function MatchEventsModal({ isOpen, onClose, match }: MatchEventsModalPro
       zIndexClassName="z-[1050]"
       contentClassName="p-4"
     >
-      <div className="space-y-4 pb-28 max-h-[75vh] overflow-y-auto px-1">
-        {/* Match Header Board */}
+      <div className="space-y-4 pb-20 max-h-[75vh] overflow-y-auto px-1">
+        {/* Match Header Scoreboard */}
         <div className="bg-[#18181b] border border-zinc-800 rounded-2xl p-4 shadow-lg">
           {/* Top Info: Date & Group */}
           <div className="flex items-center justify-between text-[11px] text-zinc-400 pb-3 mb-3 border-b border-zinc-800/80">
@@ -59,7 +57,7 @@ export function MatchEventsModal({ isOpen, onClose, match }: MatchEventsModalPro
 
             {/* Score Center */}
             <div className="flex flex-col items-center justify-center px-2">
-              <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-700 px-3 py-1.5 rounded-xl shadow-inner font-mono text-xl sm:text-2xl font-black text-white">
+              <div className="flex items-center gap-2 bg-zinc-900/90 border border-zinc-700 px-3.5 py-1.5 rounded-xl shadow-inner font-mono text-xl sm:text-2xl font-black text-white">
                 <span>{match.homeScore ?? (isFinished || isInProgress ? 0 : '-')}</span>
                 <span className="text-zinc-500 text-sm">-</span>
                 <span>{match.awayScore ?? (isFinished || isInProgress ? 0 : '-')}</span>
@@ -90,71 +88,15 @@ export function MatchEventsModal({ isOpen, onClose, match }: MatchEventsModalPro
           </div>
         </div>
 
-        {/* Timeline of Events Section */}
-        <div className="space-y-3 pt-2">
-          <div className="flex items-center justify-between">
+        {/* Dynamic Left / Right Timeline Section */}
+        <div className="space-y-2 pt-1">
+          <div className="flex items-center justify-between px-1">
             <h3 className="text-xs font-black uppercase tracking-wider text-zinc-300 flex items-center gap-1.5">
               <Clock className="w-3.5 h-3.5 text-blue-400" />
               <span>Eventos del Partido</span>
             </h3>
-            {events.length > 0 && (
-              <span className="text-[10px] font-bold text-zinc-500">
-                {events.length} {events.length === 1 ? 'evento' : 'eventos'}
-              </span>
-            )}
           </div>
-
-          {events.length > 0 ? (
-            <div className="relative pl-6 space-y-3 before:absolute before:left-[11px] before:top-2 before:bottom-2 before:w-[2px] before:bg-zinc-800">
-              {events.map((e) => (
-                <div 
-                  key={e.id} 
-                  className="relative flex items-center justify-between gap-2 bg-[#141418] border border-zinc-800/80 rounded-xl p-2.5 hover:border-zinc-700 transition-colors shadow-sm"
-                >
-                  {/* Left indicator bullet on line */}
-                  <div className="absolute -left-[23px] w-4 h-4 rounded-full bg-[#111114] border-2 border-zinc-700 flex items-center justify-center">
-                    <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                  </div>
-
-                  {/* Event Info */}
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <span className="text-base shrink-0 select-none">
-                      {e.type === 'goal' ? '⚽' : e.cardType === 'roja' ? '🟥' : '🟨'}
-                    </span>
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-white truncate leading-tight">
-                        {e.playerName}
-                      </p>
-                      <p className="text-[10px] text-zinc-400 truncate mt-0.5">
-                        {e.teamName || (e.isHomeTeam ? match.homeTeam : match.awayTeam)}
-                      </p>
-                    </div>
-                  </div>
-
-                  {/* Minute Badge */}
-                  <div className="shrink-0">
-                    <span className="font-mono font-black text-xs text-blue-400 bg-blue-950/60 border border-blue-800/60 px-2 py-0.5 rounded-md shadow-sm">
-                      {e.minute > 0 ? `${e.minute}'` : 'GOL'}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="bg-[#141418] border border-zinc-800/80 rounded-2xl p-6 text-center space-y-2">
-              <div className="w-10 h-10 rounded-full bg-zinc-800/50 border border-zinc-700/50 flex items-center justify-center mx-auto text-zinc-500">
-                <Info className="w-5 h-5" />
-              </div>
-              <p className="text-xs font-bold text-white">
-                No hay goles ni tarjetas registradas
-              </p>
-              <p className="text-[11px] text-zinc-400 max-w-xs mx-auto leading-relaxed">
-                {isFinished 
-                  ? 'Este encuentro finalizó sin eventos cargados en la base de datos o terminó 0-0.' 
-                  : 'Los goles y tarjetas se sincronizarán automáticamente al disputarse el partido.'}
-              </p>
-            </div>
-          )}
+          <MatchEventsTimeline match={match} />
         </div>
       </div>
     </BaseBottomSheet>

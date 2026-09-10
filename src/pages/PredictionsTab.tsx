@@ -14,7 +14,6 @@ import { MatchPredictions } from '../components/MatchPredictions';
 import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionModal';
 import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { MatchEventsModal } from '../components/MatchEventsModal';
-import { MatchEventsTimeline } from '../components/MatchEventsTimeline';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
 import { 
@@ -24,14 +23,12 @@ import {
   CheckCircle, 
   Filter, 
   CheckCircle2, 
-  Lock,
-  Save,
-  Trophy,
-  AlertTriangle,
-  RefreshCw,
-  Sparkles,
-  ChevronDown,
-  ChevronUp
+  Lock, 
+  Save, 
+  Trophy, 
+  AlertTriangle, 
+  RefreshCw, 
+  Sparkles 
 } from 'lucide-react';
 
 export type StatusFilterType = 'all' | 'open' | 'live' | 'finished';
@@ -90,14 +87,6 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     initialFocus: 'home'
   });
   const [eventsModalMatch, setEventsModalMatch] = useState<Match | null>(null);
-  const [expandedMatchIds, setExpandedMatchIds] = useState<Record<string, boolean>>({});
-
-  const toggleMatchEvents = (matchId: string) => {
-    setExpandedMatchIds(prev => ({
-      ...prev,
-      [matchId]: !prev[matchId]
-    }));
-  };
 
   // Keep live match minutes and lock states reactive in real-time
   useEffect(() => {
@@ -851,38 +840,16 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
-                        toggleMatchEvents(match.id);
+                        vibratePop();
+                        setEventsModalMatch(match);
                       }}
                       className="flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors py-0.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 cursor-pointer select-none active:scale-95"
                     >
                       <span>Ver Detalles</span>
-                      <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${expandedMatchIds[match.id] ? 'rotate-180' : ''}`} />
                     </button>
                   ) : null
                 }
               />
-
-              {/* Acordeón de Eventos del Partido (Solo visible si el usuario pulsa 'Ver Detalles') */}
-              {expandedMatchIds[match.id] && (
-                <div className="mt-2 pt-2 border-t border-zinc-800/80 animate-in fade-in duration-200">
-                  <div className="flex items-center justify-between pb-1.5 mb-1.5">
-                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
-                      Eventos del Partido
-                    </span>
-                    <button
-                      type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setEventsModalMatch(match);
-                      }}
-                      className="text-[9px] text-blue-400 hover:text-blue-300 font-semibold px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors cursor-pointer select-none"
-                    >
-                      Ficha completa
-                    </button>
-                  </div>
-                  <MatchEventsTimeline match={match} compact={true} />
-                </div>
-              )}
             </div>
           );
         })}
