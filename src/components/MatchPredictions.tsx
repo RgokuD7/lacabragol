@@ -134,7 +134,9 @@ function PredictionCard({
           onClick={(e) => {
             e.stopPropagation();
             vibrateTap();
-            setActiveEmojiPicker(p.id);
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+            setContextMenuPos({ top: rect.top, left: rect.left + rect.width / 2 });
+            setContextMenuPredId(p.id);
           }}
           className="text-zinc-500 hover:text-zinc-300 px-1.5 py-0.5 rounded-lg hover:bg-zinc-800/80 transition-colors flex items-center gap-1 text-[11px] font-medium ml-auto select-none cursor-pointer"
           title="Reaccionar"

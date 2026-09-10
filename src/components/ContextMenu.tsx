@@ -65,34 +65,36 @@ export function ContextMenu({ onSelectEmoji, onReply, onMoreEmojis, onClose, pos
   return (
     <div 
       ref={ref}
-      className="fixed z-[100] bg-[#1a1a1f] border border-zinc-700/80 rounded-2xl shadow-2xl p-2 flex flex-col gap-1.5 max-w-[95vw] sm:max-w-[360px] animate-in zoom-in-95 duration-150"
+      className="fixed z-[100] bg-[#1a1a1f] border border-zinc-700/80 rounded-2xl shadow-2xl p-2.5 flex flex-col gap-2 max-w-[95vw] w-fit animate-in zoom-in-95 duration-150 select-none"
       style={{ top: adjustedPos.top, left: adjustedPos.left, transform: 'translate(-50%, -100%)', marginTop: '-10px' }}
     >
-      {/* Emojis row forced to flex-row and scrollable if needed */}
-      <div className="flex flex-row items-center gap-1 overflow-x-auto py-0.5 px-0.5 scrollbar-none">
-        {QUICK_EMOJIS.map(emoji => (
+      {/* Grid 2 rows x 5 columns: 5 emojis top, 4 emojis bottom + circular '+' in corner */}
+      <div className="grid grid-cols-5 gap-2">
+        {QUICK_EMOJIS.slice(0, 9).map(emoji => (
           <button
             key={emoji}
+            type="button"
             onClick={() => {
               vibrateTap();
               onSelectEmoji(emoji);
               onClose();
             }}
-            className="w-9 h-9 flex items-center justify-center text-xl hover:bg-zinc-800 rounded-full transition-transform active:scale-90 shrink-0 select-none"
+            className="w-10 h-10 flex items-center justify-center text-xl hover:bg-zinc-800 rounded-full transition-transform active:scale-90 select-none cursor-pointer"
           >
             {emoji}
           </button>
         ))}
         <button 
+          type="button"
           onClick={() => {
             vibrateTap();
             onMoreEmojis();
             onClose();
           }}
-          className="w-9 h-9 flex items-center justify-center text-xl hover:bg-zinc-800 rounded-full transition-transform active:scale-90 shrink-0 select-none"
+          className="w-10 h-10 flex items-center justify-center bg-zinc-800 hover:bg-zinc-700 text-zinc-300 rounded-full border border-zinc-700/70 transition-transform active:scale-90 select-none cursor-pointer shadow-sm"
           title="Más emojis"
         >
-          ➕
+          <Plus className="w-5 h-5 text-zinc-300" />
         </button>
       </div>
 

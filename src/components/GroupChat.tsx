@@ -166,6 +166,11 @@ export function GroupChat({
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const [viewportHeight, setViewportHeight] = useState<number | null>(() => {
+    return typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : null;
+  });
 
   const [members, setMembers] = useState<User[]>([]);
   const [showMentions, setShowMentions] = useState(false);
@@ -177,10 +182,40 @@ export function GroupChat({
   const [contextMenuMsgId, setContextMenuMsgId] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState({ top: 0, left: 0 });
 
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleViewportResize = () => {
+      if (!window.visualViewport) return;
+      const height = window.visualViewport.height;
+      setViewportHeight(height);
+
+      // Cuando el viewport se encoja (teclado virtual abierto), forzar subida de pantalla
+      if (height < window.innerHeight * 0.85) {
+        window.scrollTo(0, document.body.scrollHeight);
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+    };
+
+    const vv = window.visualViewport;
+    if (vv) {
+      setViewportHeight(vv.height);
+      vv.addEventListener('resize', handleViewportResize);
+      vv.addEventListener('scroll', handleViewportResize);
+    }
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', handleViewportResize);
+        vv.removeEventListener('scroll', handleViewportResize);
+      }
+    };
+  }, [isOpen]);
+
   const handleInputFocus = () => {
     setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
-    }, 100);
+      inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 300);
   };
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
@@ -364,7 +399,10 @@ export function GroupChat({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[1000] bg-[#0a0a0b] flex flex-col h-[100dvh] overflow-hidden">
+    <div 
+      className="fixed inset-x-0 top-0 z-[1000] bg-[#0a0a0b] flex flex-col h-[100dvh] overflow-hidden"
+      style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
+    >
       <div className="flex-1 relative flex flex-col max-w-4xl mx-auto w-full h-full overflow-hidden">
         {/* Header */}
         <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#111114]/90 backdrop-blur-sm z-10 sticky top-0 flex items-center justify-between shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
@@ -470,7 +508,7 @@ export function GroupChat({
         )}
 
         {/* Input Area */}
-        <div className="relative p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[max(env(safe-area-inset-bottom),12px)] sm:pb-4">
+        <div className="sticky bottom-0 z-10 p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[max(env(safe-area-inset-bottom),12px)] sm:pb-4">
           {/* Mentions Auto-complete */}
           {showMentions && filteredMembers.length > 0 && (
             <div className="absolute bottom-[calc(100%+8px)] left-4 right-4 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto z-20">
@@ -502,6 +540,7 @@ export function GroupChat({
               <Smile className="w-5 h-5" />
             </button>
             <input
+              ref={inputRef}
               id="chat-input"
               type="text"
               value={newMessage}
