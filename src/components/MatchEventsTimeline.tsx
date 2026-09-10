@@ -7,7 +7,7 @@ import { Info } from 'lucide-react';
 export interface TimelineEvent {
   id: string;
   minute: number;
-  type: 'goal' | 'card';
+  type: 'goal' | 'card' | 'injury';
   cardType?: 'amarilla' | 'roja';
   playerName: string;
   teamName: string;
@@ -44,13 +44,26 @@ export function parseMatchEvents(match: {
   homeTeam: string;
   awayTeam: string;
   goalscorers?: any[];
+  goles?: any[];
   cards?: any[];
+  tarjetas?: any[];
+  lesiones?: any[];
 }): TimelineEvent[] {
   const events: TimelineEvent[] = [];
 
+  const goalsList = Array.isArray(match.goles) && match.goles.length > 0 
+    ? match.goles 
+    : (Array.isArray(match.goalscorers) ? match.goalscorers : []);
+
+  const cardsList = Array.isArray(match.tarjetas) && match.tarjetas.length > 0 
+    ? match.tarjetas 
+    : (Array.isArray(match.cards) ? match.cards : []);
+
+  const lesionesList = Array.isArray(match.lesiones) ? match.lesiones : [];
+
   // 1. Process goalscorers
-  if (Array.isArray(match.goalscorers)) {
-    match.goalscorers.forEach((g, idx) => {
+  if (Array.isArray(goalsList)) {
+    goalsList.forEach((g, idx) => {
       if (!g) return;
       if (typeof g === 'object') {
         const minute = Number(g.minuto ?? g.minute ?? 0);
@@ -118,8 +131,8 @@ export function parseMatchEvents(match: {
   }
 
   // 2. Process cards
-  if (Array.isArray(match.cards)) {
-    match.cards.forEach((c, idx) => {
+  if (Array.isArray(cardsList)) {
+    cardsList.forEach((c, idx) => {
       if (!c) return;
       if (typeof c === 'object') {
         const minute = Number(c.minuto ?? c.minute ?? 0);
@@ -204,6 +217,49 @@ export function parseMatchEvents(match: {
     });
   }
 
+  // 3. Process injuries / substitutions
+  if (Array.isArray(lesionesList)) {
+    lesionesList.forEach((inj, idx) => {
+      if (!inj) return;
+      if (typeof inj === 'object') {
+        const minute = Number(inj.minuto ?? inj.minute ?? 0);
+        const sale = String(inj.jugador_sale || inj.player_out || '').trim();
+        const entra = String(inj.jugador_entra || inj.player_in || '').trim();
+        const playerName = entra && sale ? `${sale} ➔ ${entra}` : (sale || entra || 'Lesión / Cambio');
+        let teamName = String(inj.equipo || inj.team || '').trim();
+        if (teamName.toLowerCase() === 'undefined') teamName = '';
+
+        let side: 'home' | 'away' | null = null;
+        if (inj.is_home === true || inj.isHome === true) side = 'home';
+        if (inj.is_home === false || inj.isHome === false) side = 'away';
+
+        if (!side && teamName) {
+          side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
+        }
+
+        if (!side) {
+          const checkName = sale || entra;
+          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === checkName.toLowerCase().trim());
+          if (found?.team) {
+            side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+            if (!teamName) teamName = found.team;
+          }
+        }
+
+        const isHome = side !== 'away';
+
+        events.push({
+          id: `inj-${idx}-${minute}`,
+          minute: isNaN(minute) ? 0 : minute,
+          type: 'injury',
+          playerName,
+          teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
+          isHomeTeam: isHome
+        });
+      }
+    });
+  }
+
   // Sort events chronologically by minute
   events.sort((a, b) => a.minute - b.minute);
   return events;
@@ -258,10 +314,17 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
         {events.map((e) => {
           const isHome = e.isHomeTeam;
           const isGoal = e.type === 'goal';
+          const isInjury = e.type === 'injury';
           const isRed = e.cardType === 'roja';
-          const icon = isGoal ? '⚽' : isRed ? '🟥' : '🟨';
-          const eventLabel = isGoal ? 'Gol' : isRed ? 'Tarjeta Roja' : 'Tarjeta Amarilla';
-          const minuteLabel = e.minute > 0 ? `${e.minute}'` : 'GOL';
+          const icon = isGoal ? '⚽' : isInjury ? '🚑' : isRed ? '🟥' : '🟨';
+          const eventLabel = isGoal 
+            ? 'Gol' 
+            : isInjury 
+              ? 'Lesión / Cambio' 
+              : isRed 
+                ? 'Tarjeta Roja' 
+                : 'Tarjeta Amarilla';
+          const minuteLabel = e.minute > 0 ? `${e.minute}'` : isGoal ? 'GOL' : isInjury ? 'LES' : 'TAR';
 
           return (
             <div 
@@ -276,7 +339,13 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
                       {e.playerName}
                     </p>
                     <p className={`text-[10px] font-semibold truncate ${
-                      isGoal ? 'text-emerald-400' : isRed ? 'text-rose-400' : 'text-amber-400'
+                      isGoal 
+                        ? 'text-emerald-400' 
+                        : isInjury 
+                          ? 'text-sky-400' 
+                          : isRed 
+                            ? 'text-rose-400' 
+                            : 'text-amber-400'
                     }`}>
                       {eventLabel}
                     </p>
@@ -294,9 +363,11 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
                 <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-black font-mono shadow-md border ${
                   isGoal 
                     ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.25)]' 
-                    : isRed
-                      ? 'bg-rose-950/90 border-rose-500/60 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.25)]'
-                      : 'bg-amber-950/90 border-amber-500/60 text-amber-300'
+                    : isInjury
+                      ? 'bg-sky-950/90 border-sky-500/60 text-sky-300 shadow-[0_0_10px_rgba(56,189,248,0.25)]'
+                      : isRed
+                        ? 'bg-rose-950/90 border-rose-500/60 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.25)]'
+                        : 'bg-amber-950/90 border-amber-500/60 text-amber-300'
                 }`}>
                   {minuteLabel}
                 </span>
@@ -313,7 +384,13 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
                       {e.playerName}
                     </p>
                     <p className={`text-[10px] font-semibold truncate ${
-                      isGoal ? 'text-emerald-400' : isRed ? 'text-rose-400' : 'text-amber-400'
+                      isGoal 
+                        ? 'text-emerald-400' 
+                        : isInjury 
+                          ? 'text-sky-400' 
+                          : isRed 
+                            ? 'text-rose-400' 
+                            : 'text-amber-400'
                     }`}>
                       {eventLabel}
                     </p>

@@ -14,6 +14,8 @@ import { MatchPredictions } from '../components/MatchPredictions';
 import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionModal';
 import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { MatchEventsModal } from '../components/MatchEventsModal';
+import { MatchJsonModal } from '../components/MatchJsonModal';
+import { isCabraSuprema } from '../lib/utils';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
 import { 
@@ -28,8 +30,13 @@ import {
   Trophy, 
   AlertTriangle, 
   RefreshCw, 
-  Sparkles 
+  Sparkles,
+  MoreVertical,
+  FileCode
 } from 'lucide-react';
+
+// UID de administrador personalizable (reemplazar por tu UID de Firebase si se desea)
+const ADMIN_UID = 'YOUR_FIREBASE_UID';
 
 export type StatusFilterType = 'all' | 'open' | 'live' | 'finished';
 
@@ -87,6 +94,17 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     initialFocus: 'home'
   });
   const [eventsModalMatch, setEventsModalMatch] = useState<Match | null>(null);
+  const [jsonModalMatch, setJsonModalMatch] = useState<Match | null>(null);
+  const [activeKebabMatchId, setActiveKebabMatchId] = useState<string | null>(null);
+
+  // Verificación de rol de administrador
+  const isAdmin = Boolean(
+    profile?.isAdmin ||
+    profile?.role === 'admin' ||
+    profile?.role === 'cabra_suprema' ||
+    isCabraSuprema(profile, user?.email) ||
+    (user?.uid && user.uid === ADMIN_UID)
+  );
 
   // Keep live match minutes and lock states reactive in real-time
   useEffect(() => {
@@ -672,6 +690,53 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                   <span className="text-[9px] uppercase font-bold text-zinc-400 bg-zinc-900 px-1.5 py-0.2 rounded border border-zinc-800/80">
                     {match.group || 'Fase de Liga'}
                   </span>
+
+                  {/* Menú Contextual de Administrador (Kebab) */}
+                  {isAdmin && (
+                    <div className="relative">
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setActiveKebabMatchId(activeKebabMatchId === match.id ? null : match.id);
+                        }}
+                        className="p-1 -mr-1 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors focus:outline-none"
+                        title="Opciones de Administrador"
+                      >
+                        <MoreVertical className="w-3.5 h-3.5" />
+                      </button>
+
+                      {activeKebabMatchId === match.id && (
+                        <>
+                          {/* Fondo invisible para cerrar el menú */}
+                          <div 
+                            className="fixed inset-0 z-30" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setActiveKebabMatchId(null);
+                            }} 
+                          />
+                          <div className="absolute right-0 top-full mt-1 w-52 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-2xl z-40 py-1 overflow-hidden">
+                            <div className="px-3 py-1 text-[10px] uppercase tracking-wider font-bold text-zinc-500 border-b border-zinc-800 truncate">
+                              Admin: {match.homeTeam}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveKebabMatchId(null);
+                                setJsonModalMatch(match);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-zinc-200 hover:text-emerald-400 hover:bg-emerald-500/10 text-left transition-colors"
+                            >
+                              <FileCode className="w-4 h-4 text-emerald-400 shrink-0" />
+                              <span>Ingresar JSON con datos</span>
+                            </button>
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -890,6 +955,13 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         isOpen={!!eventsModalMatch}
         onClose={() => setEventsModalMatch(null)}
         match={eventsModalMatch}
+      />
+
+      <MatchJsonModal
+        isOpen={!!jsonModalMatch}
+        onClose={() => setJsonModalMatch(null)}
+        match={jsonModalMatch}
+        settings={settings}
       />
     </div>
   );
