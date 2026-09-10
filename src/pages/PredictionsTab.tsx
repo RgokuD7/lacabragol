@@ -181,6 +181,21 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
       let cleanMatches = rawMatches.filter(m => !isCorruptMatch(m))
                                    .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
+      // Self-healing: clear any stuck is_updating flags older than 45 seconds in Firestore
+      const stuckMatches = rawMatches.filter(m => m.is_updating && (!m.is_updating_at || (Date.now() - m.is_updating_at > 45000)));
+      if (stuckMatches.length > 0) {
+        stuckMatches.forEach(async (sm) => {
+          try {
+            await updateDoc(doc(db, 'matches', sm.id), {
+              is_updating: false,
+              is_updating_at: null
+            });
+          } catch (e) {
+            console.warn("Could not auto-clear stuck match", sm.id, e);
+          }
+        });
+      }
+
       
 
       const uniqueGroups = Array.from(new Set(cleanMatches.map(m => m.group || 'Fase Regular'))).sort();
@@ -578,7 +593,8 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           const liveInfo = getMatchLiveInfo(match);
           const isInProgress = isTutorialItem ? false : (liveInfo.isLive || match.status === 'in_progress');
           const isScheduleLocked = isTutorialItem ? false : isMatchLocked(match.date);
-          const locked = isTutorialItem ? false : (isFinished || isInProgress || isScheduleLocked || !!match.is_updating);
+          const isUpdatingActive = Boolean(match.is_updating && match.is_updating_at && (currentTime - match.is_updating_at < 45000));
+          const locked = isTutorialItem ? false : (isFinished || isInProgress || isScheduleLocked || isUpdatingActive);
           const pred = isTutorialItem
             ? ({ id: 'tutorial-pred-me', userId: user?.uid || 'me', matchId: match.id, homeScore: 2, awayScore: 1, pointsEarned: 5, updatedAt: Date.now() } as Prediction)
             : predictions[match.id];
@@ -613,29 +629,33 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
             settings
           );
 
+          const pointsEarned = pred?.pointsEarned !== undefined && pred.pointsEarned !== null
+            ? pred.pointsEarned
+            : evalResult.points;
+
           return (
             <div 
               key={match.id} 
               id={isTutorialItem ? "tutorial-first-match-card" : (idx === 0 && !isTutorialActive ? "tutorial-first-match-card" : undefined)}
               className={`bg-[#111114] border rounded-xl p-2 sm:p-3 shadow-sm transition-all ${
-                evalResult.type === 'exact'
-                  ? 'border-emerald-500/50 bg-[#0a1712]'
-                  : evalResult.type === 'outcome'
-                    ? 'border-blue-500/40 bg-[#0c1a2e]'
-                    : isFinished 
-                      ? 'border-zinc-800/80 bg-[#111113]' 
-                      : isInProgress
-                        ? 'border-amber-900/40 bg-[#141210]' 
-                        : locked
-                          ? 'border-zinc-800/80 bg-[#111113]'
-                          : 'border-zinc-800/80 hover:border-zinc-700'
+                isFinished || isTutorialItem
+                  ? evalResult.type === 'exact'
+                    ? 'border-2 sm:border-4 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.25)] bg-[#091712]'
+                    : evalResult.type === 'outcome'
+                      ? 'border-2 sm:border-4 border-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.25)] bg-[#0a1726]'
+                      : 'border-2 sm:border-4 border-rose-500/80 shadow-[0_0_15px_rgba(244,63,94,0.18)] bg-[#150a0d]'
+                  : isInProgress
+                    ? 'border-2 border-amber-500/50 bg-[#141210]'
+                    : locked
+                      ? 'border border-zinc-800/80 bg-[#111113]'
+                      : 'border border-zinc-800/80 hover:border-zinc-700'
               }`}
             >
               {/* Header: Date + Round + Status Badge */}
               <div className="flex items-center justify-between text-[10px] text-zinc-400 pb-1.5 mb-1.5 border-b border-zinc-800/50">
                 <div className="flex items-center gap-2">
                   <div className="flex items-center justify-center">
-                    {match.is_updating ? (
+                    {isUpdatingActive ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-cyan-300 bg-cyan-500/20 px-1.5 py-0.5 rounded border border-cyan-500/40 flex items-center gap-1 animate-pulse">
                         <RefreshCw className="w-2.5 h-2.5 animate-spin" />
                         <span>🔄 Actualizando...</span>
@@ -660,17 +680,6 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 </div>
                 
                 <div className="flex items-center gap-1.5 shrink-0">
-                  <button
-                    type="button"
-                    onClick={() => setEventsModalMatch(match)}
-                    className="text-[9px] uppercase font-bold text-zinc-400 hover:text-white bg-zinc-900 hover:bg-zinc-800 px-2 py-0.5 rounded border border-zinc-800 hover:border-zinc-700 transition-colors flex items-center gap-1 cursor-pointer"
-                    title="Ver eventos y detalles del partido"
-                  >
-                    <span>Detalles</span>
-                    {((match.goalscorers && match.goalscorers.length > 0) || (match.cards && match.cards.length > 0)) && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                    )}
-                  </button>
                   <span className="text-[9px] uppercase font-bold text-zinc-400 bg-zinc-900 px-1.5 py-0.2 rounded border border-zinc-800/80">
                     {match.group || 'Fase de Liga'}
                   </span>
@@ -694,21 +703,60 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
                 {/* Center Score & Betting Controls */}
                 <div className="shrink-0 flex flex-col items-center justify-center gap-1 px-1">
-                  {isFinished || locked ? (
+                  {isFinished || isTutorialItem ? (
                     <>
-                      <button
-                        type="button"
-                        onClick={() => setEventsModalMatch(match)}
-                        className="inline-flex items-center gap-1.5 bg-zinc-900 hover:bg-zinc-800 active:scale-95 border border-zinc-700/80 px-2.5 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white transition-all cursor-pointer shadow-sm group"
-                        title="Tocar para ver eventos del partido"
-                      >
-                        <span>{isInProgress || isFinished ? (match.homeScore ?? 0) : (match.homeScore ?? '-')}</span>
+                      {/* Marcador Final */}
+                      <div className="inline-flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-700/80 px-2.5 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white shadow-sm">
+                        <span>{match.homeScore ?? 0}</span>
                         <span className="text-zinc-500 text-xs">-</span>
-                        <span>{isInProgress || isFinished ? (match.awayScore ?? 0) : (match.awayScore ?? '-')}</span>
-                        {((match.goalscorers && match.goalscorers.length > 0) || (match.cards && match.cards.length > 0)) && (
-                          <span className="text-[10px] ml-0.5 opacity-75 group-hover:scale-125 transition-transform select-none">⚽</span>
+                        <span>{match.awayScore ?? 0}</span>
+                      </div>
+
+                      {/* Badge de Puntos de Alta Visibilidad */}
+                      <div className="flex items-center justify-center mt-0.5">
+                        {evalResult.type === 'exact' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/50 px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap">
+                            🎯 +{pointsEarned > 0 ? pointsEarned : 6} Puntos
+                          </span>
+                        ) : evalResult.type === 'outcome' ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-sky-300 bg-sky-500/20 border border-sky-500/50 px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap">
+                            ⚽ +{pointsEarned > 0 ? pointsEarned : 3} Puntos
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-black text-rose-300 bg-rose-500/20 border border-rose-500/50 px-2 py-0.5 rounded-full shadow-sm whitespace-nowrap">
+                            ❌ 0 Puntos
+                          </span>
                         )}
-                      </button>
+                      </div>
+
+                      {/* Apuesta del Usuario */}
+                      <div className="flex items-center justify-center">
+                        {hasSaved ? (
+                          <div className={`flex items-center gap-1.5 px-2 py-0.5 rounded-lg border text-xs font-mono font-bold ${
+                            evalResult.type === 'exact'
+                              ? 'bg-emerald-950/40 border-emerald-500/40 text-emerald-300'
+                              : evalResult.type === 'outcome'
+                                ? 'bg-sky-950/40 border-sky-500/40 text-sky-300'
+                                : 'bg-rose-950/40 border-rose-500/40 text-rose-300'
+                          }`}>
+                            <span className="text-[9px] uppercase tracking-wider font-semibold opacity-80">Apuesta:</span>
+                            <span className="font-black">{pred.homeScore}-{pred.awayScore}</span>
+                          </div>
+                        ) : (
+                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold bg-zinc-900 px-2 py-0.5 rounded-lg border border-zinc-800">
+                            Sin apuesta
+                          </span>
+                        )}
+                      </div>
+                    </>
+                  ) : locked ? (
+                    <>
+                      {/* Marcador En Vivo / Cerrado */}
+                      <div className="inline-flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-700/80 px-2.5 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white shadow-sm">
+                        <span>{isInProgress ? (match.homeScore ?? 0) : (match.homeScore ?? '-')}</span>
+                        <span className="text-zinc-500 text-xs">-</span>
+                        <span>{isInProgress ? (match.awayScore ?? 0) : (match.awayScore ?? '-')}</span>
+                      </div>
                       <div className="flex items-center justify-center mt-1">
                         {hasSaved ? (
                           <div className="flex items-center gap-1.5 bg-blue-900/20 border border-blue-500/30 rounded-lg px-2 py-0.5">
@@ -716,7 +764,9 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                             <span className="text-xs font-black text-blue-300 font-mono">{pred.homeScore}-{pred.awayScore}</span>
                           </div>
                         ) : (
-                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold bg-zinc-900 px-2 py-0.5 rounded-lg border border-zinc-800">Sin apuesta</span>
+                          <span className="text-[9px] text-zinc-500 uppercase tracking-widest font-bold bg-zinc-900 px-2 py-0.5 rounded-lg border border-zinc-800">
+                            Sin apuesta
+                          </span>
                         )}
                       </div>
                     </>
@@ -782,6 +832,8 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 </div>
 
               </div>
+
+              {/* Fila Inferior: Pronósticos de Grupo + Botón Ver Detalles */}
               <MatchPredictions 
                 matchId={match.id} 
                 locked={locked || isFinished} 
@@ -792,58 +844,43 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 matchAwayScore={match.awayScore}
                 isJackpot={evalResult.type === 'exact'}
                 isTutorialActive={isTutorialItem}
-                pointsNode={
-                  (isFinished || isTutorialItem) && hasSaved && evalResult.points > 0 ? (
-                    <span className="text-[10px] font-black text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded shadow-sm border border-amber-500/20">
-                      +{evalResult.points}p
-                    </span>
-                  ) : null
-                }
-              />
-
-              {/* Inline Match Events Timeline (Expandable) */}
-              {(isFinished || isInProgress || ((match.goalscorers?.length || 0) + (match.cards?.length || 0) > 0)) && (
-                <div className="mt-2.5 pt-2 border-t border-zinc-800/80">
-                  <div className="flex items-center justify-between">
+                pointsNode={null}
+                extraRightNode={
+                  (isFinished || isInProgress || ((match.goalscorers?.length || 0) + (match.cards?.length || 0) > 0)) ? (
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         toggleMatchEvents(match.id);
                       }}
-                      className="flex items-center gap-1.5 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors py-1 px-2 rounded-lg bg-zinc-900/70 hover:bg-zinc-800 border border-zinc-800/80 cursor-pointer select-none active:scale-95"
+                      className="flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors py-0.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 cursor-pointer select-none active:scale-95"
                     >
-                      <span className="select-none">⚽</span>
-                      <span>
-                        {((match.goalscorers?.length || 0) + (match.cards?.length || 0)) > 0
-                          ? `${(match.goalscorers?.length || 0) + (match.cards?.length || 0)} eventos`
-                          : 'Goles y tarjetas'}
-                      </span>
-                      {expandedMatchIds[match.id] ? (
-                        <ChevronUp className="w-3 h-3 text-zinc-400" />
-                      ) : (
-                        <ChevronDown className="w-3 h-3 text-zinc-400" />
-                      )}
+                      <span>Ver Detalles</span>
+                      <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${expandedMatchIds[match.id] ? 'rotate-180' : ''}`} />
                     </button>
+                  ) : null
+                }
+              />
 
+              {/* Acordeón de Eventos del Partido (Solo visible si el usuario pulsa 'Ver Detalles') */}
+              {expandedMatchIds[match.id] && (
+                <div className="mt-2 pt-2 border-t border-zinc-800/80 animate-in fade-in duration-200">
+                  <div className="flex items-center justify-between pb-1.5 mb-1.5">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-zinc-400">
+                      Eventos del Partido
+                    </span>
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         setEventsModalMatch(match);
                       }}
-                      className="text-[9px] text-blue-400 hover:text-blue-300 font-semibold px-2 py-1 rounded hover:bg-blue-500/10 transition-colors cursor-pointer select-none"
-                      title="Ver ficha completa en modal"
+                      className="text-[9px] text-blue-400 hover:text-blue-300 font-semibold px-2 py-0.5 rounded hover:bg-blue-500/10 transition-colors cursor-pointer select-none"
                     >
                       Ficha completa
                     </button>
                   </div>
-
-                  {expandedMatchIds[match.id] && (
-                    <div className="mt-2 pt-1.5 border-t border-zinc-800/60 animate-in fade-in duration-200">
-                      <MatchEventsTimeline match={match} compact={true} />
-                    </div>
-                  )}
+                  <MatchEventsTimeline match={match} compact={true} />
                 </div>
               )}
             </div>

@@ -114,14 +114,15 @@ export function Layout() {
       }
     };
 
-    // Evaluación inicial diferida 2.5s para dar tiempo a recibir los documentos
+    // 2. Cronómetro interno (PAUSADO TEMPORALMENTE por inestabilidad de SerpAPI)
+    // Se reactivará cuando la API externa se estabilice. La sincronización manual sigue disponible en AdminTab.
+    /*
     const initialTimer = setTimeout(runCronTick, 2500);
     const interval = setInterval(runCronTick, 60 * 1000);
+    */
 
     return () => {
       unsubMatches();
-      clearTimeout(initialTimer);
-      clearInterval(interval);
     };
   }, []);
 

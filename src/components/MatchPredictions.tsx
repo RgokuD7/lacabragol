@@ -131,6 +131,7 @@ export function MatchPredictions({
   matchHomeScore,
   matchAwayScore,
   pointsNode, 
+  extraRightNode,
   isJackpot,
   isTutorialActive 
 }: { 
@@ -142,6 +143,7 @@ export function MatchPredictions({
   matchHomeScore?: number | null;
   matchAwayScore?: number | null;
   pointsNode?: React.ReactNode; 
+  extraRightNode?: React.ReactNode;
   isJackpot?: boolean;
   isTutorialActive?: boolean;
 }) {
@@ -363,23 +365,26 @@ export function MatchPredictions({
 
   return (
     <>
-      {(!isMatchOpen || pointsNode) && (
-        <div className="mt-2 border-t border-zinc-800/50 pt-2 flex items-center justify-between">
+      {(!isMatchOpen || pointsNode || extraRightNode) && (
+        <div className="mt-2 border-t border-zinc-800/60 pt-2 flex items-center justify-between gap-2">
           {!isMatchOpen ? (
             <button 
               id={isTutorialMatch ? "tutorial-group-predictions-btn" : undefined}
               onClick={() => { setExpanded(true); if (isJackpot) vibrateJackpot(); else vibratePop(); }}
-              className="flex-1 flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer"
+              className="flex items-center justify-start text-[10px] text-zinc-400 hover:text-blue-400 transition-colors py-1 cursor-pointer select-none"
             >
               <div className="flex items-center gap-1.5 font-bold uppercase tracking-widest">
                 <Users className="w-3.5 h-3.5" />
-                Ver Pronósticos del Grupo
+                <span>Ver Pronósticos del Grupo</span>
               </div>
             </button>
           ) : (
             <div className="flex-1" />
           )}
-          {pointsNode}
+          <div className="flex items-center gap-2 shrink-0">
+            {pointsNode}
+            {extraRightNode}
+          </div>
         </div>
       )}
 
