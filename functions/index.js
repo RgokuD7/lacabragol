@@ -59,7 +59,7 @@ async function pruneInvalidTokens(tokens, responses) {
 exports.notifyNewChatMessage = onDocumentCreated(
   {
     document: "messages/{messageId}",
-    region: "us-central1"
+    region: "southamerica-west1"
   },
   async (event) => {
     const snap = event.data;
@@ -230,7 +230,7 @@ async function broadcastRankingNotification(customBody) {
 exports.notifyRankingOnMatchFinished = onDocumentUpdated(
   {
     document: "matches/{matchId}",
-    region: "us-central1"
+    region: "southamerica-west1"
   },
   async (event) => {
     const beforeData = event.data?.before?.data();
@@ -261,7 +261,7 @@ exports.notifyRankingOnMatchFinished = onDocumentUpdated(
 exports.notifyRankingOnGlobalSync = onDocumentUpdated(
   {
     document: "system/ranking",
-    region: "us-central1"
+    region: "southamerica-west1"
   },
   async (event) => {
     const beforeData = event.data?.before?.data() || {};

@@ -45,6 +45,7 @@ import { hasUserCustomPlayer } from '../data/players';
 import { User as UserIcon } from 'lucide-react';
 import { Match } from '../types';
 import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
+import { vibratePop } from '../lib/haptics';
 
 export function Layout() {
   const [activeTab, setActiveTab] = useState('predictions');
@@ -141,34 +142,65 @@ export function Layout() {
     return () => unsub();
   }, []);
 
+  const prevUnreadCountRef = useRef(0);
+
   useEffect(() => {
     if (!activeGroupId) {
       setUnreadChatCount(0);
       return;
     }
-    // Read or initialize last read timestamp
-    let stored = localStorage.getItem(`last_read_chat_${activeGroupId}`);
-    if (!stored) {
-      stored = Date.now().toString();
-      localStorage.setItem(`last_read_chat_${activeGroupId}`, stored);
-    }
-    const lastRead = Number(stored);
 
+    // Query messages by groupId (does not require compound inequality index in Firestore)
     const q = query(
       collection(db, 'messages'),
-      where('groupId', '==', activeGroupId),
-      where('createdAt', '>', lastRead)
+      where('groupId', '==', activeGroupId)
     );
+
     const unsub = onSnapshot(q, (snap) => {
       if (isChatOpen) {
         setUnreadChatCount(0);
+        if (activeGroupId) {
+          localStorage.setItem(`last_read_chat_${activeGroupId}`, Date.now().toString());
+        }
         return;
       }
-      const count = snap.docs.filter(d => d.data().userId !== user?.uid).length;
+
+      let stored = localStorage.getItem(`last_read_chat_${activeGroupId}`);
+      if (!stored) {
+        stored = Date.now().toString();
+        localStorage.setItem(`last_read_chat_${activeGroupId}`, stored);
+      }
+      const lastRead = Number(stored);
+
+      const unreadMsgs = snap.docs
+        .map(d => ({ id: d.id, ...d.data() } as any))
+        .filter(m => m.userId !== user?.uid && (m.createdAt || 0) > lastRead);
+
+      const count = unreadMsgs.length;
       setUnreadChatCount(count);
+
+      // Si llegan mensajes nuevos mientras el chat está cerrado
+      if (count > prevUnreadCountRef.current && count > 0) {
+        vibratePop();
+        if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+          const latestMsg = unreadMsgs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0))[0];
+          if (latestMsg) {
+            const senderName = latestMsg.userName || 'Un participante';
+            const textPreview = latestMsg.text ? (latestMsg.text.length > 80 ? latestMsg.text.substring(0, 77) + '...' : latestMsg.text) : 'Nuevo mensaje';
+            new Notification(`Nuevo mensaje de ${senderName} 💬`, {
+              body: textPreview,
+              icon: '/pwa-192x192.png',
+              badge: '/pwa-192x192.png',
+              tag: `chat-foreground-${latestMsg.id || Date.now()}`
+            });
+          }
+        }
+      }
+      prevUnreadCountRef.current = count;
     }, (err) => {
-      console.warn("Unread chat listener:", err);
+      console.warn("Unread chat listener error:", err);
     });
+
     return () => unsub();
   }, [activeGroupId, user?.uid, isChatOpen]);
 
@@ -482,7 +514,13 @@ export function Layout() {
       {isChatOpen && (
         <GroupChat 
           isOpen={isChatOpen} 
-          onClose={() => setIsChatOpen(false)} 
+          onClose={() => {
+            setIsChatOpen(false);
+            if (activeGroupId) {
+              localStorage.setItem(`last_read_chat_${activeGroupId}`, Date.now().toString());
+            }
+            setUnreadChatCount(0);
+          }} 
           isTutorialActive={isTutorialActive}
         />
       )}
