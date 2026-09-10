@@ -38,6 +38,7 @@ import { doc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRem
 import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { GroupChat } from './GroupChat';
+import { PushNotificationPromptModal } from './PushNotificationPromptModal';
 import { startInteractiveTutorial, destroyActiveTutorial, startPlayersUpdateTutorial } from '../lib/driver';
 import { getGroupPodium, findAnyUserPodium } from '../lib/podium';
 import { hasUserCustomPlayer } from '../data/players';
@@ -584,6 +585,9 @@ export function Layout() {
           </button>
         </div>
       </BaseBottomSheet>
+
+      {/* Proactive Push Notification Prompt Modal */}
+      <PushNotificationPromptModal isTutorialActive={isTutorialActive} />
     </div>
   );
 }

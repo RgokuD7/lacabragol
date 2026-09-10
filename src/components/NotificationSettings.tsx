@@ -8,13 +8,25 @@ import {
   isPushNotificationSupported 
 } from '../lib/notifications';
 import { vibrateSuccess, vibrateError, vibrateTap } from '../lib/haptics';
+import { isCabraSuprema } from '../lib/utils';
+
+// UID de administrador personalizable (reemplazar por tu UID de Firebase si se desea)
+const ADMIN_UID = 'YOUR_FIREBASE_UID';
 
 export function NotificationSettings() {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [permission, setPermission] = useState<'granted' | 'denied' | 'default' | 'unsupported'>('default');
   const [loading, setLoading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Verificación de rol de administrador (isAdmin en Firestore, rol o UID específico)
+  const isAdmin = Boolean(
+    profile?.isAdmin ||
+    profile?.role === 'admin' ||
+    isCabraSuprema(profile, user?.email) ||
+    (user?.uid && user.uid === ADMIN_UID)
+  );
 
   useEffect(() => {
     isPushNotificationSupported().then((supported) => {
@@ -157,8 +169,12 @@ export function NotificationSettings() {
           </button>
         )}
 
-        {permission === 'granted' && (
-          <>
+        {/* Diagnostic controls exclusively for admins */}
+        {isAdmin && permission === 'granted' && (
+          <div className="flex flex-wrap items-center gap-2 pt-2 mt-1 border-t border-zinc-800/60 w-full">
+            <span className="text-[10px] uppercase font-bold text-zinc-500 tracking-wider w-full">
+              Herramientas de Diagnóstico (Solo Admin):
+            </span>
             <button
               type="button"
               disabled={testing}
@@ -179,7 +195,7 @@ export function NotificationSettings() {
             >
               {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <span>Re-sincronizar Token</span>}
             </button>
-          </>
+          </div>
         )}
       </div>
 
