@@ -62,6 +62,7 @@ export interface Match {
   homeScore?: number | null;
   awayScore?: number | null;
   status: 'pending' | 'in_progress' | 'finished';
+  estado?: string;
   apiId?: string | number;
   is_synced?: boolean;
   is_fetching?: boolean;

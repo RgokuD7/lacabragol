@@ -61,7 +61,7 @@ export function GeminiApiResultsModal({
         </span>
       );
     }
-    if (lower.includes('vivo') || lower.includes("'") || lower.includes('descanso')) {
+    if (lower.includes('vivo') || lower.includes("'") || lower.includes('descanso') || lower.includes('entretiempo')) {
       return (
         <span className="text-[10px] font-black uppercase tracking-wider bg-amber-500/20 text-amber-400 border border-amber-500/40 px-2 py-0.5 rounded-full inline-flex items-center gap-1 animate-pulse">
           <Flame className="w-3 h-3 text-amber-400" />

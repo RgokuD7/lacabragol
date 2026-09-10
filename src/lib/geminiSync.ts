@@ -124,13 +124,16 @@ export function areTeamsEquivalent(nameA: string, nameB: string): boolean {
 
 export function mapGeminiEstadoToStatus(estado: string): 'pending' | 'in_progress' | 'finished' {
   const lower = (estado || '').toLowerCase();
-  if (lower.includes('final') || lower.includes('termin') || lower.includes('ft') || lower.includes('concl')) {
+  if (lower.includes('final') || lower.includes('termin') || lower.includes('ft') || lower.includes('concl') || lower.includes('ended')) {
     return 'finished';
   }
-  if (lower.includes('vivo') || lower.includes('jugando') || lower.includes("'") || lower.includes('descanso') || lower.includes('ht') || lower.includes('progreso')) {
+  if (lower.includes('prog') || lower.includes('no inici') || lower.includes('por jugar') || lower.includes('pend')) {
+    return 'pending';
+  }
+  if (lower.includes('vivo') || lower.includes('jugando') || lower.includes("'") || lower.includes('descanso') || lower.includes('entretiempo') || lower.includes('ht') || lower.includes('progreso')) {
     return 'in_progress';
   }
-  return 'pending';
+  return 'in_progress';
 }
 
 /**

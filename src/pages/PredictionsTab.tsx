@@ -261,10 +261,64 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   };
 
   const getMatchLiveInfo = (match: Match) => {
+    const estadoRaw = (match.estado || '').trim();
+    const estadoLower = estadoRaw.toLowerCase();
+
+    // 1. Estado explícito "Finalizado"
+    if (
+      estadoLower.includes('final') || 
+      estadoLower.includes('termin') || 
+      estadoLower.includes('concl') || 
+      estadoLower === 'ft' ||
+      estadoLower.startsWith('ft ') ||
+      estadoLower.includes('ended')
+    ) {
+      return { isLive: false, label: 'Finalizado' };
+    }
+
+    // 2. Estado explícito "Programado" / "No iniciado"
+    if (
+      estadoLower.includes('prog') || 
+      estadoLower.includes('no inici') || 
+      estadoLower.includes('por jugar') || 
+      estadoLower.includes('por com') || 
+      estadoLower.includes('pend')
+    ) {
+      return { isLive: false, label: 'Programado' };
+    }
+
+    // 3. Estado explícito En Vivo o en curso (ej: "En Vivo 45'", "En Vivo 74'", "74'", "Descanso", "HT", etc.)
+    if (
+      match.status === 'in_progress' ||
+      estadoLower.includes('vivo') ||
+      estadoLower.includes('live') ||
+      estadoLower.includes('curso') ||
+      estadoLower.includes('juego') ||
+      estadoLower.includes('descanso') ||
+      estadoLower.includes('entretiempo') ||
+      estadoLower.includes('ht') ||
+      /\d+['’]/.test(estadoLower)
+    ) {
+      let label = estadoRaw;
+      if (estadoLower.startsWith('en vivo')) {
+        const cleaned = estadoRaw.replace(/^en vivo\s*·?\s*/i, '').trim();
+        label = cleaned ? `${cleaned}` : 'En Vivo';
+      } else if (!label) {
+        label = 'En Vivo';
+      }
+      return { isLive: true, label };
+    }
+
+    // 4. Si el status en Firestore es 'finished' y no hay estado dinámico que diga lo contrario
+    if (match.status === 'finished') {
+      return { isLive: false, label: 'Finalizado' };
+    }
+
+    // 5. Fallback a tiempo programado (partidos regulares sin estado dinámico)
     const matchTime = new Date(match.date).getTime();
     const elapsedMinutes = isNaN(matchTime) ? 0 : Math.floor((currentTime - matchTime) / (60 * 1000));
 
-    if (match.status === 'finished' || (match.homeScore !== null && match.awayScore !== null && elapsedMinutes >= 115)) {
+    if (match.homeScore !== null && match.awayScore !== null && elapsedMinutes >= 115) {
       return { isLive: false, label: 'Finalizado' };
     }
     
@@ -437,7 +491,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
   const openMatchesCount = matches.filter(m => m.status === 'pending' && !isMatchLocked(m.date) && !getMatchLiveInfo(m).isLive).length;
   const liveMatchesCount = matches.filter(m => getMatchLiveInfo(m).isLive).length;
-  const finishedMatchesCount = matches.filter(m => m.status === 'finished').length;
+  const finishedMatchesCount = matches.filter(m => m.status === 'finished' && !getMatchLiveInfo(m).isLive).length;
   const totalMatchesCount = matches.length;
 
   const filteredMatches = matches.filter(match => {
@@ -450,7 +504,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
       if (!liveInfo.isLive) return false;
     }
     if (statusFilter === 'finished') {
-      if (match.status !== 'finished') return false;
+      if (match.status !== 'finished' || liveInfo.isLive) return false;
     }
     if (selectedGroup !== 'All' && (match.group || 'Fase Regular') !== selectedGroup) return false;
     return true;
@@ -598,8 +652,8 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
       <div className="space-y-2 pb-8">
         {(isTutorialActive ? [TUTORIAL_MOCK_MATCH, ...filteredMatches.filter(m => m.id !== 'tutorial-mock-match')] : filteredMatches).map((match, idx) => {
           const isTutorialItem = match.id === 'tutorial-mock-match';
-          const isFinished = match.status === 'finished';
           const liveInfo = getMatchLiveInfo(match);
+          const isFinished = isTutorialItem ? false : (match.status === 'finished' && !liveInfo.isLive);
           const isInProgress = isTutorialItem ? false : (liveInfo.isLive || match.status === 'in_progress');
           const isScheduleLocked = isTutorialItem ? false : isMatchLocked(match.date);
           const isUpdatingActive = Boolean(match.is_updating && match.is_updating_at && (currentTime - match.is_updating_at < 45000));
@@ -642,6 +696,12 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
             ? pred.pointsEarned
             : evalResult.points;
 
+          const isEntretiempo = isInProgress && (
+            liveInfo.label.toLowerCase().includes('entretiempo') || 
+            liveInfo.label.toLowerCase().includes('descanso') || 
+            (match.estado && (match.estado.toLowerCase().includes('entretiempo') || match.estado.toLowerCase().includes('descanso')))
+          );
+
           return (
             <div 
               key={match.id} 
@@ -653,11 +713,13 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                     : evalResult.type === 'outcome'
                       ? 'border-2 sm:border-4 border-sky-400 shadow-[0_0_20px_rgba(56,189,248,0.25)] bg-[#0a1726]'
                       : 'border-2 sm:border-4 border-rose-500/80 shadow-[0_0_15px_rgba(244,63,94,0.18)] bg-[#150a0d]'
-                  : isInProgress
-                    ? 'border-2 border-amber-500/50 bg-[#141210]'
-                    : locked
-                      ? 'border border-zinc-800/80 bg-[#111113]'
-                      : 'border border-zinc-800/80 hover:border-zinc-700'
+                  : isEntretiempo
+                    ? 'border-2 border-amber-500/50 bg-[#16120d] shadow-[0_0_15px_rgba(245,158,11,0.15)]'
+                    : isInProgress
+                      ? 'border-2 border-rose-500/50 bg-[#150e10] shadow-[0_0_15px_rgba(244,63,94,0.15)]'
+                      : locked
+                        ? 'border border-zinc-800/80 bg-[#111113]'
+                        : 'border border-zinc-800/80 hover:border-zinc-700'
               }`}
             >
               {/* Header: Date + Round + Status Badge */}
@@ -669,13 +731,21 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                         <RefreshCw className="w-2.5 h-2.5 animate-spin" />
                         <span>🔄 Actualizando...</span>
                       </span>
+                    ) : isEntretiempo ? (
+                      <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-amber-300 bg-amber-500/20 px-2 py-0.5 rounded-full border border-amber-500/50 flex items-center gap-1.5 shadow-[0_0_10px_rgba(245,158,11,0.25)]">
+                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+                        <span>{liveInfo.label.toLowerCase().includes('descanso') ? 'Descanso' : 'Entretiempo'}</span>
+                      </span>
+                    ) : isInProgress ? (
+                      <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/60 flex items-center gap-1.5 shadow-[0_0_12px_rgba(244,63,94,0.35)]">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                        </span>
+                        <span>{liveInfo.label && liveInfo.label !== 'En Vivo' ? `En Vivo · ${liveInfo.label}` : 'En Vivo'}</span>
+                      </span>
                     ) : isFinished ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-zinc-400 bg-zinc-800/50 px-1.5 py-0.5 rounded border border-zinc-700/50">Finalizado</span>
-                    ) : isInProgress ? (
-                      <span className="text-[9px] font-black uppercase tracking-widest text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20 flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
-                        {liveInfo.label === 'Por Confirmar' ? 'Por Confirmar' : `En Vivo · ${liveInfo.label}`}
-                      </span>
                     ) : locked ? (
                       <span className="text-[9px] font-black uppercase tracking-widest text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20">Cerrado</span>
                     ) : (

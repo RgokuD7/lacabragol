@@ -31,6 +31,43 @@ interface MatchJsonModalProps {
   onSuccess?: () => void;
 }
 
+// Helper para deducir el status de Firestore a partir del texto libre del estado (soporta dinámicos: "En Vivo 74'", "Entretiempo", "Programado", etc.)
+export function deriveMatchStatus(rawEstado: any): 'pending' | 'in_progress' | 'finished' {
+  if (!rawEstado) return 'pending';
+  const s = String(rawEstado).toLowerCase().trim();
+
+  // 1. Estados Finalizados explícitos
+  if (
+    s.includes('final') || 
+    s.includes('termin') || 
+    s.includes('concl') || 
+    s === 'ft' || 
+    s.startsWith('ft ') || 
+    s.includes('ended') ||
+    s.includes('completo')
+  ) {
+    return 'finished';
+  }
+
+  // 2. Estados Programados / Pendientes / No iniciados explícitos
+  if (
+    s.includes('prog') || 
+    s.includes('no inici') || 
+    s.includes('por jugar') || 
+    s.includes('por com') || 
+    s.includes('pend') || 
+    s.includes('abierto') ||
+    s.includes('schedul') ||
+    s.includes('not started')
+  ) {
+    return 'pending';
+  }
+
+  // 3. Cualquier estado en curso: "Entretiempo", "Descanso", "En Vivo 74'", "En Vivo 45'", "1T 40'", "HT", etc.
+  // SIEMPRE es 'in_progress'. NUNCA debe quedarse como 'finished'.
+  return 'in_progress';
+}
+
 export function MatchJsonModal({
   isOpen,
   onClose,
@@ -54,11 +91,13 @@ export function MatchJsonModal({
 
   // Generate reference template based on the current match
   const generateTemplate = (m: Match) => {
-    const estadoStr = m.status === 'finished' 
-      ? 'Finalizado' 
-      : m.status === 'in_progress' 
-        ? 'En Vivo' 
-        : 'Programado';
+    const estadoStr = m.estado || (
+      m.status === 'finished' 
+        ? 'Finalizado' 
+        : m.status === 'in_progress' 
+          ? 'En Vivo' 
+          : 'Programado'
+    );
 
     const existingGoals = (m as any).goles || m.goalscorers || [];
     const existingCards = (m as any).tarjetas || m.cards || [];
@@ -180,8 +219,8 @@ export function MatchJsonModal({
       const matchRef = doc(db, 'matches', match.id);
       await updateDoc(matchRef, updatePayload);
 
-      // Si el partido finalizó o está en curso, recalcular puntos de pronósticos
-      if (manualStatus === 'finished' || manualStatus === 'in_progress') {
+      // Si el partido finalizó, recalcular puntos de pronósticos
+      if (manualStatus === 'finished') {
         try {
           await syncMatchPredictionsAndPoints(match.id, home, away, settings);
         } catch (syncErr) {
@@ -230,7 +269,7 @@ export function MatchJsonModal({
       return;
     }
 
-    // 1. Validar campos requeridos
+    // 1. Validar campos requeridos y estructura general
     if (!parsed || typeof parsed !== 'object') {
       setError('El JSON debe contener un objeto raíz válido.');
       vibrateError();
@@ -246,23 +285,38 @@ export function MatchJsonModal({
     const homeScore = Number(parsed.marcador.local ?? 0);
     const awayScore = Number(parsed.marcador.visitante ?? 0);
 
-    if (isNaN(homeScore) || isNaN(awayScore)) {
-      setError('Los valores del marcador local y visitante deben ser números.');
+    if (isNaN(homeScore) || isNaN(awayScore) || homeScore < 0 || awayScore < 0) {
+      setError('Los valores del marcador local y visitante deben ser números iguales o mayores a 0.');
       vibrateError();
       return;
     }
 
-    // 2. Mapear estado
-    const rawEstado = String(parsed.estado || '').toLowerCase().trim();
-    let status: 'pending' | 'in_progress' | 'finished' = 'finished';
-
-    if (rawEstado.includes('vivo') || rawEstado.includes('curso') || rawEstado.includes('live')) {
-      status = 'in_progress';
-    } else if (rawEstado.includes('prog') || rawEstado.includes('pend') || rawEstado.includes('abierto')) {
-      status = 'pending';
-    } else {
-      status = 'finished';
+    // Validar listas opcionales (goles, tarjetas, cambios, lesiones) para evitar corrupción de datos
+    if (parsed.goles !== undefined && !Array.isArray(parsed.goles)) {
+      setError('El campo "goles" debe ser un array/lista válido.');
+      vibrateError();
+      return;
     }
+    if (parsed.tarjetas !== undefined && !Array.isArray(parsed.tarjetas)) {
+      setError('El campo "tarjetas" debe ser un array/lista válido.');
+      vibrateError();
+      return;
+    }
+    if (parsed.cambios !== undefined && !Array.isArray(parsed.cambios) && parsed.sustituciones !== undefined && !Array.isArray(parsed.sustituciones)) {
+      setError('El campo "cambios" o "sustituciones" debe ser un array/lista válido.');
+      vibrateError();
+      return;
+    }
+    if (parsed.lesiones !== undefined && !Array.isArray(parsed.lesiones)) {
+      setError('El campo "lesiones" debe ser un array/lista válido.');
+      vibrateError();
+      return;
+    }
+
+    // 2. Mapear estado dinámico exacto sin forzar "Finalizado"
+    const rawEstado = parsed.estado !== undefined && parsed.estado !== null ? String(parsed.estado).trim() : '';
+    const status = deriveMatchStatus(rawEstado);
+    const finalEstado = rawEstado || (status === 'finished' ? 'Finalizado' : status === 'in_progress' ? 'En Vivo' : 'Programado');
 
     // Normalizar arrays
     const cleanGoles = Array.isArray(parsed.goles) ? parsed.goles : [];
@@ -275,9 +329,9 @@ export function MatchJsonModal({
     setIsProcessing(true);
 
     try {
-      // 3. Preparar payload para updateDoc en Firestore
+      // 3. Preparar payload para updateDoc en Firestore con el estado dinámico exacto
       const updatePayload: Record<string, any> = {
-        estado: parsed.estado || (status === 'finished' ? 'Finalizado' : status === 'in_progress' ? 'En Vivo' : 'Programado'),
+        estado: finalEstado,
         status,
         homeScore,
         awayScore,
@@ -300,8 +354,8 @@ export function MatchJsonModal({
       const matchRef = doc(db, 'matches', match.id);
       await updateDoc(matchRef, updatePayload);
 
-      // 4. Si el partido finalizó o está en curso, recalcular puntos de pronósticos
-      if (status === 'finished' || status === 'in_progress') {
+      // 4. Si el partido finalizó, recalcular puntos de pronósticos
+      if (status === 'finished') {
         try {
           await syncMatchPredictionsAndPoints(match.id, homeScore, awayScore, settings);
         } catch (syncErr) {
@@ -352,11 +406,11 @@ export function MatchJsonModal({
           <span className={`text-[10px] font-black uppercase px-2.5 py-1 rounded-full border shrink-0 ${
             match.status === 'finished'
               ? 'bg-zinc-800 text-zinc-300 border-zinc-700'
-              : match.status === 'in_progress'
-                ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 animate-pulse'
+              : (match.status === 'in_progress' || (match.estado && (match.estado.toLowerCase().includes('vivo') || /\d+['’]/.test(match.estado))))
+                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
                 : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
           }`}>
-            {match.status === 'finished' ? 'Finalizado' : match.status === 'in_progress' ? 'En Vivo' : 'Programado'}
+            {match.estado || (match.status === 'finished' ? 'Finalizado' : match.status === 'in_progress' ? 'En Vivo' : 'Programado')}
           </span>
         </div>
 

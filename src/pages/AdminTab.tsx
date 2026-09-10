@@ -1517,10 +1517,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       <span className={cn(
                         "text-[9px] font-black uppercase px-1.5 py-0.5 rounded",
                         currentStatus === 'finished' ? "bg-zinc-800 text-zinc-400 border border-zinc-700/50" :
-                        currentStatus === 'in_progress' ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse" :
+                        (currentStatus === 'in_progress' || (m.estado && (m.estado.toLowerCase().includes('vivo') || /\d+['’]/.test(m.estado)))) ? "bg-rose-500/10 text-rose-400 border border-rose-500/30 animate-pulse" :
+                        (m.estado && (m.estado.toLowerCase().includes('entretiempo') || m.estado.toLowerCase().includes('descanso'))) ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse" :
                         "bg-blue-500/10 text-blue-400 border border-blue-500/30"
                       )}>
-                        {currentStatus === 'finished' ? 'Finalizado' : currentStatus === 'in_progress' ? 'En Juego' : 'Por Jugar'}
+                        {m.estado || (currentStatus === 'finished' ? 'Finalizado' : currentStatus === 'in_progress' ? 'En Juego' : 'Por Jugar')}
                       </span>
                     </div>
                   </div>
