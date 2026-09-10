@@ -14,6 +14,7 @@ import { isCabraSuprema } from '../lib/utils';
 import { vibrateSuccess, vibrateError } from '../lib/haptics';
 import { deleteGroupPodium } from '../lib/podium';
 import { FooterVersion } from '../components/FooterVersion';
+import { NotificationSettings } from '../components/NotificationSettings';
 
 
 function ReadOnlyRules({ settings }: { settings: any }) {
@@ -815,6 +816,11 @@ export function SettingsTab() {
             ) : (
                 <ReadOnlyRules settings={settings || localSettings} />
             )}
+          </div>
+
+          {/* Push Notifications Section */}
+          <div className="mt-4">
+            <NotificationSettings />
           </div>
         </div>
       </div>

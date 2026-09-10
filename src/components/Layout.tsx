@@ -33,6 +33,7 @@ import { useGroupScores } from '../hooks/useGroupScores';
 import { useUnpredictedCount } from '../hooks/useUnpredictedCount';
 import { QRCodeSVG } from 'qrcode.react';
 import { QuickQRScannerModal } from './QuickQRScannerModal';
+import { setupForegroundNotificationListener } from '../lib/notifications';
 import { doc, collection, query, where, getDocs, updateDoc, arrayUnion, arrayRemove, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
@@ -124,6 +125,19 @@ export function Layout() {
     return () => {
       unsubMatches();
     };
+  }, []);
+
+  useEffect(() => {
+    const unsub = setupForegroundNotificationListener((payload) => {
+      console.log('[Layout] Notificación en primer plano recibida:', payload);
+      if (typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'granted') {
+        const title = payload.notification?.title || payload.data?.title || 'La Cabra Gol ⚽';
+        const body = payload.notification?.body || payload.data?.body || '';
+        const icon = payload.notification?.icon || '/pwa-192x192.png';
+        new Notification(title, { body, icon });
+      }
+    });
+    return () => unsub();
   }, []);
 
   useEffect(() => {
