@@ -7,9 +7,11 @@ import { Info } from 'lucide-react';
 export interface TimelineEvent {
   id: string;
   minute: number;
-  type: 'goal' | 'card' | 'injury';
+  type: 'goal' | 'card' | 'substitution' | 'injury';
   cardType?: 'amarilla' | 'roja';
   playerName: string;
+  playerIn?: string;
+  playerOut?: string;
   teamName: string;
   isHomeTeam: boolean;
 }
@@ -47,6 +49,8 @@ export function parseMatchEvents(match: {
   goles?: any[];
   cards?: any[];
   tarjetas?: any[];
+  cambios?: any[];
+  sustituciones?: any[];
   lesiones?: any[];
 }): TimelineEvent[] {
   const events: TimelineEvent[] = [];
@@ -59,7 +63,11 @@ export function parseMatchEvents(match: {
     ? match.tarjetas 
     : (Array.isArray(match.cards) ? match.cards : []);
 
-  const lesionesList = Array.isArray(match.lesiones) ? match.lesiones : [];
+  const rawCambiosList = Array.isArray(match.cambios) 
+    ? match.cambios 
+    : (Array.isArray((match as any).sustituciones) ? (match as any).sustituciones : []);
+
+  const rawLesionesList = Array.isArray(match.lesiones) ? match.lesiones : [];
 
   // 1. Process goalscorers
   if (Array.isArray(goalsList)) {
@@ -217,48 +225,100 @@ export function parseMatchEvents(match: {
     });
   }
 
-  // 3. Process injuries / substitutions
-  if (Array.isArray(lesionesList)) {
-    lesionesList.forEach((inj, idx) => {
-      if (!inj) return;
-      if (typeof inj === 'object') {
-        const minute = Number(inj.minuto ?? inj.minute ?? 0);
-        const sale = String(inj.jugador_sale || inj.player_out || '').trim();
-        const entra = String(inj.jugador_entra || inj.player_in || '').trim();
-        const playerName = entra && sale ? `${sale} ➔ ${entra}` : (sale || entra || 'Lesión / Cambio');
-        let teamName = String(inj.equipo || inj.team || '').trim();
-        if (teamName.toLowerCase() === 'undefined') teamName = '';
+  // 3. Process substitutions (cambios) & injuries (lesiones)
+  const allSubstitutions: any[] = [...rawCambiosList];
+  const actualInjuries: any[] = [];
 
-        let side: 'home' | 'away' | null = null;
-        if (inj.is_home === true || inj.isHome === true) side = 'home';
-        if (inj.is_home === false || inj.isHome === false) side = 'away';
+  rawLesionesList.forEach(item => {
+    if (!item) return;
+    // Si contiene jugador_entra / player_in o jugador_sale, o tipo cambio, es una sustitución
+    if (item.jugador_entra || item.player_in || item.jugador_sale || item.player_out || String(item.tipo || '').toLowerCase().includes('cambio')) {
+      allSubstitutions.push(item);
+    } else {
+      actualInjuries.push(item);
+    }
+  });
 
-        if (!side && teamName) {
-          side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
-        }
+  // Procesar sustituciones (con icono 🔄 y etiquetas ▲ Entra / ▼ Sale)
+  allSubstitutions.forEach((sub, idx) => {
+    if (!sub) return;
+    if (typeof sub === 'object') {
+      const minute = Number(sub.minuto ?? sub.minute ?? 0);
+      const sale = String(sub.jugador_sale || sub.player_out || '').trim();
+      const entra = String(sub.jugador_entra || sub.player_in || '').trim();
+      const playerName = entra && sale ? `${entra} / ${sale}` : (entra || sale || 'Cambio');
+      let teamName = String(sub.equipo || sub.team || '').trim();
+      if (teamName.toLowerCase() === 'undefined') teamName = '';
 
-        if (!side) {
-          const checkName = sale || entra;
-          const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === checkName.toLowerCase().trim());
-          if (found?.team) {
-            side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
-            if (!teamName) teamName = found.team;
-          }
-        }
+      let side: 'home' | 'away' | null = null;
+      if (sub.is_home === true || sub.isHome === true) side = 'home';
+      if (sub.is_home === false || sub.isHome === false) side = 'away';
 
-        const isHome = side !== 'away';
-
-        events.push({
-          id: `inj-${idx}-${minute}`,
-          minute: isNaN(minute) ? 0 : minute,
-          type: 'injury',
-          playerName,
-          teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
-          isHomeTeam: isHome
-        });
+      if (!side && teamName) {
+        side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
       }
-    });
-  }
+
+      if (!side) {
+        const checkName = entra || sale;
+        const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === checkName.toLowerCase().trim());
+        if (found?.team) {
+          side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+          if (!teamName) teamName = found.team;
+        }
+      }
+
+      const isHome = side !== 'away';
+
+      events.push({
+        id: `sub-${idx}-${minute}`,
+        minute: isNaN(minute) ? 0 : minute,
+        type: 'substitution',
+        playerName,
+        playerIn: entra || undefined,
+        playerOut: sale || undefined,
+        teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
+        isHomeTeam: isHome
+      });
+    }
+  });
+
+  // Procesar lesiones genuinas (sin reemplazo o marcadas como lesión)
+  actualInjuries.forEach((inj, idx) => {
+    if (!inj) return;
+    if (typeof inj === 'object') {
+      const minute = Number(inj.minuto ?? inj.minute ?? 0);
+      const playerName = String(inj.jugador || inj.player || 'Lesión').trim();
+      let teamName = String(inj.equipo || inj.team || '').trim();
+      if (teamName.toLowerCase() === 'undefined') teamName = '';
+
+      let side: 'home' | 'away' | null = null;
+      if (inj.is_home === true || inj.isHome === true) side = 'home';
+      if (inj.is_home === false || inj.isHome === false) side = 'away';
+
+      if (!side && teamName) {
+        side = matchTeamSide(teamName, match.homeTeam, match.awayTeam);
+      }
+
+      if (!side) {
+        const found = DEFAULT_PLAYERS.find(p => p.name.toLowerCase().trim() === playerName.toLowerCase().trim());
+        if (found?.team) {
+          side = matchTeamSide(found.team, match.homeTeam, match.awayTeam);
+          if (!teamName) teamName = found.team;
+        }
+      }
+
+      const isHome = side !== 'away';
+
+      events.push({
+        id: `inj-${idx}-${minute}`,
+        minute: isNaN(minute) ? 0 : minute,
+        type: 'injury',
+        playerName,
+        teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
+        isHomeTeam: isHome
+      });
+    }
+  });
 
   // Sort events chronologically by minute
   events.sort((a, b) => a.minute - b.minute);
@@ -280,12 +340,12 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
           <Info className="w-5 h-5" />
         </div>
         <p className="text-xs font-bold text-white">
-          No hay goles ni tarjetas registradas
+          No hay goles, tarjetas ni cambios registrados
         </p>
         <p className="text-[11px] text-zinc-400 max-w-xs mx-auto leading-relaxed">
           {isFinished 
             ? 'Este encuentro finalizó sin eventos cargados en la base de datos o terminó 0-0.' 
-            : 'Los goles y tarjetas se sincronizarán automáticamente al disputarse el partido.'}
+            : 'Los goles, tarjetas y cambios se sincronizarán al disputarse el partido.'}
         </p>
       </div>
     );
@@ -293,62 +353,89 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
 
   return (
     <div className="space-y-2">
-      {/* Team Column Headers */}
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 px-2 py-2 bg-[#121215] border border-zinc-800/80 rounded-xl text-[11px] font-black uppercase tracking-wider">
-        <div className="flex items-center gap-1.5 justify-start text-zinc-300 truncate">
+      {/* Team Column Headers - Strict equal layout */}
+      <div className="grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] items-center gap-1.5 sm:gap-3 px-2 py-2 bg-[#121215] border border-zinc-800/80 rounded-xl text-[11px] font-black uppercase tracking-wider w-full">
+        <div className="flex items-center gap-1.5 justify-start text-zinc-300 truncate min-w-0">
           <TeamBadge src={match.homeFlag} teamName={match.homeTeam} className="w-4 h-4 shrink-0" />
           <span className="truncate">{match.homeTeam}</span>
         </div>
-        <div className="text-zinc-500 font-mono text-[9px] px-1.5">MIN</div>
-        <div className="flex items-center gap-1.5 justify-end text-zinc-300 text-right truncate">
+        <div className="text-zinc-500 font-mono text-[9px] text-center w-9 mx-auto shrink-0">MIN</div>
+        <div className="flex items-center gap-1.5 justify-end text-zinc-300 text-right truncate min-w-0">
           <span className="truncate">{match.awayTeam}</span>
           <TeamBadge src={match.awayFlag} teamName={match.awayTeam} className="w-4 h-4 shrink-0" />
         </div>
       </div>
 
       {/* Dynamic Left / Right Timeline */}
-      <div className="relative py-2 space-y-3">
-        {/* Central Vertical Line */}
-        <div className="absolute left-1/2 top-2 bottom-2 -translate-x-1/2 w-0.5 bg-zinc-800" />
+      <div className="relative py-2 space-y-3 w-full overflow-hidden">
+        {/* Central Vertical Line strictly at 50% */}
+        <div className="absolute left-1/2 top-2 bottom-2 -translate-x-1/2 w-0.5 bg-zinc-800 pointer-events-none" />
 
         {events.map((e) => {
           const isHome = e.isHomeTeam;
           const isGoal = e.type === 'goal';
+          const isSub = e.type === 'substitution';
           const isInjury = e.type === 'injury';
           const isRed = e.cardType === 'roja';
-          const icon = isGoal ? '⚽' : isInjury ? '🚑' : isRed ? '🟥' : '🟨';
+          
+          // Icon and Label: Substitutions use 🔄 Cambio (never an ambulance)
+          const icon = isGoal ? '⚽' : isSub ? '🔄' : isInjury ? '🚑' : isRed ? '🟥' : '🟨';
           const eventLabel = isGoal 
             ? 'Gol' 
-            : isInjury 
-              ? 'Lesión / Cambio' 
-              : isRed 
-                ? 'Tarjeta Roja' 
-                : 'Tarjeta Amarilla';
-          const minuteLabel = e.minute > 0 ? `${e.minute}'` : isGoal ? 'GOL' : isInjury ? 'LES' : 'TAR';
+            : isSub 
+              ? 'Cambio' 
+              : isInjury 
+                ? 'Lesión' 
+                : isRed 
+                  ? 'Tarjeta Roja' 
+                  : 'Tarjeta Amarilla';
+          const minuteLabel = e.minute > 0 ? `${e.minute}'` : isGoal ? 'GOL' : isSub ? 'CAM' : isInjury ? 'LES' : 'TAR';
 
           return (
             <div 
               key={e.id}
-              className="relative grid grid-cols-[1fr_auto_1fr] items-center gap-2 sm:gap-4"
+              className="relative grid grid-cols-[minmax(0,1fr)_36px_minmax(0,1fr)] items-center gap-1.5 sm:gap-3 w-full"
             >
               {/* Left Column (Home Team Event) */}
               {isHome ? (
-                <div className="flex items-center justify-end gap-2 text-right pr-1">
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm font-black text-white leading-tight truncate">
-                      {e.playerName}
-                    </p>
-                    <p className={`text-[10px] font-semibold truncate ${
-                      isGoal 
-                        ? 'text-emerald-400' 
-                        : isInjury 
-                          ? 'text-sky-400' 
-                          : isRed 
-                            ? 'text-rose-400' 
-                            : 'text-amber-400'
-                    }`}>
-                      {eventLabel}
-                    </p>
+                <div className="flex items-center justify-end gap-1.5 sm:gap-2 text-right pr-1 min-w-0 w-full overflow-hidden">
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    {isSub ? (
+                      <div className="space-y-0.5">
+                        {e.playerIn && (
+                          <p className="text-[10px] sm:text-xs font-bold text-emerald-400 truncate leading-tight flex items-center justify-end gap-1" title={`Entra: ${e.playerIn}`}>
+                            <span className="truncate">{e.playerIn}</span>
+                            <span className="text-[9px] font-black text-emerald-400 shrink-0 select-none">▲</span>
+                          </p>
+                        )}
+                        {e.playerOut && (
+                          <p className="text-[9px] sm:text-[10px] font-medium text-rose-400/90 truncate leading-tight flex items-center justify-end gap-1" title={`Sale: ${e.playerOut}`}>
+                            <span className="truncate">{e.playerOut}</span>
+                            <span className="text-[9px] font-black text-rose-400 shrink-0 select-none">▼</span>
+                          </p>
+                        )}
+                        <p className="text-[8px] sm:text-[9px] font-bold text-cyan-400 uppercase tracking-wider">
+                          Cambio
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs sm:text-sm font-black text-white leading-tight truncate" title={e.playerName}>
+                          {e.playerName}
+                        </p>
+                        <p className={`text-[9px] sm:text-[10px] font-semibold truncate ${
+                          isGoal 
+                            ? 'text-emerald-400' 
+                            : isInjury 
+                              ? 'text-rose-400' 
+                              : isRed 
+                                ? 'text-rose-400' 
+                                : 'text-amber-400'
+                        }`}>
+                          {eventLabel}
+                        </p>
+                      </>
+                    )}
                   </div>
                   <span className="text-base sm:text-lg shrink-0 select-none drop-shadow-sm">
                     {icon}
@@ -358,16 +445,18 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
                 <div />
               )}
 
-              {/* Center Column (Minute Pill) */}
-              <div className="relative z-10 flex items-center justify-center">
-                <span className={`w-8 h-8 rounded-full flex items-center justify-center text-[10px] sm:text-[11px] font-black font-mono shadow-md border ${
+              {/* Center Column (Minute Pill - Guaranteed exactly centered at 50%) */}
+              <div className="relative z-10 flex items-center justify-center w-9 mx-auto">
+                <span className={`w-7 h-7 sm:w-8 sm:h-8 rounded-full flex items-center justify-center text-[9px] sm:text-[10px] font-black font-mono shadow-md border shrink-0 ${
                   isGoal 
                     ? 'bg-emerald-950/90 border-emerald-500/60 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.25)]' 
-                    : isInjury
-                      ? 'bg-sky-950/90 border-sky-500/60 text-sky-300 shadow-[0_0_10px_rgba(56,189,248,0.25)]'
-                      : isRed
+                    : isSub
+                      ? 'bg-cyan-950/90 border-cyan-500/60 text-cyan-300 shadow-[0_0_10px_rgba(6,182,212,0.25)]'
+                      : isInjury
                         ? 'bg-rose-950/90 border-rose-500/60 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.25)]'
-                        : 'bg-amber-950/90 border-amber-500/60 text-amber-300'
+                        : isRed
+                          ? 'bg-rose-950/90 border-rose-500/60 text-rose-300 shadow-[0_0_10px_rgba(244,63,94,0.25)]'
+                          : 'bg-amber-950/90 border-amber-500/60 text-amber-300'
                 }`}>
                   {minuteLabel}
                 </span>
@@ -375,25 +464,47 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
 
               {/* Right Column (Away Team Event) */}
               {!isHome ? (
-                <div className="flex items-center justify-start gap-2 text-left pl-1">
+                <div className="flex items-center justify-start gap-1.5 sm:gap-2 text-left pl-1 min-w-0 w-full overflow-hidden">
                   <span className="text-base sm:text-lg shrink-0 select-none drop-shadow-sm">
                     {icon}
                   </span>
-                  <div className="min-w-0">
-                    <p className="text-xs sm:text-sm font-black text-white leading-tight truncate">
-                      {e.playerName}
-                    </p>
-                    <p className={`text-[10px] font-semibold truncate ${
-                      isGoal 
-                        ? 'text-emerald-400' 
-                        : isInjury 
-                          ? 'text-sky-400' 
-                          : isRed 
-                            ? 'text-rose-400' 
-                            : 'text-amber-400'
-                    }`}>
-                      {eventLabel}
-                    </p>
+                  <div className="min-w-0 flex-1 overflow-hidden">
+                    {isSub ? (
+                      <div className="space-y-0.5">
+                        {e.playerIn && (
+                          <p className="text-[10px] sm:text-xs font-bold text-emerald-400 truncate leading-tight flex items-center justify-start gap-1" title={`Entra: ${e.playerIn}`}>
+                            <span className="text-[9px] font-black text-emerald-400 shrink-0 select-none">▲</span>
+                            <span className="truncate">{e.playerIn}</span>
+                          </p>
+                        )}
+                        {e.playerOut && (
+                          <p className="text-[9px] sm:text-[10px] font-medium text-rose-400/90 truncate leading-tight flex items-center justify-start gap-1" title={`Sale: ${e.playerOut}`}>
+                            <span className="text-[9px] font-black text-rose-400 shrink-0 select-none">▼</span>
+                            <span className="truncate">{e.playerOut}</span>
+                          </p>
+                        )}
+                        <p className="text-[8px] sm:text-[9px] font-bold text-cyan-400 uppercase tracking-wider">
+                          Cambio
+                        </p>
+                      </div>
+                    ) : (
+                      <>
+                        <p className="text-xs sm:text-sm font-black text-white leading-tight truncate" title={e.playerName}>
+                          {e.playerName}
+                        </p>
+                        <p className={`text-[9px] sm:text-[10px] font-semibold truncate ${
+                          isGoal 
+                            ? 'text-emerald-400' 
+                            : isInjury 
+                              ? 'text-rose-400' 
+                              : isRed 
+                                ? 'text-rose-400' 
+                                : 'text-amber-400'
+                        }`}>
+                          {eventLabel}
+                        </p>
+                      </>
+                    )}
                   </div>
                 </div>
               ) : (

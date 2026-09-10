@@ -32,7 +32,8 @@ import {
   RefreshCw, 
   Sparkles,
   MoreVertical,
-  FileCode
+  FileCode,
+  Sliders
 } from 'lucide-react';
 
 // UID de administrador personalizable (reemplazar por tu UID de Firebase si se desea)
@@ -95,6 +96,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   });
   const [eventsModalMatch, setEventsModalMatch] = useState<Match | null>(null);
   const [jsonModalMatch, setJsonModalMatch] = useState<Match | null>(null);
+  const [jsonModalMode, setJsonModalMode] = useState<'manual' | 'json'>('manual');
   const [activeKebabMatchId, setActiveKebabMatchId] = useState<string | null>(null);
 
   // Verificación de rol de administrador
@@ -716,7 +718,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                               setActiveKebabMatchId(null);
                             }} 
                           />
-                          <div className="absolute right-0 top-full mt-1 w-52 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-2xl z-40 py-1 overflow-hidden">
+                          <div className="absolute right-0 top-full mt-1 w-56 bg-zinc-900 border border-zinc-700/80 rounded-xl shadow-2xl z-40 py-1 overflow-hidden">
                             <div className="px-3 py-1 text-[10px] uppercase tracking-wider font-bold text-zinc-500 border-b border-zinc-800 truncate">
                               Admin: {match.homeTeam}
                             </div>
@@ -725,6 +727,20 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                               onClick={(e) => {
                                 e.stopPropagation();
                                 setActiveKebabMatchId(null);
+                                setJsonModalMode('manual');
+                                setJsonModalMatch(match);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-zinc-200 hover:text-blue-400 hover:bg-blue-500/10 text-left transition-colors border-b border-zinc-800/60"
+                            >
+                              <Sliders className="w-4 h-4 text-blue-400 shrink-0" />
+                              <span>Ingresar Marcador Manual</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveKebabMatchId(null);
+                                setJsonModalMode('json');
                                 setJsonModalMatch(match);
                               }}
                               className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-zinc-200 hover:text-emerald-400 hover:bg-emerald-500/10 text-left transition-colors"
@@ -962,6 +978,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         onClose={() => setJsonModalMatch(null)}
         match={jsonModalMatch}
         settings={settings}
+        initialMode={jsonModalMode}
       />
     </div>
   );
