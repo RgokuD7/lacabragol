@@ -2,7 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
-import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
+import { collection, doc, query, where, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
 import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Crown, Medal, Target, CheckSquare, Square, ChevronRight } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
@@ -152,6 +154,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     const unsub = onSnapshot(q, (snap) => {
       const preds = snap.docs.map(d => ({ id: d.id, ...d.data() } as Prediction));
       setGroupPredictions(preds);
+    }, (err) => {
+      console.warn('Error listening to group predictions:', err);
     });
     return () => unsub();
   }, [activeGroupId]);

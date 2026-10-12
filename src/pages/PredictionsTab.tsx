@@ -324,7 +324,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     
     const isStarted = currentTime >= matchTime;
     
-    if (match.status === 'in_progress' || isStarted) {
+    if ((match.status as string) === 'in_progress' || isStarted) {
       if (elapsedMinutes < 0) {
         return { isLive: false, label: 'Por Jugar' };
       }
