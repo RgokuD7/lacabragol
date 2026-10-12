@@ -210,5 +210,20 @@ service cloud.firestore {
         (get(/databases/$(database)/documents/groups/$(existing().groupId)).data.adminId == request.auth.uid) ||
         (request.auth.uid in get(/databases/$(database)/documents/groups/$(existing().groupId)).data.coAdmins);
     }
+
+    match /stages/{stageId} {
+      allow read: if isSignedIn();
+      allow create, update: if isAdmin() || (isSignedIn() && (
+        incoming().groupId == 'default' ||
+        (exists(/databases/$(database)/documents/groups/$(incoming().groupId)) && get(/databases/$(database)/documents/groups/$(incoming().groupId)).data.adminId == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/groups/$(incoming().groupId)) && 'coAdmins' in get(/databases/$(database)/documents/groups/$(incoming().groupId)).data && request.auth.uid in get(/databases/$(database)/documents/groups/$(incoming().groupId)).data.coAdmins)
+      ));
+      allow delete: if isAdmin() || (isSignedIn() && (
+        existing().groupId == 'default' ||
+        (exists(/databases/$(database)/documents/groups/$(existing().groupId)) && get(/databases/$(database)/documents/groups/$(existing().groupId)).data.adminId == request.auth.uid) ||
+        (exists(/databases/$(database)/documents/groups/$(existing().groupId)) && 'coAdmins' in get(/databases/$(database)/documents/groups/$(existing().groupId)).data && request.auth.uid in get(/databases/$(database)/documents/groups/$(existing().groupId)).data.coAdmins)
+      ));
+    }
   }
 }
+

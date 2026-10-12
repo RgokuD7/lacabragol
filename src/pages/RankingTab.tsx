@@ -1,13 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { collection, onSnapshot, doc, getDoc } from 'firebase/firestore';
+import { collection, onSnapshot, doc, getDoc, query, where } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { User, Podium } from '../types';
+import { User, Podium, Match, Prediction, Stage, StageStandingItem } from '../types';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { useSettings } from '../components/SettingsProvider';
 import { useGroupScores } from '../hooks/useGroupScores';
 import { getGroupPodium } from '../lib/podium';
 import { handleFirestoreError, OperationType } from '../lib/utils';
+import { subscribeStages, calculateStageStandings } from '../lib/stages';
+import { StageWinnersModal } from '../components/StageWinnersModal';
 import { 
   Search, 
   Crown,
@@ -19,7 +21,10 @@ import {
   Award,
   Zap,
   Mail,
-  Hash
+  Hash,
+  ChevronRight,
+  Layers,
+  Sparkles
 } from 'lucide-react';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
@@ -29,13 +34,20 @@ export function RankingTab() {
   const { profile } = useAuth();
   const { groups, activeGroupId } = useGroups();
   const { settings } = useSettings();
-  const { memberScores, currentUserPoints, currentUserExactMatches } = useGroupScores(
+  const { memberScores } = useGroupScores(
     activeGroupId,
     profile?.uid,
     settings?.pointsExactMatch || 3
   );
 
+  const [rawUsers, setRawUsers] = useState<User[]>([]);
   const [users, setUsers] = useState<User[]>([]);
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [selectedStageId, setSelectedStageId] = useState<string>('all');
+  const [showWinnersModal, setShowWinnersModal] = useState(false);
+  const [matches, setMatches] = useState<Match[]>([]);
+  const [groupPredictions, setGroupPredictions] = useState<Prediction[]>([]);
+
   const [search, setSearch] = useState('');
   const [selectedUser, setSelectedUser] = useState<User | null>(null);
   const [selectedUserPodium, setSelectedUserPodium] = useState<Podium | null>(null);
@@ -43,28 +55,101 @@ export function RankingTab() {
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
 
+  // Subscribe to stages of activeGroup
+  useEffect(() => {
+    const unsub = subscribeStages(activeGroupId, (fetched) => {
+      setStages(fetched);
+    });
+    return () => unsub();
+  }, [activeGroupId]);
+
+  // Subscribe to matches (for live stage standings)
+  useEffect(() => {
+    const unsub = onSnapshot(collection(db, 'matches'), (snap) => {
+      const ms = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
+      setMatches(ms);
+    });
+    return () => unsub();
+  }, []);
+
+  // Subscribe to group predictions (for live stage standings)
+  useEffect(() => {
+    if (!activeGroupId) return;
+    const q = query(
+      collection(db, 'predictions'),
+      where('groupId', '==', activeGroupId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const preds = snap.docs.map(d => ({ id: d.id, ...d.data() } as Prediction));
+      setGroupPredictions(preds);
+    });
+    return () => unsub();
+  }, [activeGroupId]);
+
+  // Subscribe to users of the active group
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'users'), (snap) => {
       let u = snap.docs.map(d => d.data() as User);
-      
-      // Filter by active group members
       if (activeGroup?.members) {
         u = u.filter(user => activeGroup.members.includes(user.uid));
       }
-      
-      const uWithScores = u.map(user => ({
+      setRawUsers(u);
+    }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
+    return () => unsub();
+  }, [activeGroup?.members]);
+
+  // Compute users according to selectedStageId ('all' vs specific stage)
+  useEffect(() => {
+    if (rawUsers.length === 0) {
+      setUsers([]);
+      return;
+    }
+
+    if (selectedStageId === 'all') {
+      // General Ranking (Acumulado)
+      const uWithScores = rawUsers.map(user => ({
         ...user,
         points: memberScores[user.uid]?.points || 0,
         exactMatches: memberScores[user.uid]?.exactMatches || 0,
         streak_pleno: memberScores[user.uid]?.streak_pleno ?? user.streak_pleno,
         streak_normal: memberScores[user.uid]?.streak_normal ?? user.streak_normal,
       }));
+      uWithScores.sort((a,b) => (b.points || 0) - (a.points || 0) || (b.exactMatches || 0) - (a.exactMatches || 0));
+      setUsers(uWithScores);
+    } else {
+      // Stage Ranking (Activa o Cerrada)
+      const stage = stages.find(s => s.id === selectedStageId);
+      if (!stage) {
+        setSelectedStageId('all');
+        return;
+      }
+
+      let stageStandings: StageStandingItem[] = [];
+      if (stage.status === 'closed' && stage.fullStandings && stage.fullStandings.length > 0) {
+        stageStandings = stage.fullStandings;
+      } else {
+        stageStandings = calculateStageStandings(stage, matches, groupPredictions, rawUsers);
+      }
+
+      const standingsMap = new Map<string, StageStandingItem>();
+      stageStandings.forEach(s => standingsMap.set(s.userId, s));
+
+      const uWithScores = rawUsers.map(user => {
+        const item = standingsMap.get(user.uid);
+        return {
+          ...user,
+          points: item?.points || 0,
+          exactMatches: item?.exactMatches || 0,
+          streak_pleno: undefined,
+          streak_normal: undefined,
+        };
+      });
 
       uWithScores.sort((a,b) => (b.points || 0) - (a.points || 0) || (b.exactMatches || 0) - (a.exactMatches || 0));
       setUsers(uWithScores);
-    }, (error) => handleFirestoreError(error, OperationType.GET, 'users'));
-    return () => unsub();
-  }, [activeGroup?.members, memberScores]);
+    }
+  }, [rawUsers, selectedStageId, memberScores, stages, matches, groupPredictions]);
+
 
   const handleUserClick = async (u: User) => {
     setSelectedUser(u);
@@ -123,16 +208,113 @@ export function RankingTab() {
             <div className="leading-tight">
               <p className="text-[9px] text-zinc-400 font-bold uppercase">Tu Posición</p>
               <p className="text-[11px] font-bold text-emerald-400 font-mono">
-                {currentUserExactMatches || 0} <span className="text-[9px] text-zinc-400 font-normal">exactos</span>
+                {users[currentUserIndex]?.exactMatches || 0} <span className="text-[9px] text-zinc-400 font-normal">exactos</span>
               </p>
             </div>
           </div>
         )}
       </div>
 
+      {/* Salón de Ganadores por Etapa Banner */}
+      {stages.some(s => s.status === 'closed') && (
+        <div
+          onClick={() => setShowWinnersModal(true)}
+          className="bg-gradient-to-r from-amber-500/15 via-[#141418] to-zinc-900 border border-amber-500/30 rounded-xl p-2.5 flex items-center justify-between gap-3 cursor-pointer hover:border-amber-500/50 transition-all shadow-sm group"
+        >
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 text-sm shadow-[0_0_10px_rgba(245,158,11,0.2)]">
+              🏆
+            </div>
+            <div>
+              <div className="flex items-center gap-1.5">
+                <span className="text-xs font-black text-amber-300 uppercase tracking-wide">
+                  Salón de Ganadores por Etapa
+                </span>
+                <span className="text-[9px] font-black bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded-full border border-amber-500/30">
+                  {stages.filter(s => s.status === 'closed').length}
+                </span>
+              </div>
+              <p className="text-[10px] text-zinc-400">
+                Consulta los podios y campeones registrados por cada fase
+              </p>
+            </div>
+          </div>
+          <ChevronRight className="w-4 h-4 text-amber-400 group-hover:translate-x-0.5 transition-transform shrink-0" />
+        </div>
+      )}
+
+      {/* Selector de Etapas / Filtro */}
+      {stages.length > 0 && (
+        <div className="space-y-1.5">
+          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+            <button
+              onClick={() => setSelectedStageId('all')}
+              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                selectedStageId === 'all'
+                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
+                  : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+              }`}
+            >
+              🌐 Acumulado General
+            </button>
+
+            {stages.map(st => {
+              const isActive = st.status === 'active';
+              const isSelected = selectedStageId === st.id;
+              return (
+                <button
+                  key={st.id}
+                  onClick={() => setSelectedStageId(st.id)}
+                  className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isSelected
+                      ? isActive
+                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
+                        : 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
+                      : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                  }`}
+                >
+                  {isActive && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                  )}
+                  <span>{st.name}</span>
+                  {isActive ? (
+                    <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 rounded font-bold">EN VIVO</span>
+                  ) : (
+                    <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 rounded font-bold">CERRADA</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Banner indicador cuando hay una etapa seleccionada */}
+          {selectedStageId !== 'all' && (() => {
+            const currentStageObj = stages.find(s => s.id === selectedStageId);
+            if (!currentStageObj) return null;
+            return (
+              <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800 text-[11px] text-zinc-300">
+                <div className="flex items-center gap-1.5 min-w-0">
+                  <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="truncate">
+                    Viendo: <strong className="text-white">{currentStageObj.name}</strong> ({currentStageObj.matchGroups.join(', ')})
+                  </span>
+                </div>
+                <button
+                  onClick={() => setSelectedStageId('all')}
+                  className="text-[10px] font-bold text-blue-400 hover:text-blue-300 shrink-0 cursor-pointer"
+                >
+                  Ver General
+                </button>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
       {/* Top 3 Visual Mini Podium Cards with Google Avatars */}
       {users.length >= 3 && (
         <div className="grid grid-cols-3 gap-1.5 items-end pt-1">
+
           {/* 2nd Place */}
           <div 
             onClick={() => handleUserClick(top2)}
@@ -374,6 +556,19 @@ export function RankingTab() {
       </div>
 
       <UserProfileModal user={selectedUser} isOpen={selectedUser !== null} onClose={() => setSelectedUser(null)} groupId={activeGroupId} />
+
+      <StageWinnersModal
+        isOpen={showWinnersModal}
+        onClose={() => setShowWinnersModal(false)}
+        stages={stages}
+        onSelectUser={(uid) => {
+          const u = rawUsers.find(x => x.uid === uid) || users.find(x => x.uid === uid);
+          if (u) {
+            handleUserClick(u);
+          }
+        }}
+      />
     </div>
   );
 }
+

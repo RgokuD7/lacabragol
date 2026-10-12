@@ -3,14 +3,15 @@ import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
 import { collection, doc, query, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
-import { Match, Prediction, User, Setting } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame } from 'lucide-react';
+import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Crown, Medal, Target, CheckSquare, Square, ChevronRight } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
 import { cn } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
+import { UserAvatar } from '../components/UserAvatar';
 import { recalculateStandings } from '../lib/standings';
 import { recalculateAllUsersFromDatabase } from '../lib/recalculation';
 import { 
@@ -18,9 +19,9 @@ import {
   commitGeminiMatchesToFirestore, 
   getGeminiApiKey, 
   setGeminiApiKey, 
-  GeminiPreviewResult,
-  mapGeminiEstadoToStatus,
-  GeminiPartidoPreview
+  GeminiPreviewResult, 
+  mapGeminiEstadoToStatus, 
+  GeminiPartidoPreview 
 } from '../lib/geminiSync';
 import { 
   getSerpApiKey, 
@@ -39,14 +40,25 @@ import {
 } from '../lib/serpapiSync';
 import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
 import { SerpApiStandingsModal } from '../components/SerpApiStandingsModal';
+import { StageWinnersModal } from '../components/StageWinnersModal';
+import { 
+  subscribeStages, 
+  calculateStageStandings, 
+  createStage, 
+  closeStage, 
+  reopenStage, 
+  recalculateClosedStage, 
+  deleteStage 
+} from '../lib/stages';
 import { syncMatchPredictionsAndPoints } from '../lib/sync';
 import { vibrateTap, vibrateSuccess, vibrateError } from '../lib/haptics';
+
 
 export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => void }) {
   const { user, profile } = useAuth();
   const { groups, activeGroupId } = useGroups();
   const { settings } = useSettings();
-  const [adminTab, setAdminTab] = useState<'actions' | 'scores' | 'users' | 'players'>('actions');
+  const [adminTab, setAdminTab] = useState<'actions' | 'scores' | 'users' | 'players' | 'stages'>('actions');
 
   const [matches, setMatches] = useState<Match[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -57,6 +69,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [matchScores, setMatchScores] = useState<Record<string, { home: string, away: string, status: string }>>({});
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Stages management state
+  const [stages, setStages] = useState<Stage[]>([]);
+  const [groupPredictions, setGroupPredictions] = useState<Prediction[]>([]);
+  const [newStageName, setNewStageName] = useState('');
+  const [selectedMatchGroups, setSelectedMatchGroups] = useState<string[]>([]);
+  const [isCreatingStage, setIsCreatingStage] = useState(false);
+  const [isClosingStage, setIsClosingStage] = useState(false);
+  const [stageToClose, setStageToClose] = useState<Stage | null>(null);
+  const [showCloseModal, setShowCloseModal] = useState(false);
+  const [stageStandingsPreview, setStageStandingsPreview] = useState<StageStandingItem[]>([]);
+  const [showWinnersModal, setShowWinnersModal] = useState(false);
 
   // Admin touch score editor modal state (prevents virtual keyboard layout shifts)
   const [editingMatch, setEditingMatch] = useState<Match | null>(null);
@@ -109,6 +133,45 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [showJsonInput, setShowJsonInput] = useState(false);
   const [isSavingPlayers, setIsSavingPlayers] = useState(false);
   const [isResettingPlayers, setIsResettingPlayers] = useState(false);
+
+  // Listen to stages for activeGroupId
+  useEffect(() => {
+    const unsub = subscribeStages(activeGroupId, (fetched) => {
+      setStages(fetched);
+    });
+    return () => unsub();
+  }, [activeGroupId]);
+
+  // Listen to predictions for activeGroupId (for stage calculations)
+  useEffect(() => {
+    if (!activeGroupId) return;
+    const q = query(
+      collection(db, 'predictions'),
+      where('groupId', '==', activeGroupId)
+    );
+    const unsub = onSnapshot(q, (snap) => {
+      const preds = snap.docs.map(d => ({ id: d.id, ...d.data() } as Prediction));
+      setGroupPredictions(preds);
+    });
+    return () => unsub();
+  }, [activeGroupId]);
+
+  const availableMatchGroups = useMemo(() => {
+    const groupsSet = new Set<string>();
+    matches.forEach(m => {
+      if (m.group) groupsSet.add(m.group);
+    });
+    if (groupsSet.size === 0) {
+      for (let i = 1; i <= 8; i++) groupsSet.add(`Jornada ${i}`);
+    }
+    return Array.from(groupsSet).sort((a, b) => {
+      const numA = parseInt(a.replace(/\D/g, ''), 10) || 0;
+      const numB = parseInt(b.replace(/\D/g, ''), 10) || 0;
+      if (numA && numB) return numA - numB;
+      return a.localeCompare(b);
+    });
+  }, [matches]);
+
 
   useEffect(() => {
     const unsubMatches = onSnapshot(query(collection(db, 'matches')), snap => {
@@ -712,6 +775,124 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     try { await updateDoc(doc(db, 'users', uid), { isAdmin: !current }); } catch(e) {}
   };
 
+  // Stage Actions
+  const handleToggleMatchGroup = (groupName: string) => {
+    setSelectedMatchGroups(prev =>
+      prev.includes(groupName)
+        ? prev.filter(g => g !== groupName)
+        : [...prev, groupName]
+    );
+  };
+
+  const handleSelectAllMatchGroups = () => {
+    setSelectedMatchGroups([...availableMatchGroups]);
+  };
+
+  const handleClearMatchGroups = () => {
+    setSelectedMatchGroups([]);
+  };
+
+  const handleCreateStage = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!newStageName.trim()) {
+      setFeedback({ type: 'error', text: 'Debes ingresar un nombre para la etapa.' });
+      return;
+    }
+    if (selectedMatchGroups.length === 0) {
+      setFeedback({ type: 'error', text: 'Debes seleccionar al menos una jornada o fase para la etapa.' });
+      return;
+    }
+    setIsCreatingStage(true);
+    vibrateTap();
+    try {
+      await createStage(activeGroupId, newStageName, selectedMatchGroups);
+      vibrateSuccess();
+      setFeedback({ type: 'success', text: `Etapa "${newStageName.trim()}" creada con éxito e iniciada.` });
+      setNewStageName('');
+      setSelectedMatchGroups([]);
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error creando etapa: ' + (err.message || 'Error desconocido') });
+    } finally {
+      setIsCreatingStage(false);
+    }
+  };
+
+  const handleInitiateCloseStage = (stage: Stage) => {
+    const standings = calculateStageStandings(stage, matches, groupPredictions, users);
+    setStageStandingsPreview(standings);
+    setStageToClose(stage);
+    setShowCloseModal(true);
+    vibrateTap();
+  };
+
+  const handleConfirmCloseStage = async () => {
+    if (!stageToClose) return;
+    setIsClosingStage(true);
+    vibrateTap();
+    try {
+      const { winners } = await closeStage(
+        stageToClose.id,
+        stageToClose,
+        matches,
+        groupPredictions,
+        users,
+        user?.uid
+      );
+      vibrateSuccess();
+      setFeedback({
+        type: 'success',
+        text: `¡Etapa "${stageToClose.name}" terminada y cerrada con éxito! Se registraron ${winners.length} participantes en el podio histórico.`
+      });
+      setShowCloseModal(false);
+      setStageToClose(null);
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error al cerrar etapa: ' + (err.message || 'Error desconocido') });
+    } finally {
+      setIsClosingStage(false);
+    }
+  };
+
+  const handleReopenStage = async (stage: Stage) => {
+    if (!window.confirm(`¿Reabrir la etapa "${stage.name}"? Volverá a estar activa y se actualizarán sus resultados en vivo.`)) return;
+    vibrateTap();
+    try {
+      await reopenStage(stage.id);
+      vibrateSuccess();
+      setFeedback({ type: 'success', text: `Etapa "${stage.name}" reabierta como activa.` });
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error al reabrir etapa: ' + (err.message || 'Error desconocido') });
+    }
+  };
+
+  const handleRecalculateStage = async (stage: Stage) => {
+    vibrateTap();
+    try {
+      await recalculateClosedStage(stage.id, stage, matches, groupPredictions, users);
+      vibrateSuccess();
+      setFeedback({ type: 'success', text: `Ganadores de la etapa "${stage.name}" recalculados con éxito.` });
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error recalculando etapa: ' + (err.message || 'Error desconocido') });
+    }
+  };
+
+  const handleDeleteStage = async (stage: Stage) => {
+    if (!window.confirm(`¿Seguro que deseas eliminar la etapa "${stage.name}"? Esta acción no se puede deshacer.`)) return;
+    vibrateTap();
+    try {
+      await deleteStage(stage.id);
+      vibrateSuccess();
+      setFeedback({ type: 'success', text: `Etapa "${stage.name}" eliminada correctamente.` });
+    } catch (err: any) {
+      vibrateError();
+      setFeedback({ type: 'error', text: 'Error al eliminar etapa: ' + (err.message || 'Error desconocido') });
+    }
+  };
+
+
   const isTestMatch = (m: Match) => {
     if (!m.id?.startsWith('ucl_26_')) return true;
     if (m.group === 'Ejemplos Demo' || !m.group) return true;
@@ -1089,7 +1270,19 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         >
           Jugadores Podio ({podiumPlayers.length})
         </button>
+        <button
+          onClick={() => setAdminTab('stages')}
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 ${
+            adminTab === 'stages'
+              ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md shadow-amber-500/20'
+              : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
+          }`}
+        >
+          <Trophy className="w-3 h-3 text-amber-300" />
+          <span>Etapas ({stages.length})</span>
+        </button>
       </div>
+
 
       {adminTab === 'actions' && (
         <div className="space-y-6">
@@ -1771,6 +1964,334 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         </div>
       )}
 
+      {adminTab === 'stages' && (() => {
+        const activeStage = stages.find(s => s.status === 'active');
+        const closedStages = stages.filter(s => s.status === 'closed').sort((a, b) => (b.closedAt || b.createdAt) - (a.closedAt || a.createdAt));
+
+        const activeStageMatches = activeStage
+          ? matches.filter(m => (activeStage.matchGroups || []).includes(m.group || 'Fase Regular'))
+          : [];
+        const activeStageMatchesFinished = activeStageMatches.filter(m => m.status === 'finished').length;
+        const activeStageMatchesTotal = activeStageMatches.length;
+
+        const liveStandings = activeStage
+          ? calculateStageStandings(activeStage, matches, groupPredictions, users)
+          : [];
+
+        return (
+          <div className="space-y-6">
+            {/* Header / Intro */}
+            <div className="bg-[#121215] border border-amber-500/30 rounded-2xl p-4 sm:p-5 flex items-center justify-between gap-4 flex-wrap bg-gradient-to-r from-amber-950/20 to-transparent">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                  <Trophy className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm sm:text-base font-black text-white uppercase tracking-wider">
+                    Torneo por Etapas
+                  </h3>
+                  <p className="text-xs text-zinc-400">
+                    Define fases flexibles, cierra etapas y congela a los ganadores en el registro histórico.
+                  </p>
+                </div>
+              </div>
+
+              {closedStages.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowWinnersModal(true)}
+                  className="px-3.5 py-2 bg-zinc-800 hover:bg-zinc-700 text-amber-300 font-bold text-xs rounded-xl border border-amber-500/30 flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Trophy className="w-4 h-4 text-amber-400" />
+                  <span>Ver Salón de Ganadores ({closedStages.length})</span>
+                </button>
+              )}
+            </div>
+
+            {/* SECCIÓN 1: ETAPA ACTIVA */}
+            <div className="space-y-3">
+              <div className="flex items-center gap-2">
+                <Flag className="w-4 h-4 text-emerald-400" />
+                <h4 className="text-xs font-black uppercase text-zinc-300 tracking-wider">
+                  Etapa en Curso
+                </h4>
+              </div>
+
+              {activeStage ? (
+                <div className="bg-gradient-to-br from-emerald-950/20 via-[#121215] to-[#121215] border border-emerald-500/40 rounded-2xl p-4 sm:p-5 space-y-4 shadow-lg">
+                  <div className="flex items-start justify-between gap-3 flex-wrap">
+                    <div className="space-y-1">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/40 text-[10px] font-black uppercase tracking-wider animate-pulse">
+                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                          En Juego
+                        </span>
+                        <span className="text-[11px] text-zinc-500">
+                          Iniciada el {format(new Date(activeStage.createdAt), "d MMM, HH:mm", { locale: es })}
+                        </span>
+                      </div>
+                      <h3 className="text-base sm:text-lg font-black text-white">{activeStage.name}</h3>
+                      <div className="flex items-center gap-1.5 flex-wrap pt-0.5">
+                        <span className="text-[10px] font-bold text-zinc-400 uppercase">Jornadas:</span>
+                        {activeStage.matchGroups.map(g => (
+                          <span key={g} className="px-2 py-0.5 rounded-md bg-zinc-800 text-zinc-300 border border-zinc-700 text-[10px] font-bold">
+                            {g}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-right">
+                      <p className="text-[9px] text-zinc-400 uppercase font-black">Progreso de Partidos</p>
+                      <p className="text-xs font-mono font-bold text-emerald-400">
+                        {activeStageMatchesFinished} / {activeStageMatchesTotal} finalizados
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Previsualización en Vivo de Líderes */}
+                  {liveStandings.length > 0 && (
+                    <div className="bg-zinc-950/60 rounded-xl border border-zinc-800/80 p-3 space-y-2">
+                      <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                        Top 3 actual de esta etapa:
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                        {liveStandings.slice(0, 3).map((item, idx) => (
+                          <div key={item.userId} className="flex items-center gap-2 bg-zinc-900/80 p-2 rounded-lg border border-zinc-800">
+                            <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] shrink-0 ${
+                              idx === 0 ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40' :
+                              idx === 1 ? 'bg-zinc-700/30 text-zinc-300 border border-zinc-600' :
+                              'bg-amber-900/30 text-amber-600 border border-amber-800/50'
+                            }`}>
+                              {idx + 1}
+                            </span>
+                            <UserAvatar src={item.photoURL} name={item.nickname || item.displayName} size="sm" />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-xs font-bold text-white truncate">{item.nickname || item.displayName}</p>
+                              <p className="text-[10px] font-mono text-zinc-400">{item.points} pts · {item.exactMatches} exactos</p>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Botón para finalizar etapa */}
+                  <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between gap-3 flex-wrap">
+                    <p className="text-[11px] text-zinc-400 max-w-sm">
+                      Al terminar la etapa, las posiciones y puntos se congelarán de manera permanente en el registro histórico.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleInitiateCloseStage(activeStage)}
+                      className="px-4 py-2.5 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-black text-xs uppercase tracking-wider rounded-xl shadow-lg shadow-amber-500/20 flex items-center justify-center gap-2 transition-transform active:scale-95 cursor-pointer"
+                    >
+                      <Trophy className="w-4 h-4 text-amber-200" />
+                      <span>Terminar y Cerrar Etapa</span>
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-6 text-center space-y-2">
+                  <div className="w-10 h-10 rounded-xl bg-zinc-800/80 text-zinc-400 flex items-center justify-center mx-auto text-xl">
+                    🏁
+                  </div>
+                  <h4 className="text-sm font-black text-white">No hay ninguna etapa activa</h4>
+                  <p className="text-xs text-zinc-400 max-w-sm mx-auto">
+                    Crea una nueva etapa a continuación para comenzar a evaluar los puntos de las siguientes jornadas.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* SECCIÓN 2: CREAR NUEVA ETAPA */}
+            <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-md">
+              <div className="flex items-center gap-2 border-b border-zinc-800/80 pb-3">
+                <Plus className="w-4 h-4 text-blue-400" />
+                <div>
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider">Crear Nueva Etapa</h3>
+                  <p className="text-[10px] text-zinc-400">Asigna un nombre y selecciona qué jornadas componen esta fase.</p>
+                </div>
+              </div>
+
+              <form onSubmit={handleCreateStage} className="space-y-4">
+                <div>
+                  <label className="block text-[10px] font-black uppercase text-zinc-400 tracking-wider mb-1.5">
+                    Nombre de la Etapa
+                  </label>
+                  <input
+                    type="text"
+                    value={newStageName}
+                    onChange={(e) => setNewStageName(e.target.value)}
+                    placeholder="Ej: Etapa 1 - Jornada 1, o Etapa 2 - Fase de Liga (J2 a J8)..."
+                    className="w-full bg-zinc-900 border border-zinc-700/80 rounded-xl px-3 py-2 text-xs text-white placeholder:text-zinc-600 focus:outline-none focus:border-blue-500"
+                  />
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+                    <label className="block text-[10px] font-black uppercase text-zinc-400 tracking-wider">
+                      Jornadas o Fases Incluidas ({selectedMatchGroups.length} seleccionadas)
+                    </label>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={handleSelectAllMatchGroups}
+                        className="text-[10px] font-bold text-blue-400 hover:text-blue-300 px-2 py-0.5 rounded bg-blue-500/10 border border-blue-500/20 cursor-pointer"
+                      >
+                        Seleccionar todas
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleClearMatchGroups}
+                        className="text-[10px] font-bold text-zinc-400 hover:text-zinc-300 px-2 py-0.5 rounded bg-zinc-800 border border-zinc-700 cursor-pointer"
+                      >
+                        Limpiar
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    {availableMatchGroups.map(groupName => {
+                      const isSelected = selectedMatchGroups.includes(groupName);
+                      return (
+                        <button
+                          key={groupName}
+                          type="button"
+                          onClick={() => handleToggleMatchGroup(groupName)}
+                          className={`flex items-center gap-2 p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm'
+                              : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
+                          }`}
+                        >
+                          {isSelected ? (
+                            <CheckSquare className="w-4 h-4 text-blue-400 shrink-0" />
+                          ) : (
+                            <Square className="w-4 h-4 text-zinc-600 shrink-0" />
+                          )}
+                          <span className="text-xs font-bold truncate">{groupName}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isCreatingStage || !newStageName.trim() || selectedMatchGroups.length === 0}
+                  className="w-full bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-black text-xs uppercase tracking-wider py-3 rounded-xl flex items-center justify-center gap-2 shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
+                >
+                  {isCreatingStage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                  <span>{isCreatingStage ? 'Creando etapa...' : 'Crear e Iniciar Etapa'}</span>
+                </button>
+              </form>
+            </div>
+
+            {/* SECCIÓN 3: HISTORIAL DE ETAPAS CERRADAS */}
+            <div className="bg-[#121215] border border-zinc-800 rounded-2xl p-4 sm:p-5 space-y-4 shadow-md">
+              <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                <div className="flex items-center gap-2">
+                  <Trophy className="w-4 h-4 text-amber-400" />
+                  <h3 className="text-xs font-black text-white uppercase tracking-wider">
+                    Historial de Etapas Finalizadas ({closedStages.length})
+                  </h3>
+                </div>
+              </div>
+
+              {closedStages.length === 0 ? (
+                <div className="text-center py-6 text-zinc-500 text-xs">
+                  Aún no has cerrado ninguna etapa. Cuando termines una etapa, quedará archivada aquí permanentemente.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {closedStages.map((stage) => {
+                    const winners = stage.winners || [];
+                    const top1 = winners.find(w => w.rank === 1);
+                    const top2 = winners.find(w => w.rank === 2);
+                    const top3 = winners.find(w => w.rank === 3);
+
+                    return (
+                      <div
+                        key={stage.id}
+                        className="bg-zinc-950/70 border border-zinc-800 rounded-xl p-3.5 space-y-3"
+                      >
+                        <div className="flex items-start justify-between gap-2 flex-wrap">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-300 text-[10px] font-bold border border-zinc-700">
+                                {stage.matchGroups.join(', ')}
+                              </span>
+                              <h4 className="text-xs sm:text-sm font-black text-white">{stage.name}</h4>
+                            </div>
+                            {stage.closedAt && (
+                              <p className="text-[10px] text-zinc-500 mt-0.5">
+                                Finalizada el {format(new Date(stage.closedAt), "d 'de' MMMM, yyyy · HH:mm", { locale: es })}
+                              </p>
+                            )}
+                          </div>
+
+                          {/* Botones de acción admin */}
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => handleRecalculateStage(stage)}
+                              className="px-2 py-1 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 text-[10px] font-bold rounded-lg border border-zinc-700 transition-colors cursor-pointer"
+                              title="Recalcular podio de la etapa"
+                            >
+                              Recalcular
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleReopenStage(stage)}
+                              className="px-2 py-1 bg-zinc-800 hover:bg-amber-900/40 text-amber-300 text-[10px] font-bold rounded-lg border border-zinc-700 transition-colors cursor-pointer"
+                              title="Reabrir etapa"
+                            >
+                              Reabrir
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteStage(stage)}
+                              className="p-1 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors cursor-pointer"
+                              title="Eliminar etapa"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+
+                        {/* Podio mini preview */}
+                        <div className="grid grid-cols-3 gap-1.5 pt-1 border-t border-zinc-900">
+                          {/* 2do */}
+                          <div className="bg-zinc-900/60 p-2 rounded-lg text-center border border-zinc-800/80">
+                            <span className="text-[9px] font-black text-zinc-400 uppercase">🥈 2° Lugar</span>
+                            <p className="text-xs font-bold text-zinc-200 truncate">{top2?.nickname || top2?.displayName || '—'}</p>
+                            <p className="text-[10px] font-mono text-zinc-400">{top2?.points || 0} pts</p>
+                          </div>
+                          {/* 1ro */}
+                          <div className="bg-amber-500/10 p-2 rounded-lg text-center border border-amber-500/30">
+                            <span className="text-[9px] font-black text-amber-400 uppercase">🥇 1° Lugar</span>
+                            <p className="text-xs font-bold text-amber-200 truncate">{top1?.nickname || top1?.displayName || '—'}</p>
+                            <p className="text-[10px] font-mono text-amber-300 font-bold">{top1?.points || 0} pts</p>
+                          </div>
+                          {/* 3ro */}
+                          <div className="bg-zinc-900/60 p-2 rounded-lg text-center border border-zinc-800/80">
+                            <span className="text-[9px] font-black text-amber-700 uppercase">🥉 3° Lugar</span>
+                            <p className="text-xs font-bold text-zinc-200 truncate">{top3?.nickname || top3?.displayName || '—'}</p>
+                            <p className="text-[10px] font-mono text-zinc-400">{top3?.points || 0} pts</p>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })()}
+
+
       {/* Touch-Friendly Score Editor Modal (Bottom Sheet) */}
       {editingMatch && (
         <BaseBottomSheet
@@ -1953,6 +2474,91 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         onConfirm={handleConfirmCommitStandings}
         isSaving={isCommittingStandings}
       />
+
+      {/* Modal de Confirmación para Terminar Etapa */}
+      {showCloseModal && stageToClose && (
+        <BaseBottomSheet
+          isOpen={showCloseModal}
+          onClose={() => { if (!isClosingStage) setShowCloseModal(false); }}
+          title="Finalizar y Cerrar Etapa"
+          zIndexClassName="z-[1050]"
+        >
+          <div className="space-y-4 pb-28 pt-1">
+            <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 text-center space-y-2">
+              <Trophy className="w-8 h-8 text-amber-400 mx-auto" />
+              <h3 className="text-base font-black text-white">¿Finalizar "{stageToClose.name}"?</h3>
+              <p className="text-xs text-zinc-300 max-w-sm mx-auto leading-relaxed">
+                Al confirmar, los puntos de los partidos incluidos se congelarán de manera definitiva y se registrará a los siguientes ganadores en el Salón de la Fama:
+              </p>
+            </div>
+
+            {/* Resumen del Podio que se congelará */}
+            <div className="bg-zinc-900/80 rounded-xl border border-zinc-800 p-3 space-y-2.5">
+              <p className="text-[10px] font-black uppercase tracking-wider text-zinc-400">
+                Podio Oficial de la Etapa:
+              </p>
+              <div className="space-y-1.5">
+                {stageStandingsPreview.slice(0, 3).map((item, idx) => (
+                  <div key={item.userId} className="flex items-center justify-between p-2 rounded-lg bg-zinc-950/60 border border-zinc-800">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className={`w-5 h-5 rounded-full flex items-center justify-center font-black text-[10px] shrink-0 ${
+                        idx === 0 ? 'bg-amber-500 text-zinc-950' :
+                        idx === 1 ? 'bg-zinc-300 text-zinc-950' :
+                        'bg-amber-700 text-amber-100'
+                      }`}>
+                        {idx + 1}
+                      </span>
+                      <UserAvatar src={item.photoURL} name={item.nickname || item.displayName} size="sm" />
+                      <span className="text-xs font-bold text-white truncate max-w-[150px]">
+                        {item.nickname || item.displayName}
+                      </span>
+                    </div>
+                    <div className="text-right shrink-0 font-mono">
+                      <span className="text-xs font-black text-amber-400">{item.points} pts</span>
+                      <span className="text-[10px] text-zinc-400 block">{item.exactMatches} exactos</span>
+                    </div>
+                  </div>
+                ))}
+
+                {stageStandingsPreview.length === 0 && (
+                  <p className="text-xs text-zinc-500 text-center py-2">
+                    No hay participantes registrados con pronósticos para esta etapa.
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Botones de Confirmación */}
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                disabled={isClosingStage}
+                onClick={handleConfirmCloseStage}
+                className="flex-1 bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 text-white font-black py-3.5 px-4 rounded-xl text-xs uppercase tracking-wider transition-all disabled:opacity-50 flex items-center justify-center gap-2 shadow-lg shadow-amber-500/20 active:scale-98 cursor-pointer"
+              >
+                {isClosingStage ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trophy className="w-4 h-4" />}
+                <span>{isClosingStage ? 'Cerrando y congelando...' : 'Confirmar y Cerrar Etapa'}</span>
+              </button>
+              <button
+                type="button"
+                disabled={isClosingStage}
+                onClick={() => setShowCloseModal(false)}
+                className="px-5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 font-bold py-3.5 rounded-xl text-xs uppercase tracking-wider transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+            </div>
+          </div>
+        </BaseBottomSheet>
+      )}
+
+      {/* Salón de Ganadores Históricos Modal */}
+      <StageWinnersModal
+        isOpen={showWinnersModal}
+        onClose={() => setShowWinnersModal(false)}
+        stages={stages}
+      />
     </div>
+
   );
 }

@@ -101,3 +101,27 @@ export interface Podium {
   hasCustomPlayer?: boolean;
   updatedAt: number;
 }
+
+export interface StageStandingItem {
+  rank: number;
+  userId: string;
+  displayName: string;
+  nickname?: string;
+  photoURL?: string;
+  points: number;
+  exactMatches: number;
+}
+
+export interface Stage {
+  id: string;
+  groupId: string;
+  name: string;
+  matchGroups: string[];
+  status: 'active' | 'closed';
+  createdAt: number;
+  closedAt?: number | null;
+  closedBy?: string | null;
+  winners?: StageStandingItem[];
+  fullStandings?: StageStandingItem[];
+}
+
