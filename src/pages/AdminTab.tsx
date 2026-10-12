@@ -6,7 +6,7 @@ import { collection, doc, query, where, onSnapshot, getDocs, writeBatch, updateD
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Crown, Medal, Target, CheckSquare, Square, ChevronRight } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
@@ -175,6 +175,53 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       return a.localeCompare(b);
     });
   }, [matches]);
+
+  const matchGroupStats = useMemo(() => {
+    const stats: Record<string, { total: number; finished: number; live: number; pending: number }> = {};
+    matches.forEach(m => {
+      const g = m.group || 'Fase Regular';
+      if (!stats[g]) {
+        stats[g] = { total: 0, finished: 0, live: 0, pending: 0 };
+      }
+      stats[g].total++;
+      const isFinished = m.status === 'finished';
+      const isLive = !isFinished && (m.status === 'in_progress' || (m.estado && (m.estado.toLowerCase().includes('vivo') || /\d+['’]/.test(m.estado))));
+      if (isFinished) {
+        stats[g].finished++;
+      } else if (isLive) {
+        stats[g].live++;
+      } else {
+        stats[g].pending++;
+      }
+    });
+    return stats;
+  }, [matches]);
+
+  const selectedGroupsStats = useMemo(() => {
+    let total = 0;
+    let finished = 0;
+    let live = 0;
+    let pending = 0;
+    selectedMatchGroups.forEach(g => {
+      const st = matchGroupStats[g];
+      if (st) {
+        total += st.total;
+        finished += st.finished;
+        live += st.live;
+        pending += st.pending;
+      }
+    });
+    return {
+      total,
+      finished,
+      live,
+      pending,
+      isAllFinished: total > 0 && finished === total,
+      hasLive: live > 0,
+      isAllUpcoming: total > 0 && finished === 0 && live === 0,
+      isPartiallyFinished: total > 0 && finished > 0 && finished < total
+    };
+  }, [selectedMatchGroups, matchGroupStats]);
 
 
   useEffect(() => {
@@ -2047,11 +2094,45 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
                     <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-3 py-1.5 text-right">
                       <p className="text-[9px] text-zinc-400 uppercase font-black">Progreso de Partidos</p>
-                      <p className="text-xs font-mono font-bold text-emerald-400">
+                      <p className={`text-xs font-mono font-bold ${
+                        activeStageMatchesTotal > 0 && activeStageMatchesFinished === activeStageMatchesTotal
+                          ? 'text-emerald-400 flex items-center justify-end gap-1'
+                          : 'text-emerald-400'
+                      }`}>
+                        {activeStageMatchesTotal > 0 && activeStageMatchesFinished === activeStageMatchesTotal && (
+                          <Check className="w-3 h-3 text-emerald-400 inline" />
+                        )}
                         {activeStageMatchesFinished} / {activeStageMatchesTotal} finalizados
                       </p>
                     </div>
                   </div>
+
+                  {/* Banner si todos los partidos de la etapa activa ya finalizaron */}
+                  {activeStageMatchesTotal > 0 && activeStageMatchesFinished === activeStageMatchesTotal && (
+                    <div className="bg-emerald-950/40 border border-emerald-500/50 rounded-xl p-3 flex items-center justify-between gap-3 flex-wrap">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+                          <CheckCircle2 className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-xs font-black text-emerald-300">
+                            ¡Todos los partidos de esta etapa han finalizado! ({activeStageMatchesFinished}/{activeStageMatchesTotal})
+                          </p>
+                          <p className="text-[11px] text-emerald-400/80">
+                            Ya puedes pulsar "Terminar y Cerrar Etapa" para premiar a los ganadores y guardarlos en el Salón de la Fama.
+                          </p>
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleInitiateCloseStage(activeStage)}
+                        className="px-3 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-black text-xs uppercase tracking-wider rounded-lg shadow-md transition-all cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Trophy className="w-3.5 h-3.5" />
+                        <span>Cerrar Ahora</span>
+                      </button>
+                    </div>
+                  )}
 
                   {/* Previsualización en Vivo de Líderes */}
                   {liveStandings.length > 0 && (
@@ -2158,27 +2239,118 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     {availableMatchGroups.map(groupName => {
                       const isSelected = selectedMatchGroups.includes(groupName);
+                      const st = matchGroupStats[groupName] || { total: 0, finished: 0, live: 0, pending: 0 };
+                      const isGroupFinished = st.total > 0 && st.finished === st.total;
+                      const hasGroupLive = st.live > 0;
+
                       return (
                         <button
                           key={groupName}
                           type="button"
                           onClick={() => handleToggleMatchGroup(groupName)}
-                          className={`flex items-center gap-2 p-2 rounded-xl border text-left transition-all cursor-pointer ${
+                          className={`flex flex-col p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                             isSelected
-                              ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm'
+                              ? 'bg-blue-600/20 border-blue-500 text-white shadow-sm ring-1 ring-blue-500/50'
                               : 'bg-zinc-900/60 border-zinc-800 text-zinc-400 hover:border-zinc-700 hover:text-zinc-200'
                           }`}
                         >
-                          {isSelected ? (
-                            <CheckSquare className="w-4 h-4 text-blue-400 shrink-0" />
-                          ) : (
-                            <Square className="w-4 h-4 text-zinc-600 shrink-0" />
-                          )}
-                          <span className="text-xs font-bold truncate">{groupName}</span>
+                          <div className="flex items-center gap-2 w-full">
+                            {isSelected ? (
+                              <CheckSquare className="w-4 h-4 text-blue-400 shrink-0" />
+                            ) : (
+                              <Square className="w-4 h-4 text-zinc-600 shrink-0" />
+                            )}
+                            <span className="text-xs font-bold truncate text-white">{groupName}</span>
+                          </div>
+
+                          <div className="mt-1.5 pl-6 flex items-center gap-1.5 flex-wrap">
+                            {st.total === 0 ? (
+                              <span className="text-[10px] text-zinc-500 font-medium">Sin partidos</span>
+                            ) : isGroupFinished ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-400 bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                                <Check className="w-2.5 h-2.5" />
+                                <span>{st.finished}/{st.total} Finalizados</span>
+                              </span>
+                            ) : hasGroupLive ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                                <span>En vivo ({st.live})</span>
+                              </span>
+                            ) : st.finished > 0 ? (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-400 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/20">
+                                <span>{st.finished}/{st.total} Jugados</span>
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-zinc-500">
+                                <span>{st.total} por jugar</span>
+                              </span>
+                            )}
+                          </div>
                         </button>
                       );
                     })}
                   </div>
+
+                  {/* Mensaje Informativo según estado de los partidos seleccionados */}
+                  {selectedMatchGroups.length > 0 && (
+                    <div className="mt-3">
+                      {selectedGroupsStats.isAllFinished && (
+                        <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-xl p-3 sm:p-3.5 flex items-start gap-3 text-emerald-200">
+                          <Sparkles className="w-5 h-5 text-emerald-400 shrink-0 mt-0.5" />
+                          <div className="text-xs space-y-1">
+                            <p className="font-bold text-emerald-300 flex items-center gap-1.5">
+                              <span>✓ Jornada ya disputada ({selectedGroupsStats.finished} de {selectedGroupsStats.total} partidos finalizados)</span>
+                            </p>
+                            <p className="text-emerald-400/90 leading-relaxed text-[11px]">
+                              <strong>¡Puedes crear esta etapa de forma retroactiva sin problemas!</strong> Al crearla, el sistema calculará inmediatamente los puntos acumulados por los usuarios en esta jornada. Luego podrás hacer clic en <strong>"Terminar y Cerrar Etapa"</strong> para proclamar y guardar a los ganadores en el Salón de la Fama.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedGroupsStats.hasLive && (
+                        <div className="bg-amber-950/40 border border-amber-500/40 rounded-xl p-3 sm:p-3.5 flex items-start gap-3 text-amber-200">
+                          <Flame className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                          <div className="text-xs space-y-1">
+                            <p className="font-bold text-amber-300">
+                              Partidos en vivo en progreso ({selectedGroupsStats.live} en juego, {selectedGroupsStats.finished}/{selectedGroupsStats.total} terminados)
+                            </p>
+                            <p className="text-amber-400/90 leading-relaxed text-[11px]">
+                              La etapa registrará los puntos conforme terminen los encuentros y la tabla se actualizará dinámicamente.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedGroupsStats.isPartiallyFinished && !selectedGroupsStats.hasLive && (
+                        <div className="bg-blue-950/40 border border-blue-500/40 rounded-xl p-3 sm:p-3.5 flex items-start gap-3 text-blue-200">
+                          <Clock className="w-5 h-5 text-blue-400 shrink-0 mt-0.5" />
+                          <div className="text-xs space-y-1">
+                            <p className="font-bold text-blue-300">
+                              Etapa en desarrollo ({selectedGroupsStats.finished} de {selectedGroupsStats.total} partidos finalizados)
+                            </p>
+                            <p className="text-blue-400/90 leading-relaxed text-[11px]">
+                              Aún restan {selectedGroupsStats.pending} partidos programados. Los puntos se irán sumando según los resultados finales.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {selectedGroupsStats.isAllUpcoming && (
+                        <div className="bg-zinc-900 border border-zinc-700/80 rounded-xl p-3 sm:p-3.5 flex items-start gap-3 text-zinc-300">
+                          <Calendar className="w-5 h-5 text-zinc-400 shrink-0 mt-0.5" />
+                          <div className="text-xs space-y-1">
+                            <p className="font-bold text-zinc-200">
+                              Próxima etapa ({selectedGroupsStats.total} partidos programados)
+                            </p>
+                            <p className="text-zinc-400 leading-relaxed text-[11px]">
+                              Todos los partidos de estas jornadas están por jugarse. Los participantes competirán una vez arranquen los encuentros.
+                            </p>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 <button
