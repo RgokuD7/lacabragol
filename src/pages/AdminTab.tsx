@@ -1282,8 +1282,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
         <button
+          type="button"
           onClick={() => setAdminTab('actions')}
-          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
             adminTab === 'actions'
               ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
               : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
@@ -1292,8 +1293,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           Acciones
         </button>
         <button
+          type="button"
           onClick={() => setAdminTab('scores')}
-          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
             adminTab === 'scores'
               ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
               : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
@@ -1302,8 +1304,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           Resultados Reales
         </button>
         <button
+          type="button"
           onClick={() => setAdminTab('users')}
-          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
             adminTab === 'users'
               ? 'bg-purple-600 text-white shadow-md shadow-purple-500/20'
               : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
@@ -1312,8 +1315,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           Usuarios
         </button>
         <button
+          type="button"
           onClick={() => setAdminTab('players')}
-          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all ${
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
             adminTab === 'players'
               ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
               : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
@@ -1322,8 +1326,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           Jugadores Podio ({podiumPlayers.length})
         </button>
         <button
+          type="button"
           onClick={() => setAdminTab('stages')}
-          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 ${
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
             adminTab === 'stages'
               ? 'bg-gradient-to-r from-amber-600 to-amber-500 text-white shadow-md shadow-amber-500/20'
               : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'

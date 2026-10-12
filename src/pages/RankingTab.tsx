@@ -44,6 +44,7 @@ export function RankingTab() {
   const [users, setUsers] = useState<User[]>([]);
   const [stages, setStages] = useState<Stage[]>([]);
   const [selectedStageId, setSelectedStageId] = useState<string>('all');
+  const [userSelectedFilter, setUserSelectedFilter] = useState(false);
   const [showWinnersModal, setShowWinnersModal] = useState(false);
   const [matches, setMatches] = useState<Match[]>([]);
   const [groupPredictions, setGroupPredictions] = useState<Prediction[]>([]);
@@ -55,13 +56,26 @@ export function RankingTab() {
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
 
-  // Subscribe to stages of activeGroup
+  // Reset user manual selection when switching active groups
+  useEffect(() => {
+    setUserSelectedFilter(false);
+  }, [activeGroupId]);
+
+  // Subscribe to stages of activeGroup (defaults to active stage if present)
   useEffect(() => {
     const unsub = subscribeStages(activeGroupId, (fetched) => {
       setStages(fetched);
+      if (!userSelectedFilter) {
+        const activeStage = fetched.find(s => s.status === 'active');
+        if (activeStage) {
+          setSelectedStageId(activeStage.id);
+        } else {
+          setSelectedStageId('all');
+        }
+      }
     });
     return () => unsub();
-  }, [activeGroupId]);
+  }, [activeGroupId, userSelectedFilter]);
 
   // Subscribe to matches (for live stage standings)
   useEffect(() => {
@@ -195,7 +209,9 @@ export function RankingTab() {
             Ranking de Participantes
           </h1>
           <p className="text-[10px] sm:text-xs text-zinc-400">
-            {users.length} {users.length === 1 ? 'jugador registrado' : 'jugadores compitiendo'}
+            {selectedStageId === 'all'
+              ? `Acumulado General · ${users.length} ${users.length === 1 ? 'jugador' : 'jugadores'}`
+              : `${stages.find(s => s.id === selectedStageId)?.name || 'Etapa'} · ${users.length} ${users.length === 1 ? 'jugador' : 'jugadores'}`}
           </p>
         </div>
 
@@ -244,72 +260,102 @@ export function RankingTab() {
       )}
 
       {/* Selector de Etapas / Filtro */}
-      {stages.length > 0 && (
-        <div className="space-y-1.5">
-          <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
-            <button
-              onClick={() => setSelectedStageId('all')}
-              className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
-                selectedStageId === 'all'
-                  ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20'
-                  : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
-              }`}
-            >
-              🌐 Acumulado General
-            </button>
+      {stages.length > 0 && (() => {
+        const activeStage = stages.find(s => s.status === 'active');
+        const closedStages = stages.filter(s => s.status === 'closed');
 
-            {stages.map(st => {
-              const isActive = st.status === 'active';
-              const isSelected = selectedStageId === st.id;
-              return (
+        return (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-hide">
+              {/* Etapa Activa (por defecto si existe) */}
+              {activeStage && (
                 <button
-                  key={st.id}
-                  onClick={() => setSelectedStageId(st.id)}
+                  type="button"
+                  onClick={() => {
+                    setUserSelectedFilter(true);
+                    setSelectedStageId(activeStage.id);
+                  }}
                   className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
-                    isSelected
-                      ? isActive
-                        ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20'
-                        : 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
+                    selectedStageId === activeStage.id
+                      ? 'bg-emerald-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400'
                       : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
                   }`}
                 >
-                  {isActive && (
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
-                  )}
-                  <span>{st.name}</span>
-                  {isActive ? (
-                    <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 rounded font-bold">EN VIVO</span>
-                  ) : (
-                    <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 rounded font-bold">CERRADA</span>
-                  )}
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
+                  <span>{activeStage.name}</span>
+                  <span className="text-[8px] bg-emerald-500/20 text-emerald-300 px-1 rounded font-bold">EN VIVO</span>
                 </button>
-              );
-            })}
-          </div>
+              )}
 
-          {/* Banner indicador cuando hay una etapa seleccionada */}
-          {selectedStageId !== 'all' && (() => {
-            const currentStageObj = stages.find(s => s.id === selectedStageId);
-            if (!currentStageObj) return null;
-            return (
-              <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800 text-[11px] text-zinc-300">
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                  <span className="truncate">
-                    Viendo: <strong className="text-white">{currentStageObj.name}</strong> ({currentStageObj.matchGroups.join(', ')})
-                  </span>
+              {/* Acumulado General */}
+              <button
+                type="button"
+                onClick={() => {
+                  setUserSelectedFilter(true);
+                  setSelectedStageId('all');
+                }}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+                  selectedStageId === 'all'
+                    ? 'bg-blue-600 text-white shadow-md shadow-blue-500/20 ring-1 ring-blue-400'
+                    : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                }`}
+              >
+                🌐 Acumulado General
+              </button>
+
+              {/* Etapas Cerradas */}
+              {closedStages.map(st => {
+                const isSelected = selectedStageId === st.id;
+                return (
+                  <button
+                    key={st.id}
+                    type="button"
+                    onClick={() => {
+                      setUserSelectedFilter(true);
+                      setSelectedStageId(st.id);
+                    }}
+                    className={`px-3 py-1.5 rounded-xl text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
+                      isSelected
+                        ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20 ring-1 ring-amber-400'
+                        : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-200'
+                    }`}
+                  >
+                    <Trophy className="w-3 h-3 text-amber-400" />
+                    <span>{st.name}</span>
+                    <span className="text-[8px] bg-amber-500/20 text-amber-300 px-1 rounded font-bold">CERRADA</span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Banner indicador cuando hay una etapa seleccionada */}
+            {selectedStageId !== 'all' && (() => {
+              const currentStageObj = stages.find(s => s.id === selectedStageId);
+              if (!currentStageObj) return null;
+              return (
+                <div className="flex items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-zinc-900/60 border border-zinc-800 text-[11px] text-zinc-300">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Layers className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span className="truncate">
+                      Viendo: <strong className="text-white">{currentStageObj.name}</strong> ({currentStageObj.matchGroups.join(', ')})
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUserSelectedFilter(true);
+                      setSelectedStageId('all');
+                    }}
+                    className="text-[10px] font-bold text-blue-400 hover:text-blue-300 shrink-0 cursor-pointer"
+                  >
+                    Ver General
+                  </button>
                 </div>
-                <button
-                  onClick={() => setSelectedStageId('all')}
-                  className="text-[10px] font-bold text-blue-400 hover:text-blue-300 shrink-0 cursor-pointer"
-                >
-                  Ver General
-                </button>
-              </div>
-            );
-          })()}
-        </div>
-      )}
+              );
+            })()}
+          </div>
+        );
+      })()}
 
       {/* Top 3 Visual Mini Podium Cards with Google Avatars */}
       {users.length >= 3 && (
