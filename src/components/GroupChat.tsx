@@ -165,11 +165,19 @@ export function GroupChat({
   ]);
   const [newMessage, setNewMessage] = useState('');
   const [sending, setSending] = useState(false);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const isNearBottomRef = useRef(true);
 
-  const [viewportHeight, setViewportHeight] = useState<number | null>(() => {
-    return typeof window !== 'undefined' && window.visualViewport ? window.visualViewport.height : null;
+  const [viewportMetrics, setViewportMetrics] = useState<{ height: number; top: number } | null>(() => {
+    if (typeof window !== 'undefined' && window.visualViewport) {
+      return {
+        height: window.visualViewport.height,
+        top: window.visualViewport.offsetTop,
+      };
+    }
+    return null;
   });
 
   const [members, setMembers] = useState<User[]>([]);
@@ -182,40 +190,80 @@ export function GroupChat({
   const [contextMenuMsgId, setContextMenuMsgId] = useState<string | null>(null);
   const [contextMenuPos, setContextMenuPos] = useState({ top: 0, left: 0 });
 
+  const handleMessagesScroll = () => {
+    if (!messagesContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesContainerRef.current;
+    isNearBottomRef.current = scrollHeight - scrollTop - clientHeight < 150;
+  };
+
+  const scrollToBottom = (smooth = true, force = false) => {
+    if (!messagesContainerRef.current) return;
+    if (force || isNearBottomRef.current) {
+      messagesContainerRef.current.scrollTo({
+        top: messagesContainerRef.current.scrollHeight,
+        behavior: smooth ? 'smooth' : 'auto'
+      });
+    }
+  };
+
   useEffect(() => {
     if (!isOpen) return;
 
-    const handleViewportResize = () => {
-      if (!window.visualViewport) return;
-      const height = window.visualViewport.height;
-      setViewportHeight(height);
+    // Bloquear scroll del body para que la app de fondo quede estática
+    const originalOverflow = document.body.style.overflow;
+    const originalTouchAction = document.body.style.touchAction;
+    document.body.style.overflow = 'hidden';
+    document.body.style.touchAction = 'none';
 
-      // Cuando el viewport se encoja (teclado virtual abierto), forzar subida de pantalla
-      if (height < window.innerHeight * 0.85) {
-        window.scrollTo(0, document.body.scrollHeight);
-        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+    // Evitar desplazamientos no deseados de la ventana
+    const handleWindowScroll = () => {
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+    window.addEventListener('scroll', handleWindowScroll, { passive: true });
+
+    const vv = window.visualViewport;
+    const handleVisualViewport = () => {
+      if (!vv) return;
+      setViewportMetrics({
+        height: vv.height,
+        top: vv.offsetTop,
+      });
+
+      if (window.scrollY !== 0) {
+        window.scrollTo(0, 0);
+      }
+
+      if (messagesContainerRef.current && isNearBottomRef.current) {
+        messagesContainerRef.current.scrollTop = messagesContainerRef.current.scrollHeight;
       }
     };
 
-    const vv = window.visualViewport;
     if (vv) {
-      setViewportHeight(vv.height);
-      vv.addEventListener('resize', handleViewportResize);
-      vv.addEventListener('scroll', handleViewportResize);
+      handleVisualViewport();
+      vv.addEventListener('resize', handleVisualViewport);
+      vv.addEventListener('scroll', handleVisualViewport);
     }
 
     return () => {
+      document.body.style.overflow = originalOverflow;
+      document.body.style.touchAction = originalTouchAction;
+      window.removeEventListener('scroll', handleWindowScroll);
       if (vv) {
-        vv.removeEventListener('resize', handleViewportResize);
-        vv.removeEventListener('scroll', handleViewportResize);
+        vv.removeEventListener('resize', handleVisualViewport);
+        vv.removeEventListener('scroll', handleVisualViewport);
       }
     };
   }, [isOpen]);
 
   const handleInputFocus = () => {
+    if (typeof window !== 'undefined' && window.scrollY !== 0) {
+      window.scrollTo(0, 0);
+    }
     setTimeout(() => {
-      inputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }, 300);
+      scrollToBottom(true, true);
+    }, 150);
   };
 
   const activeGroup = groups.find(g => g.id === activeGroupId);
@@ -292,7 +340,7 @@ export function GroupChat({
   }, [activeGroupId, isOpen, activeGroup]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    scrollToBottom(false);
   }, [messages, showMentions]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -340,6 +388,7 @@ export function GroupChat({
     try {
       await addDoc(collection(db, 'messages'), payload);
       vibrateSuccess();
+      setTimeout(() => scrollToBottom(true, true), 60);
     } catch (error) {
       console.error('Error sending message:', error);
       vibrateError();
@@ -396,16 +445,41 @@ export function GroupChat({
     (m.nickname || m.displayName)?.toLowerCase().includes(mentionFilter)
   );
 
+  const isKeyboardOpen = Boolean(
+    viewportMetrics && 
+    typeof window !== 'undefined' && 
+    viewportMetrics.height < window.innerHeight * 0.85
+  );
+
   if (!isOpen) return null;
 
   return (
-    <div 
-      className="fixed inset-x-0 top-0 z-[1000] bg-[#0a0a0b] flex flex-col h-[100dvh] overflow-hidden"
-      style={viewportHeight ? { height: `${viewportHeight}px` } : undefined}
-    >
-      <div className="flex-1 relative flex flex-col max-w-4xl mx-auto w-full h-full overflow-hidden">
-        {/* Header */}
-        <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#111114]/90 backdrop-blur-sm z-10 sticky top-0 flex items-center justify-between shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
+    <>
+      {/* 1. Backdrop opaco a pantalla completa: Bloquea visualmente toda la app de fondo */}
+      <div 
+        className="fixed inset-0 z-[1040] bg-[#0a0a0b]" 
+        aria-hidden="true" 
+      />
+
+      {/* 2. Contenedor del Chat fijado al Visual Viewport exacto */}
+      <div 
+        className="fixed inset-x-0 z-[1041] bg-[#0a0a0b] flex flex-col overflow-hidden"
+        style={
+          viewportMetrics
+            ? { 
+                top: `${viewportMetrics.top}px`, 
+                height: `${viewportMetrics.height}px` 
+              }
+            : { 
+                top: 0, 
+                bottom: 0, 
+                height: '100dvh' 
+              }
+        }
+      >
+        <div className="flex-1 relative flex flex-col max-w-4xl mx-auto w-full h-full overflow-hidden">
+          {/* Header */}
+          <div className="px-4 py-3 border-b border-zinc-800/80 bg-[#111114]/90 backdrop-blur-sm z-10 sticky top-0 flex items-center justify-between shrink-0 pt-[max(env(safe-area-inset-top),12px)]">
             <h1 className="text-lg font-black text-white tracking-tight flex items-center gap-2">
               <MessageSquare className="w-5 h-5 text-blue-500" />
               <span>Chat del Grupo</span>
@@ -413,6 +487,7 @@ export function GroupChat({
             <div className="flex items-center gap-2">
               {canClearChat && (
                 <button
+                  type="button"
                   onClick={handleClearChat}
                   disabled={isClearing}
                   className="w-8 h-8 rounded-full bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 flex items-center justify-center transition-colors cursor-pointer disabled:opacity-50"
@@ -422,6 +497,7 @@ export function GroupChat({
                 </button>
               )}
               <button 
+                type="button"
                 id="close-group-chat-btn"
                 onClick={onClose} 
                 className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-700 transition-colors cursor-pointer"
@@ -429,148 +505,156 @@ export function GroupChat({
                 <X className="w-5 h-5" />
               </button>
             </div>
-        </div>
-
-      {contextMenuMsgId && (
-        <ContextMenu
-          position={contextMenuPos}
-          onClose={() => setContextMenuMsgId(null)}
-          onSelectEmoji={(emoji) => handleReaction(contextMenuMsgId, emoji)}
-          onReply={() => {
-            const msgToReply = messages.find(m => m.id === contextMenuMsgId);
-            if (msgToReply) setReplyToMsg(msgToReply);
-          }}
-          onMoreEmojis={() => setActiveEmojiPicker(contextMenuMsgId)}
-        />
-      )}
-      
-      <BaseBottomSheet isOpen={!!activeEmojiPicker} onClose={() => setActiveEmojiPicker(null)} title="Reacciones">
-        <EmojiPicker 
-          onSelect={(emoji) => {
-            if (activeEmojiPicker) handleReaction(activeEmojiPicker, emoji);
-          }}
-          onClose={() => setActiveEmojiPicker(null)}
-        />
-      </BaseBottomSheet>
-
-      <div className="flex flex-col flex-1 min-h-0">
-        {/* Messages Area */}
-        <div 
-          id="tutorial-chat-messages-container"
-          className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-zinc-800 relative z-0"
-        >
-          {(() => {
-            const displayMessages = isTutorialActive
-              ? [...messages.filter(m => !m.id.startsWith('tutorial-')), ...tutorialMockMsgs]
-              : messages;
-
-            if (displayMessages.length === 0) {
-              return (
-                <div className="h-full flex flex-col items-center justify-center text-zinc-500 opacity-50 space-y-2">
-                  <MessageSquare className="w-8 h-8" />
-                  <p className="text-xs">No hay mensajes aún.</p>
-                </div>
-              );
-            }
-
-            return displayMessages.map((msg, idx) => (
-              <ChatMessageItem
-                key={msg.id}
-                msg={msg}
-                idx={idx}
-                messages={displayMessages}
-                user={user}
-                activeGroup={activeGroup}
-                setContextMenuPos={setContextMenuPos}
-                setContextMenuMsgId={setContextMenuMsgId}
-                setReplyToMsg={setReplyToMsg}
-                setActiveEmojiPicker={setActiveEmojiPicker}
-                activeEmojiPicker={activeEmojiPicker}
-                handleReaction={handleReaction}
-              />
-            ));
-          })()}
-
-          <div ref={messagesEndRef} />
-        </div>
-
-        {/* Reply To Preview */}
-        {replyToMsg && (
-          <div className="px-4 py-2 bg-zinc-900 border-t border-zinc-800/50 flex items-center justify-between">
-            <div className="flex flex-col min-w-0">
-              <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Respondiendo a {replyToMsg.userName}</span>
-              <span className="text-xs text-zinc-400 truncate">{replyToMsg.text}</span>
-            </div>
-            <button onClick={() => setReplyToMsg(null)} className="p-1 text-zinc-500 hover:text-white">
-              <X className="w-4 h-4" />
-            </button>
           </div>
-        )}
 
-        {/* Input Area */}
-        <div className="sticky bottom-0 z-10 p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 pb-[max(env(safe-area-inset-bottom),12px)] sm:pb-4">
-          {/* Mentions Auto-complete */}
-          {showMentions && filteredMembers.length > 0 && (
-            <div className="absolute bottom-[calc(100%+8px)] left-4 right-4 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto z-20">
-              {filteredMembers.map(m => (
-                <button
-                  key={m.uid}
-                  onClick={() => handleMentionSelect(m.nickname || m.displayName || 'Usuario')}
-                  className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-left transition-colors"
-                >
-                  <div className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-[10px] font-black text-blue-400 border border-blue-500/20 uppercase">
-                    {(m.nickname || m.displayName || 'U')[0]}
-                  </div>
-                  <span className="text-xs font-bold text-white">{m.nickname || m.displayName}</span>
-                </button>
-              ))}
-            </div>
-          )}
-
-          <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 w-full">
-            <button
-              type="button"
-              onClick={() => {
-                vibrateTap();
-                setIsInputEmojiOpen(true);
+          {contextMenuMsgId && (
+            <ContextMenu
+              position={contextMenuPos}
+              onClose={() => setContextMenuMsgId(null)}
+              onSelectEmoji={(emoji) => handleReaction(contextMenuMsgId, emoji)}
+              onReply={() => {
+                const msgToReply = messages.find(m => m.id === contextMenuMsgId);
+                if (msgToReply) setReplyToMsg(msgToReply);
               }}
-              className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center shrink-0 transition-colors border border-zinc-800 cursor-pointer"
-              title="Insertar emoji"
-            >
-              <Smile className="w-5 h-5" />
-            </button>
-            <input
-              ref={inputRef}
-              id="chat-input"
-              type="text"
-              value={newMessage}
-              onChange={handleInputChange}
-              onFocus={handleInputFocus}
-              placeholder="Escribe un mensaje..."
-              className="flex-1 bg-black border border-zinc-800 rounded-full px-4 py-2.5 text-sm text-white outline-none focus:border-blue-500 transition-colors placeholder:text-zinc-600"
-              maxLength={500}
-              autoComplete="off"
+              onMoreEmojis={() => setActiveEmojiPicker(contextMenuMsgId)}
             />
-            <button
-              type="submit"
-              disabled={!newMessage.trim() || sending}
-              className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center text-white shrink-0 transition-colors shadow-sm cursor-pointer"
+          )}
+          
+          <BaseBottomSheet isOpen={!!activeEmojiPicker} onClose={() => setActiveEmojiPicker(null)} title="Reacciones">
+            <EmojiPicker 
+              onSelect={(emoji) => {
+                if (activeEmojiPicker) handleReaction(activeEmojiPicker, emoji);
+              }}
+              onClose={() => setActiveEmojiPicker(null)}
+            />
+          </BaseBottomSheet>
+
+          <div className="flex flex-col flex-1 min-h-0">
+            {/* Messages Area */}
+            <div 
+              ref={messagesContainerRef}
+              onScroll={handleMessagesScroll}
+              id="tutorial-chat-messages-container"
+              className="flex-1 overflow-y-auto p-4 space-y-4 scrollbar-thin scrollbar-thumb-zinc-800 relative z-0 overscroll-contain"
             >
-              <Send className="w-4 h-4 ml-[-2px]" />
-            </button>
-          </form>
+              {(() => {
+                const displayMessages = isTutorialActive
+                  ? [...messages.filter(m => !m.id.startsWith('tutorial-')), ...tutorialMockMsgs]
+                  : messages;
+
+                if (displayMessages.length === 0) {
+                  return (
+                    <div className="h-full flex flex-col items-center justify-center text-zinc-500 opacity-50 space-y-2">
+                      <MessageSquare className="w-8 h-8" />
+                      <p className="text-xs">No hay mensajes aún.</p>
+                    </div>
+                  );
+                }
+
+                return displayMessages.map((msg, idx) => (
+                  <ChatMessageItem
+                    key={msg.id}
+                    msg={msg}
+                    idx={idx}
+                    messages={displayMessages}
+                    user={user}
+                    activeGroup={activeGroup}
+                    setContextMenuPos={setContextMenuPos}
+                    setContextMenuMsgId={setContextMenuMsgId}
+                    setReplyToMsg={setReplyToMsg}
+                    setActiveEmojiPicker={setActiveEmojiPicker}
+                    activeEmojiPicker={activeEmojiPicker}
+                    handleReaction={handleReaction}
+                  />
+                ));
+              })()}
+
+              <div ref={messagesEndRef} />
+            </div>
+
+            {/* Reply To Preview */}
+            {replyToMsg && (
+              <div className="px-4 py-2 bg-zinc-900 border-t border-zinc-800/50 flex items-center justify-between shrink-0">
+                <div className="flex flex-col min-w-0">
+                  <span className="text-[10px] font-bold text-blue-400 uppercase tracking-widest">Respondiendo a {replyToMsg.userName}</span>
+                  <span className="text-xs text-zinc-400 truncate">{replyToMsg.text}</span>
+                </div>
+                <button type="button" onClick={() => setReplyToMsg(null)} className="p-1 text-zinc-500 hover:text-white cursor-pointer">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+
+            {/* Input Area */}
+            <div className={`sticky bottom-0 z-10 p-2 sm:p-3 bg-[#121215] border-t border-zinc-800/80 w-full shrink-0 transition-all ${
+              isKeyboardOpen 
+                ? 'pb-2' 
+                : 'pb-[max(env(safe-area-inset-bottom,0px),10px)] sm:pb-4'
+            }`}>
+              {/* Mentions Auto-complete */}
+              {showMentions && filteredMembers.length > 0 && (
+                <div className="absolute bottom-[calc(100%+8px)] left-4 right-4 bg-zinc-900 border border-zinc-800 rounded-xl shadow-2xl overflow-hidden max-h-40 overflow-y-auto z-20">
+                  {filteredMembers.map(m => (
+                    <button
+                      type="button"
+                      key={m.uid}
+                      onClick={() => handleMentionSelect(m.nickname || m.displayName || 'Usuario')}
+                      className="w-full flex items-center gap-2 px-3 py-2 hover:bg-zinc-800 text-left transition-colors cursor-pointer"
+                    >
+                      <div className="w-6 h-6 rounded-full bg-blue-500/10 flex items-center justify-center text-[10px] font-black text-blue-400 border border-blue-500/20 uppercase">
+                        {(m.nickname || m.displayName || 'U')[0]}
+                      </div>
+                      <span className="text-xs font-bold text-white">{m.nickname || m.displayName}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              <form onSubmit={handleSendMessage} className="flex items-center gap-1.5 w-full">
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrateTap();
+                    setIsInputEmojiOpen(true);
+                  }}
+                  className="w-10 h-10 rounded-full bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white flex items-center justify-center shrink-0 transition-colors border border-zinc-800 cursor-pointer"
+                  title="Insertar emoji"
+                >
+                  <Smile className="w-5 h-5" />
+                </button>
+                <input
+                  ref={inputRef}
+                  id="chat-input"
+                  type="text"
+                  value={newMessage}
+                  onChange={handleInputChange}
+                  onFocus={handleInputFocus}
+                  placeholder="Escribe un mensaje..."
+                  className="flex-1 bg-black border border-zinc-800 rounded-full px-4 py-2.5 text-[16px] sm:text-sm text-white outline-none focus:border-blue-500 transition-colors placeholder:text-zinc-600"
+                  maxLength={500}
+                  autoComplete="off"
+                />
+                <button
+                  type="submit"
+                  disabled={!newMessage.trim() || sending}
+                  className="w-10 h-10 rounded-full bg-blue-600 hover:bg-blue-500 disabled:opacity-50 flex items-center justify-center text-white shrink-0 transition-colors shadow-sm cursor-pointer"
+                >
+                  <Send className="w-4 h-4 ml-[-2px]" />
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <BaseBottomSheet isOpen={isInputEmojiOpen} onClose={() => setIsInputEmojiOpen(false)} title="Seleccionar Emoji">
+            <EmojiPicker 
+              onSelect={(emoji) => {
+                setNewMessage(prev => prev + emoji);
+              }}
+              onClose={() => setIsInputEmojiOpen(false)}
+            />
+          </BaseBottomSheet>
         </div>
       </div>
-
-      <BaseBottomSheet isOpen={isInputEmojiOpen} onClose={() => setIsInputEmojiOpen(false)} title="Seleccionar Emoji">
-        <EmojiPicker 
-          onSelect={(emoji) => {
-            setNewMessage(prev => prev + emoji);
-          }}
-          onClose={() => setIsInputEmojiOpen(false)}
-        />
-      </BaseBottomSheet>
-    </div>
-  </div>
-);
+    </>
+  );
 }
