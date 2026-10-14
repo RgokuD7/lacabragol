@@ -1,5 +1,5 @@
 import { vibrateSuccess, vibrateError, vibrateJackpot, vibratePop } from '../lib/haptics';
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, writeBatch, getDocs, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Match, Prediction } from '../types';
@@ -7,7 +7,7 @@ import { useAuth } from '../components/AuthProvider';
 import { useSettings } from '../components/SettingsProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { handleFirestoreError, OperationType } from '../lib/utils';
-import { format } from 'date-fns';
+import { format, isToday } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { TeamBadge } from '../components/TeamBadge';
 import { MatchPredictions } from '../components/MatchPredictions';
@@ -33,13 +33,14 @@ import {
   Sparkles,
   MoreVertical,
   FileCode,
-  Sliders
+  Sliders,
+  Clock
 } from 'lucide-react';
 
 // UID de administrador personalizable (reemplazar por tu UID de Firebase si se desea)
 const ADMIN_UID = 'YOUR_FIREBASE_UID';
 
-export type StatusFilterType = 'all' | 'open' | 'live' | 'finished';
+export type StatusFilterType = 'all' | 'today' | 'open' | 'live' | 'finished';
 
 const TUTORIAL_MOCK_MATCH: Match = {
   id: 'tutorial-mock-match',
@@ -489,13 +490,86 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     }
   };
 
+  const isMatchToday = (dateStr?: string) => {
+    if (!dateStr) return false;
+    try {
+      const d = new Date(dateStr);
+      if (isNaN(d.getTime())) return false;
+      return isToday(d);
+    } catch {
+      return false;
+    }
+  };
+
   const openMatchesCount = matches.filter(m => m.status === 'pending' && !isMatchLocked(m.date) && !getMatchLiveInfo(m).isLive).length;
   const liveMatchesCount = matches.filter(m => getMatchLiveInfo(m).isLive).length;
   const finishedMatchesCount = matches.filter(m => m.status === 'finished' && !getMatchLiveInfo(m).isLive).length;
+  const todayMatchesCount = matches.filter(m => isMatchToday(m.date)).length;
   const totalMatchesCount = matches.length;
+
+  // Partidos en las próximas 24 horas sin pronóstico del usuario
+  const urgentUnpredictedMatches = useMemo(() => {
+    if (!user) return [];
+    const now = currentTime;
+    const blockMs = (settings?.blockMinutesBeforeMatch || 15) * 60 * 1000;
+    const limit24h = now + 24 * 60 * 60 * 1000;
+
+    return matches.filter(m => {
+      const liveInfo = getMatchLiveInfo(m);
+      if (m.status !== 'pending' || liveInfo.isLive) return false;
+      const matchTime = new Date(m.date).getTime();
+      if (isNaN(matchTime)) return false;
+      const isLocked = isMatchLocked(m.date);
+      if (isLocked) return false;
+      if (matchTime <= now + blockMs || matchTime > limit24h) return false;
+
+      const p = predictions[m.id];
+      const hasPredicted = p && p.homeScore !== undefined && p.homeScore !== null;
+      return !hasPredicted;
+    }).sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }, [matches, predictions, user, currentTime, settings]);
+
+  // Recordatorio web push / notificación del sistema para partidos urgentes (< 24h)
+  useEffect(() => {
+    if (!user || urgentUnpredictedMatches.length === 0) return;
+    if (typeof window === 'undefined' || !('Notification' in window)) return;
+    if (Notification.permission !== 'granted') return;
+
+    const storageKey = `last_notified_urgent_${user.uid}`;
+    const lastNotified = parseInt(localStorage.getItem(storageKey) || '0', 10);
+    const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
+    if (Date.now() - lastNotified > TWELVE_HOURS) {
+      try {
+        const title = `⚽ ¡Tienes ${urgentUnpredictedMatches.length} ${urgentUnpredictedMatches.length === 1 ? 'partido' : 'partidos'} por comenzar!`;
+        const body = `Inician en menos de 24 horas y aún no has ingresado tu apuesta en La Cabra Gol.`;
+
+        if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+          navigator.serviceWorker.ready.then(reg => {
+            reg.showNotification(title, {
+              body,
+              icon: '/pwa-192x192.png',
+              badge: '/pwa-192x192.png',
+              tag: 'urgent-matches-24h'
+            });
+          }).catch(() => {
+            new Notification(title, { body, icon: '/pwa-192x192.png' });
+          });
+        } else {
+          new Notification(title, { body, icon: '/pwa-192x192.png' });
+        }
+        localStorage.setItem(storageKey, Date.now().toString());
+      } catch (e) {
+        console.warn('[Notifications] Could not trigger local urgent reminder:', e);
+      }
+    }
+  }, [user, urgentUnpredictedMatches.length]);
 
   const filteredMatches = matches.filter(match => {
     const liveInfo = getMatchLiveInfo(match);
+    if (statusFilter === 'today') {
+      if (!isMatchToday(match.date)) return false;
+    }
     if (statusFilter === 'open') {
       const isLocked = isMatchLocked(match.date);
       if (match.status !== 'pending' || isLocked || liveInfo.isLive) return false;
@@ -553,13 +627,50 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         </span>
       </div>
 
+      {/* Banner de Partidos Próximos sin Pronóstico (< 24 Horas) */}
+      {urgentUnpredictedMatches.length > 0 && (
+        <div className="bg-gradient-to-r from-amber-950/70 via-[#18140c] to-orange-950/50 border border-amber-500/50 rounded-2xl p-3 sm:p-3.5 shadow-lg shadow-amber-950/20 flex items-start justify-between gap-3 animate-in fade-in">
+          <div className="flex items-start gap-2.5 min-w-0">
+            <div className="w-8 h-8 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0 mt-0.5">
+              <AlertTriangle className="w-4 h-4 text-amber-400 animate-pulse" />
+            </div>
+            <div className="space-y-0.5 min-w-0">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <span className="text-xs font-black text-amber-300 uppercase tracking-wide">
+                  ¡Tienes {urgentUnpredictedMatches.length} {urgentUnpredictedMatches.length === 1 ? 'partido' : 'partidos'} sin pronosticar!
+                </span>
+                <span className="text-[9px] font-bold bg-amber-500/20 text-amber-300 px-1.5 py-0.2 rounded-full border border-amber-500/40">
+                  Inician en &lt; 24h
+                </span>
+              </div>
+              <p className="text-[11px] text-zinc-300 leading-snug">
+                El próximo encuentro cierra pronto ({formatMatchDate(urgentUnpredictedMatches[0].date)}). ¡Guarda tus apuestas para no perder puntos!
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const isFirstToday = isMatchToday(urgentUnpredictedMatches[0].date);
+              setStatusFilter(isFirstToday ? 'today' : 'open');
+              setSelectedGroup('All');
+            }}
+            className="px-3 py-1.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 font-black text-[10px] sm:text-xs uppercase tracking-wider rounded-xl shadow-md transition-all shrink-0 cursor-pointer self-center"
+          >
+            Pronosticar
+          </button>
+        </div>
+      )}
+
       {/* Tutorial Highlight Target for Filters & Jornadas */}
       <div id="tutorial-filters-and-rounds" className="space-y-2">
-        {/* Status Filter Tabs (TODOS, ABIERTOS, EN VIVO, FINALIZADOS) */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 bg-[#121215] p-0.5 rounded-xl border border-zinc-800 shadow-inner gap-1">
+        {/* Status Filter Tabs (TODOS, HOY, EN VIVO, ABIERTOS, FINALIZADOS) */}
+        <div className="grid grid-cols-5 bg-[#121215] p-1 rounded-xl border border-zinc-800 shadow-inner gap-1">
           <button
+            type="button"
             onClick={() => setStatusFilter('all')}
-            className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-1.5 px-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 cursor-pointer ${
               statusFilter === 'all'
                 ? 'bg-blue-600 text-white shadow-sm font-black'
                 : 'text-zinc-400 hover:text-white'
@@ -574,8 +685,49 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           </button>
 
           <button
+            type="button"
+            onClick={() => setStatusFilter('today')}
+            className={`py-1.5 px-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 cursor-pointer ${
+              statusFilter === 'today'
+                ? 'bg-sky-600 text-white shadow-sm font-black'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <span className="flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${todayMatchesCount > 0 ? (statusFilter === 'today' ? 'bg-white' : 'bg-sky-400') : 'bg-zinc-600'}`} />
+              <span>Hoy</span>
+            </span>
+            <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
+              statusFilter === 'today' ? 'bg-sky-700 text-white' : 'bg-zinc-800 text-zinc-400'
+            }`}>
+              {todayMatchesCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setStatusFilter('live')}
+            className={`py-1.5 px-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 cursor-pointer ${
+              statusFilter === 'live'
+                ? 'bg-orange-500 text-white shadow-sm font-black'
+                : 'text-zinc-400 hover:text-white'
+            }`}
+          >
+            <span className="flex items-center gap-1">
+              <span className={`w-1.5 h-1.5 rounded-full ${liveMatchesCount > 0 ? 'animate-pulse' : ''} ${statusFilter === 'live' ? 'bg-white' : 'bg-orange-400'}`} />
+              <span>En Vivo</span>
+            </span>
+            <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
+              statusFilter === 'live' ? 'bg-orange-600 text-white' : 'bg-zinc-800 text-zinc-400'
+            }`}>
+              {liveMatchesCount}
+            </span>
+          </button>
+
+          <button
+            type="button"
             onClick={() => setStatusFilter('open')}
-            className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-1.5 px-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 cursor-pointer ${
               statusFilter === 'open'
                 ? 'bg-emerald-600 text-white shadow-sm font-black'
                 : 'text-zinc-400 hover:text-white'
@@ -583,7 +735,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           >
             <span className="flex items-center gap-1">
               <span className={`w-1.5 h-1.5 rounded-full ${statusFilter === 'open' ? 'bg-white' : 'bg-emerald-400'}`} />
-              Abiertos
+              <span>Abiertos</span>
             </span>
             <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
               statusFilter === 'open' ? 'bg-emerald-700 text-white' : 'bg-zinc-800 text-zinc-400'
@@ -593,35 +745,17 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
           </button>
 
           <button
-            onClick={() => setStatusFilter('live')}
-            className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${
-              statusFilter === 'live'
-                ? 'bg-amber-600 text-white shadow-sm font-black'
-                : 'text-zinc-400 hover:text-white'
-            }`}
-          >
-            <span className="flex items-center gap-1">
-              <span className={`w-1.5 h-1.5 rounded-full ${liveMatchesCount > 0 ? 'animate-pulse' : ''} ${statusFilter === 'live' ? 'bg-white' : 'bg-amber-400'}`} />
-              En Vivo
-            </span>
-            <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
-              statusFilter === 'live' ? 'bg-amber-700 text-white' : 'bg-zinc-800 text-zinc-400'
-            }`}>
-              {liveMatchesCount}
-            </span>
-          </button>
-
-          <button
+            type="button"
             onClick={() => setStatusFilter('finished')}
-            className={`py-1.5 px-2 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 ${
+            className={`py-1.5 px-1 rounded-lg text-[10px] sm:text-[11px] font-bold transition-all flex flex-col sm:flex-row items-center justify-center gap-0.5 sm:gap-1.5 cursor-pointer ${
               statusFilter === 'finished'
-                ? 'bg-blue-600 text-white shadow-sm font-black'
+                ? 'bg-zinc-700 text-white shadow-sm font-black'
                 : 'text-zinc-400 hover:text-white'
             }`}
           >
             <span>Finalizados</span>
             <span className={`text-[9px] px-1.5 py-0.2 rounded font-mono ${
-              statusFilter === 'finished' ? 'bg-blue-700 text-white' : 'bg-zinc-800 text-zinc-400'
+              statusFilter === 'finished' ? 'bg-zinc-800 text-white' : 'bg-zinc-800 text-zinc-400'
             }`}>
               {finishedMatchesCount}
             </span>
@@ -716,7 +850,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                   : isEntretiempo
                     ? 'border-2 border-amber-500/50 bg-[#16120d] shadow-[0_0_15px_rgba(245,158,11,0.15)]'
                     : isInProgress
-                      ? 'border-2 border-rose-500/50 bg-[#150e10] shadow-[0_0_15px_rgba(244,63,94,0.15)]'
+                      ? 'border-2 border-orange-500/50 bg-[#160e0a] shadow-[0_0_15px_rgba(249,115,22,0.15)]'
                       : locked
                         ? 'border border-zinc-800/80 bg-[#111113]'
                         : 'border border-zinc-800/80 hover:border-zinc-700'
@@ -737,10 +871,10 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                         <span>{liveInfo.label.toLowerCase().includes('descanso') ? 'Descanso' : 'Entretiempo'}</span>
                       </span>
                     ) : isInProgress ? (
-                      <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-rose-300 bg-rose-500/20 px-2 py-0.5 rounded-full border border-rose-500/60 flex items-center gap-1.5 shadow-[0_0_12px_rgba(244,63,94,0.35)]">
+                      <span className="text-[9px] sm:text-[10px] font-black uppercase tracking-wider text-orange-300 bg-orange-500/20 px-2 py-0.5 rounded-full border border-orange-500/60 flex items-center gap-1.5 shadow-[0_0_12px_rgba(249,115,22,0.35)]">
                         <span className="relative flex h-2 w-2">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-80"></span>
-                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-orange-400 opacity-80"></span>
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-orange-500"></span>
                         </span>
                         <span>{liveInfo.label && liveInfo.label !== 'En Vivo' ? `En Vivo · ${liveInfo.label}` : 'En Vivo'}</span>
                       </span>
@@ -892,7 +1026,9 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                   ) : locked ? (
                     <>
                       {/* Marcador En Vivo / Cerrado */}
-                      <div className="inline-flex items-center gap-1.5 bg-zinc-900/90 border border-zinc-700/80 px-2.5 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white shadow-sm">
+                      <div className={`inline-flex items-center gap-1.5 bg-zinc-900/90 border px-2.5 py-0.5 rounded-lg font-mono text-sm sm:text-base font-black text-white shadow-sm ${
+                        isInProgress ? 'border-orange-500/50 shadow-[0_0_10px_rgba(249,115,22,0.2)]' : 'border-zinc-700/80'
+                      }`}>
                         <span>{isInProgress ? (match.homeScore ?? 0) : (match.homeScore ?? '-')}</span>
                         <span className="text-zinc-500 text-xs">-</span>
                         <span>{isInProgress ? (match.awayScore ?? 0) : (match.awayScore ?? '-')}</span>

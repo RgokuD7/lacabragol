@@ -1766,7 +1766,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       <span className={cn(
                         "text-[9px] font-black uppercase px-1.5 py-0.5 rounded",
                         currentStatus === 'finished' ? "bg-zinc-800 text-zinc-400 border border-zinc-700/50" :
-                        (currentStatus === 'in_progress' || (m.estado && (m.estado.toLowerCase().includes('vivo') || /\d+['’]/.test(m.estado)))) ? "bg-rose-500/10 text-rose-400 border border-rose-500/30 animate-pulse" :
+                        (currentStatus === 'in_progress' || (m.estado && (m.estado.toLowerCase().includes('vivo') || /\d+['’]/.test(m.estado)))) ? "bg-orange-500/10 text-orange-400 border border-orange-500/30 animate-pulse" :
                         (m.estado && (m.estado.toLowerCase().includes('entretiempo') || m.estado.toLowerCase().includes('descanso'))) ? "bg-amber-500/10 text-amber-400 border border-amber-500/30 animate-pulse" :
                         "bg-blue-500/10 text-blue-400 border border-blue-500/30"
                       )}>
@@ -2277,8 +2277,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                                 <span>{st.finished}/{st.total} Finalizados</span>
                               </span>
                             ) : hasGroupLive ? (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-rose-400 bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20 animate-pulse">
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-400" />
+                              <span className="inline-flex items-center gap-1 text-[10px] font-bold text-orange-400 bg-orange-500/10 px-1.5 py-0.5 rounded border border-orange-500/20 animate-pulse">
+                                <span className="w-1.5 h-1.5 rounded-full bg-orange-400" />
                                 <span>En vivo ({st.live})</span>
                               </span>
                             ) : st.finished > 0 ? (

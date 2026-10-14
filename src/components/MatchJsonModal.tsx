@@ -407,7 +407,7 @@ export function MatchJsonModal({
             match.status === 'finished'
               ? 'bg-zinc-800 text-zinc-300 border-zinc-700'
               : (match.status === 'in_progress' || (match.estado && (match.estado.toLowerCase().includes('vivo') || /\d+['’]/.test(match.estado))))
-                ? 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse'
+                ? 'bg-orange-500/20 text-orange-300 border-orange-500/40 animate-pulse'
                 : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
           }`}>
             {match.estado || (match.status === 'finished' ? 'Finalizado' : match.status === 'in_progress' ? 'En Vivo' : 'Programado')}
@@ -484,7 +484,7 @@ export function MatchJsonModal({
                   }}
                   className={`py-2.5 px-2 rounded-xl border text-xs font-bold flex flex-col items-center gap-1 transition-all cursor-pointer ${
                     manualStatus === 'in_progress'
-                      ? 'bg-amber-500/15 border-amber-500 text-amber-300 ring-1 ring-amber-500/50'
+                      ? 'bg-orange-500/15 border-orange-500 text-orange-300 ring-1 ring-orange-500/50'
                       : 'bg-zinc-900 border-zinc-800 text-zinc-400 hover:bg-zinc-800 hover:text-zinc-200'
                   }`}
                 >
