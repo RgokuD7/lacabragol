@@ -637,3 +637,305 @@ export async function syncDailyMatchesWithGemini(
     error: commit.error
   };
 }
+
+export interface SingleMatchStatsResult {
+  success: boolean;
+  message?: string;
+  error?: string;
+  matchData?: {
+    partido: string;
+    estado: string;
+    marcador: {
+      local: number;
+      visitante: number;
+    };
+    goles: Array<{
+      minuto: number;
+      jugador: string;
+      asistencia?: string | null;
+      tipo?: string;
+      equipo: string;
+      is_home?: boolean;
+    }>;
+    tarjetas: Array<{
+      minuto: number;
+      jugador: string;
+      tipo: string;
+      equipo: string;
+      is_home?: boolean;
+    }>;
+    cambios: Array<{
+      minuto: number;
+      jugador_entra: string;
+      jugador_sale: string;
+      equipo: string;
+      is_home?: boolean;
+    }>;
+    lesiones: Array<{
+      minuto?: number;
+      jugador: string;
+      equipo: string;
+      is_home?: boolean;
+    }>;
+  };
+  jsonText?: string;
+  searchSummary?: string;
+}
+
+/**
+ * Consulta en la web con Google Search Grounding usando Gemini 3.8 Flash
+ * las estadísticas completas de un partido específico (marcador, minuto, goles, asistentes, tarjetas y cambios).
+ */
+export async function fetchSingleMatchStatsWithGemini(
+  match: Match,
+  apiKeyOverride?: string
+): Promise<SingleMatchStatsResult> {
+  const apiKey = (apiKeyOverride || getGeminiApiKey()).trim();
+  if (!apiKey) {
+    return {
+      success: false,
+      message: 'Falta configurar la API Key de Gemini en Ajustes o en el panel de Administración.',
+      error: 'NO_API_KEY'
+    };
+  }
+
+  const dateFormatted = match.date ? new Date(match.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  
+  // Paso 1: Búsqueda Web en Vivo con Google Search Grounding
+  const promptStep1 = `USANDO TU HERRAMIENTA DE BÚSQUEDA EN INTERNET (Google Search), busca en la web los resultados y estadísticas reales, actuales y oficiales (en vivo o finalizado) del siguiente partido de fútbol de la UEFA Champions League:
+Partido: "${match.homeTeam}" (Equipo Local) vs "${match.awayTeam}" (Equipo Visitante)
+Fecha programada: ${dateFormatted}
+
+Dame un reporte detallado con:
+1. Marcador exacto de goles actual o final (o 0-0 si aún no empieza).
+2. Estado del encuentro: "Finalizado", "En vivo [minuto]" (ej. "En Vivo 74'"), "Entretiempo" / "Descanso", o "Programado" / "No iniciado".
+3. Lista completa de goles indicando para cada uno: Minuto exacto, Jugador que anotó, Jugador que dio la ASISTENCIA (o "sin asistencia" si no hubo), y a qué club pertenece el gol.
+4. Lista de tarjetas (amarillas o rojas) con minuto, jugador amonestado y equipo.
+5. Lista de sustituciones o cambios (jugador que entra, jugador que sale, minuto y equipo).
+6. Lesiones destacadas si ocurrieron.
+
+IMPORTANTE: Consulta fuentes deportivas oficiales en vivo (UEFA.com, Google Sports, FlashScore, ESPN, SofaScore). Si el partido aún no ha comenzado, indícalo claramente como "Programado" con 0-0 y listas vacías.`;
+
+  let step1Text = '';
+  let searchQueries: string[] = [];
+  let lastError: any = null;
+
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log(`[Gemini Single Match] Paso 1: Buscando en la web con ${modelName}...`);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptStep1 }] }],
+          tools: [{ googleSearch: {} }],
+          generationConfig: {
+            temperature: 0.1
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
+        throw new Error(errData?.error?.message || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const candidate = data.candidates?.[0];
+      const partText = candidate?.content?.parts?.[0]?.text;
+      const groundingMeta = candidate?.groundingMetadata;
+
+      searchQueries = groundingMeta?.webSearchQueries || [];
+
+      if (partText && partText.trim()) {
+        step1Text = partText.trim();
+        console.log(`[Gemini Single Match] Éxito en Paso 1 con ${modelName}.`);
+        break;
+      }
+    } catch (err: any) {
+      if (isGeminiRateLimit(err)) throw err;
+      lastError = err;
+      console.warn(`[Gemini Single Match] Error con ${modelName}:`, err.message);
+    }
+  }
+
+  if (!step1Text) {
+    return {
+      success: false,
+      message: `No se pudo obtener información web del partido: ${lastError?.message || 'Sin respuesta'}`,
+      error: lastError?.message
+    };
+  }
+
+  // Paso 2: Conversión estricta a JSON con responseMimeType
+  const promptStep2 = `A partir de la siguiente información verificada del partido de fútbol "${match.homeTeam}" vs "${match.awayTeam}", extrae los datos y devuelve ÚNICAMENTE un objeto JSON estricto con esta estructura:
+
+{
+  "partido": "${match.homeTeam} vs ${match.awayTeam}",
+  "estado": "Finalizado / En vivo XX' / Entretiempo / Programado",
+  "marcador": {
+    "local": 0,
+    "visitante": 0
+  },
+  "goles": [
+    {
+      "minuto": 25,
+      "jugador": "Nombre Jugador",
+      "asistencia": "Nombre Asistente o null",
+      "tipo": "jugada",
+      "equipo": "${match.homeTeam}"
+    }
+  ],
+  "tarjetas": [
+    {
+      "minuto": 65,
+      "jugador": "Nombre Jugador",
+      "tipo": "Amarilla",
+      "equipo": "${match.awayTeam}"
+    }
+  ],
+  "cambios": [
+    {
+      "minuto": 60,
+      "jugador_entra": "Nombre Entra",
+      "jugador_sale": "Nombre Sale",
+      "equipo": "${match.homeTeam}"
+    }
+  ],
+  "lesiones": []
+}
+
+REGLAS ESTRICTAS DE EQUIPOS Y ASISTENCIAS:
+1. El campo "equipo" en cada gol, tarjeta y cambio DEBE ser EXACTAMENTE "${match.homeTeam}" si corresponde al equipo local, o EXACTAMENTE "${match.awayTeam}" si corresponde al equipo visitante. No uses variaciones como "FC Barcelona" o "FCB" si el nombre provisto es "${match.homeTeam}" o "${match.awayTeam}".
+2. Si un gol tuvo asistencia, coloca el nombre del asistente en "asistencia". Si no tuvo asistencia o fue penal/autogol/jugada solitaria, pon null.
+3. Si el partido no ha comenzado, marcador debe ser 0-0, estado "Programado", y goles/tarjetas/cambios arrays vacíos [].
+
+TEXTO VERIFICADO:
+${step1Text}`;
+
+  let parsedJson: any = null;
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log(`[Gemini Single Match] Paso 2: Estructurando JSON con ${modelName}...`);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: promptStep2 }] }],
+          generationConfig: {
+            responseMimeType: 'application/json',
+            temperature: 0.1
+          }
+        })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        if (response.status === 429 || errData?.error?.code === 429) {
+          notifyGeminiRateLimit();
+          throw new GeminiRateLimitError();
+        }
+        throw new Error(errData?.error?.message || `HTTP ${response.status}`);
+      }
+
+      const data = await response.json();
+      const rawText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+      if (rawText) {
+        const cleanJson = rawText.replace(/```json\s*/gi, '').replace(/```\s*$/g, '').trim();
+        parsedJson = JSON.parse(cleanJson);
+        break;
+      }
+    } catch (err: any) {
+      if (isGeminiRateLimit(err)) throw err;
+      lastError = err;
+      console.warn(`[Gemini Single Match] Error parseando JSON con ${modelName}:`, err.message);
+    }
+  }
+
+  if (!parsedJson || typeof parsedJson !== 'object') {
+    return {
+      success: false,
+      message: `Error al estructurar los datos del partido con Gemini: ${lastError?.message || 'Formato inválido'}`,
+      error: lastError?.message
+    };
+  }
+
+  // 3. Normalización defensiva de equipos hacia match.homeTeam o match.awayTeam
+  const homeScore = Number(parsedJson.marcador?.local ?? 0);
+  const awayScore = Number(parsedJson.marcador?.visitante ?? 0);
+
+  const cleanGoles = (Array.isArray(parsedJson.goles) ? parsedJson.goles : []).map((g: any) => {
+    const rawTeam = String(g.equipo || '').trim();
+    const isHome = areTeamsEquivalent(rawTeam, match.homeTeam) ? true : 
+                   areTeamsEquivalent(rawTeam, match.awayTeam) ? false : 
+                   (g.is_home ?? true);
+    return {
+      minuto: Number(g.minuto ?? 0),
+      jugador: String(g.jugador || 'Gol').trim(),
+      asistencia: g.asistencia ? String(g.asistencia).trim() : null,
+      tipo: String(g.tipo || 'jugada').trim(),
+      equipo: isHome ? match.homeTeam : match.awayTeam,
+      is_home: isHome
+    };
+  });
+
+  const cleanTarjetas = (Array.isArray(parsedJson.tarjetas) ? parsedJson.tarjetas : []).map((t: any) => {
+    const rawTeam = String(t.equipo || '').trim();
+    const isHome = areTeamsEquivalent(rawTeam, match.homeTeam) ? true : 
+                   areTeamsEquivalent(rawTeam, match.awayTeam) ? false : 
+                   (t.is_home ?? false);
+    return {
+      minuto: Number(t.minuto ?? 0),
+      jugador: String(t.jugador || 'Amonestado').trim(),
+      tipo: String(t.tipo || 'Amarilla').trim(),
+      equipo: isHome ? match.homeTeam : match.awayTeam,
+      is_home: isHome
+    };
+  });
+
+  const cleanCambios = (Array.isArray(parsedJson.cambios) ? parsedJson.cambios : []).map((c: any) => {
+    const rawTeam = String(c.equipo || '').trim();
+    const isHome = areTeamsEquivalent(rawTeam, match.homeTeam) ? true : 
+                   areTeamsEquivalent(rawTeam, match.awayTeam) ? false : 
+                   (c.is_home ?? true);
+    return {
+      minuto: Number(c.minuto ?? 0),
+      jugador_entra: String(c.jugador_entra || '').trim(),
+      jugador_sale: String(c.jugador_sale || '').trim(),
+      equipo: isHome ? match.homeTeam : match.awayTeam,
+      is_home: isHome
+    };
+  });
+
+  const matchData = {
+    partido: `${match.homeTeam} vs ${match.awayTeam}`,
+    estado: String(parsedJson.estado || (homeScore > 0 || awayScore > 0 ? 'Finalizado' : 'Programado')).trim(),
+    marcador: {
+      local: homeScore,
+      visitante: awayScore
+    },
+    goles: cleanGoles,
+    tarjetas: cleanTarjetas,
+    cambios: cleanCambios,
+    lesiones: Array.isArray(parsedJson.lesiones) ? parsedJson.lesiones : []
+  };
+
+  const searchSummary = searchQueries.length > 0 
+    ? `Búsquedas web realizadas: ${searchQueries.join(', ')}`
+    : `Búsqueda web en vivo de ${match.homeTeam} vs ${match.awayTeam} completada con Gemini.`;
+
+  return {
+    success: true,
+    message: `Estadísticas obtenidas exitosamente con Gemini 3.8 Flash.`,
+    matchData,
+    jsonText: JSON.stringify(matchData, null, 2),
+    searchSummary
+  };
+}
+

@@ -43,6 +43,7 @@ import {
 import { GeminiApiResultsModal } from '../components/GeminiApiResultsModal';
 import { SerpApiStandingsModal } from '../components/SerpApiStandingsModal';
 import { StageWinnersModal } from '../components/StageWinnersModal';
+import { MatchJsonModal } from '../components/MatchJsonModal';
 import { 
   subscribeStages, 
   calculateStageStandings, 
@@ -90,6 +91,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [modalAwayScore, setModalAwayScore] = useState<number>(0);
   const [modalStatus, setModalStatus] = useState<'pending' | 'in_progress' | 'finished'>('pending');
   const [isSavingScoreModal, setIsSavingScoreModal] = useState(false);
+  const [adminJsonMatch, setAdminJsonMatch] = useState<{ match: Match; mode: 'manual' | 'ai' | 'json' } | null>(null);
 
   // Standings recalculation state
   const [isRecalculatingStandings, setIsRecalculatingStandings] = useState(false);
@@ -1781,6 +1783,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     </div>
                     <button 
                       type="button"
+                      onClick={(e) => { e.stopPropagation(); setAdminJsonMatch({ match: m, mode: 'ai' }); }}
+                      className="px-2 py-1.5 bg-purple-950/40 hover:bg-purple-900/60 text-purple-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-purple-500/40 cursor-pointer shadow-sm"
+                      title="Auto-buscar estadísticas con IA (Gemini 3.8 Flash)"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-purple-400" />
+                      <span className="text-[10px] uppercase font-bold">IA</span>
+                    </button>
+                    <button 
+                      type="button"
                       onClick={(e) => { e.stopPropagation(); handleOpenScoreModal(m); }}
                       className="px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white rounded-lg text-xs font-bold transition-all flex items-center gap-1 border border-zinc-700/70 cursor-pointer"
                     >
@@ -2738,6 +2749,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         isOpen={showWinnersModal}
         onClose={() => setShowWinnersModal(false)}
         stages={stages}
+      />
+
+      {/* Match JSON / IA Admin Modal */}
+      <MatchJsonModal
+        isOpen={!!adminJsonMatch}
+        onClose={() => setAdminJsonMatch(null)}
+        match={adminJsonMatch?.match || null}
+        settings={settings}
+        initialMode={adminJsonMatch?.mode || 'manual'}
       />
     </div>
 

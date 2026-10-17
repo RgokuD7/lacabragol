@@ -1,6 +1,7 @@
 import React from 'react';
 import { Match } from '../types';
 import { DEFAULT_PLAYERS } from '../data/players';
+import { areTeamsEquivalent } from '../lib/geminiSync';
 import { TeamBadge } from './TeamBadge';
 import { Info } from 'lucide-react';
 
@@ -10,6 +11,7 @@ export interface TimelineEvent {
   type: 'goal' | 'card' | 'substitution' | 'injury';
   cardType?: 'amarilla' | 'roja';
   playerName: string;
+  assist?: string;
   playerIn?: string;
   playerOut?: string;
   teamName: string;
@@ -27,6 +29,13 @@ function normalizeTeamStr(name: string): string {
 }
 
 function matchTeamSide(target: string, homeTeam: string, awayTeam: string): 'home' | 'away' | null {
+  if (!target) return null;
+
+  // 1. Direct official UCL registry equivalency (IDs, aliases, canonical names)
+  if (areTeamsEquivalent(target, homeTeam)) return 'home';
+  if (areTeamsEquivalent(target, awayTeam)) return 'away';
+
+  // 2. Normalized string containment check
   const normTarget = normalizeTeamStr(target);
   const normHome = normalizeTeamStr(homeTeam);
   const normAway = normalizeTeamStr(awayTeam);
@@ -76,6 +85,8 @@ export function parseMatchEvents(match: {
       if (typeof g === 'object') {
         const minute = Number(g.minuto ?? g.minute ?? 0);
         const playerName = String(g.jugador || g.player || 'Gol').trim();
+        const rawAssist = g.asistencia ?? g.assist;
+        const assist = (typeof rawAssist === 'string' && rawAssist.trim().toLowerCase() !== 'null' && rawAssist.trim().toLowerCase() !== 'undefined' && rawAssist.trim()) ? rawAssist.trim() : undefined;
         let teamName = String(g.equipo || g.team || '').trim();
         if (teamName.toLowerCase() === 'undefined') teamName = '';
 
@@ -102,6 +113,7 @@ export function parseMatchEvents(match: {
           minute: isNaN(minute) ? 0 : minute,
           type: 'goal',
           playerName,
+          assist,
           teamName: teamName || (isHome ? match.homeTeam : match.awayTeam),
           isHomeTeam: isHome
         });
@@ -423,6 +435,13 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
                         <p className="text-xs sm:text-sm font-black text-white leading-tight truncate" title={e.playerName}>
                           {e.playerName}
                         </p>
+                        {isGoal && e.assist && (
+                          <p className="text-[9px] sm:text-[10px] text-zinc-400 font-medium truncate flex items-center justify-end gap-1" title={`Asistencia: ${e.assist}`}>
+                            <span className="text-zinc-300 font-semibold truncate">{e.assist}</span>
+                            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider shrink-0">(Asist)</span>
+                            <span className="text-[10px] shrink-0">👟</span>
+                          </p>
+                        )}
                         <p className={`text-[9px] sm:text-[10px] font-semibold truncate ${
                           isGoal 
                             ? 'text-emerald-400' 
@@ -492,6 +511,13 @@ export function MatchEventsTimeline({ match }: MatchEventsTimelineProps) {
                         <p className="text-xs sm:text-sm font-black text-white leading-tight truncate" title={e.playerName}>
                           {e.playerName}
                         </p>
+                        {isGoal && e.assist && (
+                          <p className="text-[9px] sm:text-[10px] text-zinc-400 font-medium truncate flex items-center justify-start gap-1" title={`Asistencia: ${e.assist}`}>
+                            <span className="text-[10px] shrink-0">👟</span>
+                            <span className="text-[9px] text-zinc-500 font-bold uppercase tracking-wider shrink-0">(Asist)</span>
+                            <span className="text-zinc-300 font-semibold truncate">{e.assist}</span>
+                          </p>
+                        )}
                         <p className={`text-[9px] sm:text-[10px] font-semibold truncate ${
                           isGoal 
                             ? 'text-emerald-400' 

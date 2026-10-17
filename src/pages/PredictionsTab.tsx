@@ -97,7 +97,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   });
   const [eventsModalMatch, setEventsModalMatch] = useState<Match | null>(null);
   const [jsonModalMatch, setJsonModalMatch] = useState<Match | null>(null);
-  const [jsonModalMode, setJsonModalMode] = useState<'manual' | 'json'>('manual');
+  const [jsonModalMode, setJsonModalMode] = useState<'manual' | 'ai' | 'json'>('manual');
   const [activeKebabMatchId, setActiveKebabMatchId] = useState<string | null>(null);
 
   // Verificación de rol de administrador
@@ -926,6 +926,19 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                             <div className="px-3 py-1 text-[10px] uppercase tracking-wider font-bold text-zinc-500 border-b border-zinc-800 truncate">
                               Admin: {match.homeTeam}
                             </div>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveKebabMatchId(null);
+                                setJsonModalMode('ai');
+                                setJsonModalMatch(match);
+                              }}
+                              className="w-full flex items-center gap-2 px-3 py-2 text-xs font-semibold text-zinc-200 hover:text-purple-400 hover:bg-purple-500/10 text-left transition-colors border-b border-zinc-800/60"
+                            >
+                              <Sparkles className="w-4 h-4 text-purple-400 shrink-0" />
+                              <span>⚡ Auto-buscar con IA (Gemini)</span>
+                            </button>
                             <button
                               type="button"
                               onClick={(e) => {
