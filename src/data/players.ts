@@ -128,7 +128,8 @@ export function formatPosition(pos?: string): string {
   return clean;
 }
 
-export function normalizePlayerKey(name: string): string {
+export function normalizePlayerKey(name?: string | null): string {
+  if (!name || typeof name !== 'string') return '';
   return name
     .toLowerCase()
     .normalize("NFD")
@@ -203,8 +204,8 @@ export const KNOWN_FOOTBALL_ALIASES: Record<string, string[]> = {
  * considerando apodos oficiales, iniciales de nombre ("L. Yamal" -> "Lamine Yamal"),
  * partículas (de, van) y apellidos distintivos.
  */
-export function arePlayerNamesEquivalent(nameA: string, nameB: string): boolean {
-  if (!nameA || !nameB) return false;
+export function arePlayerNamesEquivalent(nameA?: string | null, nameB?: string | null): boolean {
+  if (!nameA || !nameB || typeof nameA !== 'string' || typeof nameB !== 'string') return false;
   const keyA = normalizePlayerKey(nameA);
   const keyB = normalizePlayerKey(nameB);
   if (!keyA || !keyB) return false;
@@ -213,7 +214,7 @@ export function arePlayerNamesEquivalent(nameA: string, nameB: string): boolean 
   // 1. Diccionario de alias conocidos
   for (const [canonical, aliases] of Object.entries(KNOWN_FOOTBALL_ALIASES)) {
     const normCanon = normalizePlayerKey(canonical);
-    const normAliases = aliases.map(normalizePlayerKey);
+    const normAliases = aliases.map(a => normalizePlayerKey(a));
     const allSet = [normCanon, ...normAliases];
     if (allSet.includes(keyA) && allSet.includes(keyB)) {
       return true;
@@ -260,19 +261,20 @@ export function arePlayerNamesEquivalent(nameA: string, nameB: string): boolean 
  * con un nombre de jugador proveniente de un partido o JSON.
  */
 export function findMatchingCatalogPlayer(
-  rawName: string, 
-  catalog: PlayerItem[]
+  rawName?: string | null, 
+  catalog?: PlayerItem[]
 ): PlayerItem | undefined {
-  if (!rawName || !rawName.trim()) return undefined;
+  if (!rawName || typeof rawName !== 'string' || !rawName.trim()) return undefined;
+  if (!catalog || !Array.isArray(catalog)) return undefined;
   const clean = rawName.trim();
   
   // 1. Coincidencia directa por clave
   const rawKey = normalizePlayerKey(clean);
-  const direct = catalog.find(p => normalizePlayerKey(p.name) === rawKey);
+  const direct = catalog.find(p => p && p.name && normalizePlayerKey(p.name) === rawKey);
   if (direct) return direct;
 
   // 2. Coincidencia inteligente (apodos, iniciales, apellidos)
-  return catalog.find(p => arePlayerNamesEquivalent(p.name, clean));
+  return catalog.find(p => p && p.name && arePlayerNamesEquivalent(p.name, clean));
 }
 
 /**

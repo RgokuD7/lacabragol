@@ -361,18 +361,6 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
   }, [matches]);
 
-  if (!profile?.isAdmin) {
-    return (
-      <div className="p-8 text-center space-y-3 max-w-md mx-auto">
-        <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 mx-auto flex items-center justify-center">
-          <AlertCircle className="w-6 h-6" />
-        </div>
-        <h2 className="text-lg font-bold text-white">Acceso Restringido</h2>
-        <p className="text-sm text-zinc-400">Esta sección es exclusiva para el administrador del sistema.</p>
-      </div>
-    );
-  }
-
   const filteredMatches = matches.filter(m => {
     const q = matchSearch.toLowerCase();
     const matchesSearch = m.homeTeam.toLowerCase().includes(q) || m.awayTeam.toLowerCase().includes(q);
@@ -2264,6 +2252,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     await handleSavePlayers(updated, `Jugador "${playerToSave.name}" actualizado con éxito.`);
     setEditingCatalogPlayer(null);
   };
+
+  if (!profile?.isAdmin) {
+    return (
+      <div className="p-8 text-center space-y-3 max-w-md mx-auto">
+        <div className="w-12 h-12 rounded-full bg-rose-500/10 border border-rose-500/30 text-rose-400 mx-auto flex items-center justify-center">
+          <AlertCircle className="w-6 h-6" />
+        </div>
+        <h2 className="text-lg font-bold text-white">Acceso Restringido</h2>
+        <p className="text-sm text-zinc-400">Esta sección es exclusiva para el administrador del sistema.</p>
+      </div>
+    );
+  }
 
   return (
     <div className={`font-sans text-[#e4e4e7] mx-auto max-w-4xl ${inline ? "space-y-3" : "p-3 sm:p-6 md:p-8 space-y-6 pb-[120px]"}`}>

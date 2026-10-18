@@ -88,35 +88,19 @@ export function TopScorersView() {
                     {/* Player & Club Column */}
                     <td className="py-2 px-3">
                       <div className="flex items-center gap-2.5">
-                        {/* Player Photo with Miniature Club Badge */}
-                        <div className="relative shrink-0">
-                          {scorer.playerPhoto ? (
-                            <img 
-                              src={scorer.playerPhoto} 
-                              alt={scorer.player} 
-                              className="w-8 h-8 rounded-full object-cover border border-amber-500/40 bg-zinc-800 shadow"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(scorer.player)}&background=27272a&color=fff&size=128&bold=true`;
-                              }}
-                            />
-                          ) : (
-                            <img 
-                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(scorer.player)}&background=27272a&color=fff&size=128&bold=true`}
-                              alt={scorer.player}
-                              className="w-8 h-8 rounded-full object-cover border border-zinc-700 bg-zinc-800 shadow"
-                            />
-                          )}
-                          <div className="absolute -bottom-1 -right-1 bg-zinc-950 rounded-full p-0.5 border border-zinc-700/80 shadow">
-                            <TeamBadge 
-                              src={scorer.teamLogo || ''} 
-                              teamName={scorer.team} 
-                              size="sm" 
-                              className="w-3.5 h-3.5" 
-                            />
-                          </div>
+                        {/* Player Photo (Clear & Uncovered) */}
+                        <div className="w-9 h-9 rounded-full shrink-0 overflow-hidden border border-zinc-700/80 bg-zinc-800 shadow-md">
+                          <img 
+                            src={scorer.playerPhoto || `https://ui-avatars.com/api/?name=${encodeURIComponent(scorer.player)}&background=27272a&color=fff&size=128&bold=true`} 
+                            alt={scorer.player}
+                            className="w-full h-full object-cover"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(scorer.player)}&background=27272a&color=fff&size=128&bold=true`;
+                            }}
+                          />
                         </div>
 
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-white text-xs truncate" title={scorer.player}>
                               {scorer.player}
@@ -127,9 +111,17 @@ export function TopScorersView() {
                               </span>
                             )}
                           </div>
-                          <p className="text-[10px] text-zinc-400 truncate mt-0.5">
-                            {scorer.team}
-                          </p>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <TeamBadge 
+                              src={scorer.teamLogo || ''} 
+                              teamName={scorer.team} 
+                              size="sm" 
+                              className="w-3.5 h-3.5 shrink-0" 
+                            />
+                            <p className="text-[10px] text-zinc-400 truncate">
+                              {scorer.team}
+                            </p>
+                          </div>
                         </div>
                       </div>
                     </td>

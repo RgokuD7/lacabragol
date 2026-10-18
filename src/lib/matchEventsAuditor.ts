@@ -39,8 +39,9 @@ export interface PlayerMatchEvidence {
 export function resolveEventUclTeam(
   rawTeam: any,
   isHome: boolean | undefined,
-  match: Match
+  match?: Match | null
 ): { canonicalTeam: string; logo?: string } | null {
+  if (!match) return null;
   const cleanTeam = String(rawTeam || '').trim();
   if (cleanTeam && cleanTeam.toLowerCase() !== 'undefined' && cleanTeam.toLowerCase() !== 'null') {
     const directUcl = findUclTeam(cleanTeam);
@@ -51,13 +52,13 @@ export function resolveEventUclTeam(
       return { canonicalTeam: canon, logo: getTeamLogoByName(canon) };
     }
     
-    if (areTeamsEquivalent(cleanTeam, match.homeTeam)) {
+    if (match.homeTeam && areTeamsEquivalent(cleanTeam, match.homeTeam)) {
       const homeUcl = findUclTeam(match.homeTeam);
       const teamName = homeUcl ? homeUcl.name : getCanonicalTeamName(match.homeTeam);
       return { canonicalTeam: teamName, logo: getTeamLogoByName(teamName) };
     }
     
-    if (areTeamsEquivalent(cleanTeam, match.awayTeam)) {
+    if (match.awayTeam && areTeamsEquivalent(cleanTeam, match.awayTeam)) {
       const awayUcl = findUclTeam(match.awayTeam);
       const teamName = awayUcl ? awayUcl.name : getCanonicalTeamName(match.awayTeam);
       return { canonicalTeam: teamName, logo: getTeamLogoByName(teamName) };
@@ -67,9 +68,11 @@ export function resolveEventUclTeam(
   // Fallback a isHome si no se especificó equipo
   if (isHome !== undefined) {
     const targetTeam = isHome ? match.homeTeam : match.awayTeam;
-    const sideUcl = findUclTeam(targetTeam);
-    const teamName = sideUcl ? sideUcl.name : getCanonicalTeamName(targetTeam);
-    return { canonicalTeam: teamName, logo: getTeamLogoByName(teamName) };
+    if (targetTeam) {
+      const sideUcl = findUclTeam(targetTeam);
+      const teamName = sideUcl ? sideUcl.name : getCanonicalTeamName(targetTeam);
+      return { canonicalTeam: teamName, logo: getTeamLogoByName(teamName) };
+    }
   }
 
   return null;
@@ -298,12 +301,16 @@ export function buildPlayerMatchEvidenceMap(
   matches: Match[],
   catalogPlayers: PlayerItem[]
 ): Map<string, PlayerMatchEvidence> {
-  const allEvents = extractAllMatchEvents(matches);
+  const allEvents = extractAllMatchEvents(matches || []);
   const map = new Map<string, PlayerMatchEvidence>();
 
+  if (!Array.isArray(catalogPlayers)) return map;
+
   catalogPlayers.forEach(p => {
+    if (!p || !p.name) return;
     const key = p.id ? String(p.id) : normalizePlayerKey(p.name);
-    const matchedEvents = allEvents.filter(ev => matchCatalogPlayerWithEventName(p.name, ev.playerName));
+    if (!key) return;
+    const matchedEvents = allEvents.filter(ev => ev && ev.playerName && matchCatalogPlayerWithEventName(p.name, ev.playerName));
     if (matchedEvents.length === 0) return;
 
     // Agrupar eventos por club canónico

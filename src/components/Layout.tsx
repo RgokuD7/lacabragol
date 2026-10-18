@@ -24,6 +24,7 @@ import { RankingTab } from '../pages/RankingTab';
 import { AdminTab } from '../pages/AdminTab';
 import { SettingsTab } from '../pages/SettingsTab';
 import { ProfileTab } from '../pages/ProfileTab';
+import { ErrorBoundary } from './ErrorBoundary';
 import { BottomNav } from './BottomNav';
 import { PWAInstallButton } from './PWAInstallButton';
 import { useAuth } from './AuthProvider';
@@ -486,12 +487,14 @@ export function Layout() {
       {/* Main Content Area */}
       <main className={`flex-1 min-h-0 w-full flex flex-col ${activeTab === 'standings' ? 'overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'pb-28 sm:pb-32'}`}>
         <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'min-h-full pb-8'}`}>
-          {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
-          {activeTab === 'standings' && <StandingsTab />}
-          {activeTab === 'ranking' && <RankingTab />}
-          {activeTab === 'settings' && <SettingsTab onNavigateToAdmin={() => setActiveTab('admin')} />}
-          {activeTab === 'profile' && <ProfileTab />}
-          {activeTab === 'admin' && <AdminTab onBack={() => setActiveTab('predictions')} />}
+          <ErrorBoundary fallbackTitle="Ocurrió un error al cargar la pestaña">
+            {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
+            {activeTab === 'standings' && <StandingsTab />}
+            {activeTab === 'ranking' && <RankingTab />}
+            {activeTab === 'settings' && <SettingsTab onNavigateToAdmin={() => setActiveTab('admin')} />}
+            {activeTab === 'profile' && <ProfileTab />}
+            {activeTab === 'admin' && <AdminTab onBack={() => setActiveTab('predictions')} />}
+          </ErrorBoundary>
         </div>
       </main>
 
