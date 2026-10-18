@@ -4,6 +4,8 @@ export interface PlayerItem {
   team?: string;
   position?: string;
   nationality?: string;
+  imageUrl?: string;
+  image?: string;
 }
 
 export const NATIONALITY_TRANSLATIONS: Record<string, string> = {
@@ -173,22 +175,28 @@ export function deduplicatePlayers(
     if (existingIndex >= 0) {
       const existing = merged[existingIndex];
       const preferredName = cleanName.length >= existing.name.length ? cleanName : existing.name;
+      const photo = inc.imageUrl || inc.image || existing.imageUrl || existing.image;
       merged[existingIndex] = {
         ...existing,
         name: preferredName,
         team: inc.team || existing.team,
         position: formattedPos || existing.position,
         nationality: formattedNat || existing.nationality,
+        imageUrl: photo,
+        image: photo,
         id: existing.id || inc.id || Math.floor(100000 + Math.random() * 900000)
       };
       updatedCount++;
     } else {
+      const photo = inc.imageUrl || inc.image;
       merged.push({
         id: inc.id || Math.floor(100000 + Math.random() * 900000),
         name: cleanName,
         team: inc.team || '',
         position: formattedPos || '',
-        nationality: formattedNat || ''
+        nationality: formattedNat || '',
+        imageUrl: photo,
+        image: photo
       });
       addedCount++;
     }

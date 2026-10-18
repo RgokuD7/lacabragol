@@ -267,64 +267,91 @@ export function PodiumDisplay({
             {/* Individual Awards: Goleador, Asistidor y MVP */}
             <div className="grid grid-cols-3 gap-1.5 sm:gap-2 mt-4 pt-3 border-t border-zinc-800/80">
               {/* Top Scorer / Goleador */}
-              <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
-                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
-                  <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30 shrink-0">
-                    <Flame className="w-3 h-3 text-emerald-400" />
+              {(() => {
+                const photo = topScorerPlayer?.imageUrl || topScorerPlayer?.image;
+                return (
+                  <div className="bg-emerald-500/10 border border-emerald-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
+                    <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                      {photo ? (
+                        <img src={photo} alt="" className="w-5 h-5 rounded-full object-cover border border-emerald-400/40 shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-emerald-500/20 flex items-center justify-center border border-emerald-400/30 shrink-0">
+                          <Flame className="w-3 h-3 text-emerald-400" />
+                        </div>
+                      )}
+                      <span className="text-[9px] sm:text-[10px] font-black text-emerald-400 uppercase tracking-wider truncate">
+                        Goleador
+                      </span>
+                    </div>
+                    <p className="text-[11px] sm:text-xs font-bold text-emerald-100 truncate pl-0.5" title={podium.topScorer}>
+                      {podium.topScorer || 'Sin definir'}
+                    </p>
+                    {topScorerPlayer?.nationality && (
+                      <span className="text-[10px] text-emerald-300/90 font-medium truncate pl-0.5 block mt-0.5">
+                        {formatNationality(topScorerPlayer.nationality)}
+                      </span>
+                    )}
                   </div>
-                  <span className="text-[9px] sm:text-[10px] font-black text-emerald-400 uppercase tracking-wider truncate">
-                    Goleador
-                  </span>
-                </div>
-                <p className="text-[11px] sm:text-xs font-bold text-emerald-100 truncate pl-0.5" title={podium.topScorer}>
-                  {podium.topScorer || 'Sin definir'}
-                </p>
-                {topScorerPlayer?.nationality && (
-                  <span className="text-[10px] text-emerald-300/90 font-medium truncate pl-0.5 block mt-0.5">
-                    {formatNationality(topScorerPlayer.nationality)}
-                  </span>
-                )}
-              </div>
+                );
+              })()}
 
               {/* Most Assists / Asistidor */}
-              <div className="bg-blue-500/10 border border-blue-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
-                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
-                  <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-400/30 shrink-0">
-                    <Zap className="w-3 h-3 text-blue-400" />
+              {(() => {
+                const photo = mostAssistsPlayer?.imageUrl || mostAssistsPlayer?.image;
+                return (
+                  <div className="bg-blue-500/10 border border-blue-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
+                    <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                      {photo ? (
+                        <img src={photo} alt="" className="w-5 h-5 rounded-full object-cover border border-blue-400/40 shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-blue-500/20 flex items-center justify-center border border-blue-400/30 shrink-0">
+                          <Zap className="w-3 h-3 text-blue-400" />
+                        </div>
+                      )}
+                      <span className="text-[9px] sm:text-[10px] font-black text-blue-400 uppercase tracking-wider truncate">
+                        Asistidor
+                      </span>
+                    </div>
+                    <p className="text-[11px] sm:text-xs font-bold text-blue-100 truncate pl-0.5" title={podium.mostAssists}>
+                      {podium.mostAssists || 'Sin definir'}
+                    </p>
+                    {mostAssistsPlayer?.nationality && (
+                      <span className="text-[10px] text-blue-300/90 font-medium truncate pl-0.5 block mt-0.5">
+                        {formatNationality(mostAssistsPlayer.nationality)}
+                      </span>
+                    )}
                   </div>
-                  <span className="text-[9px] sm:text-[10px] font-black text-blue-400 uppercase tracking-wider truncate">
-                    Asistidor
-                  </span>
-                </div>
-                <p className="text-[11px] sm:text-xs font-bold text-blue-100 truncate pl-0.5" title={podium.mostAssists}>
-                  {podium.mostAssists || 'Sin definir'}
-                </p>
-                {mostAssistsPlayer?.nationality && (
-                  <span className="text-[10px] text-blue-300/90 font-medium truncate pl-0.5 block mt-0.5">
-                    {formatNationality(mostAssistsPlayer.nationality)}
-                  </span>
-                )}
-              </div>
+                );
+              })()}
 
               {/* MVP del Torneo */}
-              <div className="bg-indigo-500/10 border border-indigo-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
-                <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
-                  <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center border border-indigo-400/30 shrink-0">
-                    <UserCheck className="w-3 h-3 text-indigo-400" />
+              {(() => {
+                const photo = mvpPlayer?.imageUrl || mvpPlayer?.image;
+                return (
+                  <div className="bg-indigo-500/10 border border-indigo-500/25 rounded-xl p-2 sm:p-3 flex flex-col justify-between">
+                    <div className="flex items-center gap-1 sm:gap-1.5 mb-1.5">
+                      {photo ? (
+                        <img src={photo} alt="" className="w-5 h-5 rounded-full object-cover border border-indigo-400/40 shrink-0" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+                      ) : (
+                        <div className="w-5 h-5 rounded-full bg-indigo-500/20 flex items-center justify-center border border-indigo-400/30 shrink-0">
+                          <UserCheck className="w-3 h-3 text-indigo-400" />
+                        </div>
+                      )}
+                      <span className="text-[9px] sm:text-[10px] font-black text-indigo-400 uppercase tracking-wider truncate">
+                        MVP
+                      </span>
+                    </div>
+                    <p className="text-[11px] sm:text-xs font-bold text-indigo-100 truncate pl-0.5" title={podium.mvp}>
+                      {podium.mvp || 'Sin definir'}
+                    </p>
+                    {mvpPlayer?.nationality && (
+                      <span className="text-[10px] text-indigo-300/90 font-medium truncate pl-0.5 block mt-0.5">
+                        {formatNationality(mvpPlayer.nationality)}
+                      </span>
+                    )}
                   </div>
-                  <span className="text-[9px] sm:text-[10px] font-black text-indigo-400 uppercase tracking-wider truncate">
-                    MVP
-                  </span>
-                </div>
-                <p className="text-[11px] sm:text-xs font-bold text-indigo-100 truncate pl-0.5" title={podium.mvp}>
-                  {podium.mvp || 'Sin definir'}
-                </p>
-                {mvpPlayer?.nationality && (
-                  <span className="text-[10px] text-indigo-300/90 font-medium truncate pl-0.5 block mt-0.5">
-                    {formatNationality(mvpPlayer.nationality)}
-                  </span>
-                )}
-              </div>
+                );
+              })()}
             </div>
           </div>
         </div>
@@ -470,9 +497,12 @@ export function PodiumDisplay({
                             )}
                           >
                             <img 
-                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=128&bold=true`} 
+                              src={player.imageUrl || player.image || `https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=128&bold=true`} 
                               alt={player.name} 
                               className="w-10 h-10 rounded-full object-cover shrink-0 border border-zinc-700/50" 
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=128&bold=true`;
+                              }}
                             />
                             <div className="flex-1 min-w-0">
                               <span className={cn("text-xs font-bold truncate block", isSelected ? "text-blue-400" : "text-white")}>{player.name}</span>

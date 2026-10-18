@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
-import { collection, doc, query, where, onSnapshot, getDocs, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
+import { collection, doc, query, where, onSnapshot, getDocs, getDoc, writeBatch, updateDoc, deleteDoc, addDoc, setDoc } from 'firebase/firestore';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
@@ -134,6 +134,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [newPlayerTeam, setNewPlayerTeam] = useState('');
   const [newPlayerPosition, setNewPlayerPosition] = useState('');
   const [newPlayerNationality, setNewPlayerNationality] = useState('');
+  const [newPlayerImage, setNewPlayerImage] = useState('');
   const [jsonInput, setJsonInput] = useState('');
   const [showJsonInput, setShowJsonInput] = useState(false);
   const [isSavingPlayers, setIsSavingPlayers] = useState(false);
@@ -142,12 +143,19 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Jugadores & Goleadores Subtabs
   const [playersSubTab, setPlayersSubTab] = useState<'catalog' | 'match_scorers' | 'custom_podiums'>('catalog');
 
+  // Pestaña interna de Estadísticas de Partidos: Goleadores vs Asistidores
+  const [matchStatsTab, setMatchStatsTab] = useState<'scorers' | 'assists'>('scorers');
+
   // Goleadores de Partidos state
   const [matchScorerSearch, setMatchScorerSearch] = useState('');
   const [isNormalizingMatchClubs, setIsNormalizingMatchClubs] = useState(false);
   const [editingScorerPlayer, setEditingScorerPlayer] = useState<{ playerName: string; currentTeam: string } | null>(null);
   const [selectedTargetTeam, setSelectedTargetTeam] = useState('');
   const [isUpdatingScorerTeam, setIsUpdatingScorerTeam] = useState(false);
+
+  // Asistidores de Partidos state
+  const [matchAssistSearch, setMatchAssistSearch] = useState('');
+  const [showOnlyInconsistentAssisters, setShowOnlyInconsistentAssisters] = useState(false);
 
   // Podios Manuales state
   const [customPodiumList, setCustomPodiumList] = useState<Array<{
@@ -298,13 +306,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
     const unsubPlayers = onSnapshot(doc(db, 'system', 'players'), snap => {
       if (snap.exists() && Array.isArray(snap.data()?.players) && snap.data().players.length > 0) {
-        const firestoreFormatted: PlayerItem[] = snap.data().players.map((p: any) => ({
-          ...p,
-          nationality: formatNationality(p.nationality),
-          position: formatPosition(p.position)
-        }));
-        const { merged } = deduplicatePlayers(DEFAULT_PLAYERS, firestoreFormatted);
-        setPodiumPlayers(merged);
+        const data = snap.data();
+        const deletedKeys = new Set<string>(data.deletedKeys || []);
+        const firestoreFormatted: PlayerItem[] = snap.data().players
+          .filter((p: any) => !deletedKeys.has(normalizePlayerKey(p.name)))
+          .map((p: any) => ({
+            ...p,
+            nationality: formatNationality(p.nationality),
+            position: formatPosition(p.position)
+          }));
+        setPodiumPlayers(firestoreFormatted);
       } else {
         setPodiumPlayers(DEFAULT_PLAYERS);
       }
@@ -438,7 +449,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         const hasMissingTeam = teamsArr.length === 0 || teamsArr.some(t => !t);
         const hasMultipleTeams = teamsArr.length > 1;
         const hasNonCanonicalTeam = teamsArr.some(t => t !== getCanonicalTeamName(t));
-        const isInconsistent = hasMissingTeam || hasMultipleTeams || hasNonCanonicalTeam;
+        const hasNonOfficialUclTeam = teamsArr.some(t => !t || !UCL_36_TEAMS.some(ucl => ucl.name === t));
+        const isInconsistent = hasMissingTeam || hasMultipleTeams || hasNonCanonicalTeam || hasNonOfficialUclTeam;
         return {
           ...item,
           teamsList: teamsArr,
@@ -446,6 +458,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           hasMissingTeam,
           hasMultipleTeams,
           hasNonCanonicalTeam,
+          hasNonOfficialUclTeam,
           isInconsistent
         };
       })
@@ -465,6 +478,138 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       s.canonicalTeam.toLowerCase().includes(q)
     );
   }, [matchScorersAudit, matchScorerSearch, showOnlyInconsistentScorers]);
+
+  // Auditoría en tiempo real de asistidores registrados en partidos
+  const matchAssistsAudit = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      playerName: string;
+      totalAssists: number;
+      distinctTeams: Set<string>;
+      matches: Array<{
+        matchId: string;
+        matchTitle: string;
+        date: string;
+        currentTeam: string;
+        minute: number;
+        scorerName: string;
+      }>;
+    }>();
+
+    matches.forEach(m => {
+      const rawGoles = Array.isArray((m as any).goles) ? (m as any).goles : (Array.isArray(m.goalscorers) ? m.goalscorers : []);
+      rawGoles.forEach((g: any) => {
+        if (!g) return;
+        let assistName = '';
+        let scorerName = '';
+        let cleanTeam = '';
+        let minute = 0;
+
+        if (typeof g === 'object') {
+          assistName = String(g.asistencia || g.assist || '').trim();
+          scorerName = String(g.jugador || g.player || '').trim();
+          cleanTeam = String(g.equipo || g.team || '').trim();
+          minute = Number(g.minuto ?? 0);
+          if (!cleanTeam && g.is_home !== undefined) {
+            cleanTeam = g.is_home ? m.homeTeam : m.awayTeam;
+          }
+        }
+
+        if (!assistName || assistName.toLowerCase() === 'null' || assistName.toLowerCase() === 'undefined' || assistName.toLowerCase() === 'none') {
+          return;
+        }
+
+        const key = assistName.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            playerName: assistName,
+            totalAssists: 0,
+            distinctTeams: new Set(),
+            matches: []
+          });
+        }
+
+        const item = map.get(key)!;
+        item.totalAssists += 1;
+        if (cleanTeam) item.distinctTeams.add(cleanTeam);
+        item.matches.push({
+          matchId: m.id,
+          matchTitle: `${m.homeTeam} vs ${m.awayTeam}`,
+          date: m.date || '',
+          currentTeam: cleanTeam,
+          minute,
+          scorerName
+        });
+      });
+    });
+
+    return Array.from(map.values())
+      .map(item => {
+        const teamsArr = Array.from(item.distinctTeams);
+        const canonical = getCanonicalTeamName(teamsArr[0] || '');
+        const hasMissingTeam = teamsArr.length === 0 || teamsArr.some(t => !t);
+        const hasMultipleTeams = teamsArr.length > 1;
+        const hasNonCanonicalTeam = teamsArr.some(t => t !== getCanonicalTeamName(t));
+        const hasNonOfficialUclTeam = teamsArr.some(t => !t || !UCL_36_TEAMS.some(ucl => ucl.name === t));
+        const isInconsistent = hasMissingTeam || hasMultipleTeams || hasNonCanonicalTeam || hasNonOfficialUclTeam;
+        return {
+          ...item,
+          teamsList: teamsArr,
+          canonicalTeam: canonical,
+          hasMissingTeam,
+          hasMultipleTeams,
+          hasNonCanonicalTeam,
+          hasNonOfficialUclTeam,
+          isInconsistent
+        };
+      })
+      .sort((a, b) => (b.isInconsistent ? 1 : 0) - (a.isInconsistent ? 1 : 0) || b.totalAssists - a.totalAssists);
+  }, [matches]);
+
+  const filteredMatchAssists = useMemo(() => {
+    let list = matchAssistsAudit;
+    if (showOnlyInconsistentAssisters) {
+      list = list.filter(a => a.isInconsistent);
+    }
+    const q = matchAssistSearch.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter(a => 
+      a.playerName.toLowerCase().includes(q) ||
+      a.teamsList.some(t => t.toLowerCase().includes(q)) ||
+      a.canonicalTeam.toLowerCase().includes(q)
+    );
+  }, [matchAssistsAudit, matchAssistSearch, showOnlyInconsistentAssisters]);
+
+  // Jugadores encontrados en partidos que aún no están en el catálogo oficial
+  const matchPlayersNotInCatalog = useMemo(() => {
+    const officialKeys = new Set(podiumPlayers.map(p => normalizePlayerKey(p.name)));
+    const map = new Map<string, { name: string; team: string; type: string }>();
+
+    matchScorersAudit.forEach(s => {
+      const key = normalizePlayerKey(s.playerName);
+      if (!officialKeys.has(key)) {
+        map.set(key, {
+          name: s.playerName,
+          team: s.canonicalTeam || s.teamsList[0] || '',
+          type: 'Goleador'
+        });
+      }
+    });
+
+    matchAssistsAudit.forEach(a => {
+      const key = normalizePlayerKey(a.playerName);
+      if (!officialKeys.has(key) && !map.has(key)) {
+        map.set(key, {
+          name: a.playerName,
+          team: a.canonicalTeam || a.teamsList[0] || '',
+          type: 'Asistidor'
+        });
+      }
+    });
+
+    return Array.from(map.values());
+  }, [podiumPlayers, matchScorersAudit, matchAssistsAudit]);
 
   // Evidencia detallada de jugadores según eventos de partidos (goles, asistencias, cambios/sustituciones, tarjetas, lesiones)
   const catalogPlayerMatchEvidenceMap = useMemo(() => {
@@ -1410,8 +1555,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const handleSavePlayers = async (updatedList: PlayerItem[], message: string) => {
     setIsSavingPlayers(true);
     try {
+      const snap = await getDoc(doc(db, 'system', 'players'));
+      const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
       await setDoc(doc(db, 'system', 'players'), {
         players: updatedList,
+        deletedKeys: existingDeleted,
         updatedAt: Date.now(),
         updatedBy: user?.email || 'admin'
       });
@@ -1432,9 +1580,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       team: newPlayerTeam.trim() || undefined,
       position: formatPosition(newPlayerPosition.trim()) || undefined,
       nationality: formatNationality(newPlayerNationality.trim()) || undefined,
+      imageUrl: newPlayerImage.trim() || undefined,
+      image: newPlayerImage.trim() || undefined,
       id: Math.floor(100000 + Math.random() * 900000)
     };
-    const { merged, addedCount, updatedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
+    const { merged, addedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
     await handleSavePlayers(
       merged, 
       addedCount > 0 
@@ -1445,13 +1595,69 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setNewPlayerTeam('');
     setNewPlayerPosition('');
     setNewPlayerNationality('');
+    setNewPlayerImage('');
   };
 
   const handleDeletePlayer = async (player: PlayerItem) => {
-    if (!window.confirm(`¿Estás seguro de eliminar a "${player.name}" de la lista de candidatos?`)) return;
+    if (!window.confirm(`¿Estás seguro de eliminar definitivamente a "${player.name}" del catálogo oficial?`)) return;
     const keyToDelete = normalizePlayerKey(player.name);
     const updated = podiumPlayers.filter(p => normalizePlayerKey(p.name) !== keyToDelete);
-    await handleSavePlayers(updated, `Jugador "${player.name}" eliminado de la lista.`);
+    setIsSavingPlayers(true);
+    try {
+      const snap = await getDoc(doc(db, 'system', 'players'));
+      const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
+      const newDeleted = Array.from(new Set([...existingDeleted, keyToDelete]));
+      await setDoc(doc(db, 'system', 'players'), {
+        players: updated,
+        deletedKeys: newDeleted,
+        updatedAt: Date.now(),
+        updatedBy: user?.email || 'admin'
+      });
+      setFeedback({ type: 'success', text: `Jugador "${player.name}" eliminado definitivamente del catálogo.` });
+    } catch (e: any) {
+      console.error(e);
+      setFeedback({ type: 'error', text: `Error al eliminar jugador: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsSavingPlayers(false);
+    }
+  };
+
+  const handleImportAllMatchPlayersToCatalog = async () => {
+    if (matchPlayersNotInCatalog.length === 0) return;
+    setIsSavingPlayers(true);
+    try {
+      const newItems: PlayerItem[] = matchPlayersNotInCatalog.map(p => ({
+        id: Math.floor(100000 + Math.random() * 900000),
+        name: p.name,
+        team: findUclTeam(p.team)?.name || getCanonicalTeamName(p.team) || p.team,
+        position: p.type === 'Asistidor' ? 'Centrocampista' : 'Delantero'
+      }));
+      const { merged, addedCount } = deduplicatePlayers(podiumPlayers, newItems);
+      await handleSavePlayers(merged, `¡Listo! Se unificaron ${addedCount} jugadores de partidos al Catálogo Oficial.`);
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: `Error al unificar jugadores: ${err?.message || 'Error desconocido'}` });
+    } finally {
+      setIsSavingPlayers(false);
+    }
+  };
+
+  const handleAddPlayerFromMatchToCatalog = async (name: string, team: string, type: 'Goleador' | 'Asistidor') => {
+    setIsSavingPlayers(true);
+    try {
+      const canonical = findUclTeam(team)?.name || getCanonicalTeamName(team) || team;
+      const incoming: PlayerItem = {
+        name: name.trim(),
+        team: canonical || undefined,
+        position: type === 'Asistidor' ? 'Centrocampista' : 'Delantero',
+        id: Math.floor(100000 + Math.random() * 900000)
+      };
+      const { merged } = deduplicatePlayers(podiumPlayers, [incoming]);
+      await handleSavePlayers(merged, `Jugador "${name}" agregado al Catálogo Oficial.`);
+    } catch (err: any) {
+      setFeedback({ type: 'error', text: `Error al agregar jugador: ${err?.message || 'Error desconocido'}` });
+    } finally {
+      setIsSavingPlayers(false);
+    }
   };
 
   const handleImportJson = async () => {
@@ -1492,6 +1698,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     try {
       await setDoc(doc(db, 'system', 'players'), {
         players: DEFAULT_PLAYERS,
+        deletedKeys: [],
         updatedAt: Date.now(),
         updatedBy: user?.email || 'admin'
       });
@@ -1653,7 +1860,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }
   };
 
-  // Actualizar el club de un jugador específico en todos los partidos donde anotó
+  // Actualizar el club de un jugador específico en todos los partidos donde participó (goleador o asistidor)
   const handleUpdatePlayerClubAcrossMatches = async (playerName: string, newTeamName: string) => {
     if (!newTeamName) return;
     setIsUpdatingScorerTeam(true);
@@ -1662,13 +1869,19 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       const canonical = findUclTeam(newTeamName)?.name || getCanonicalTeamName(newTeamName) || newTeamName;
 
       for (const m of matches) {
-        if (!Array.isArray(m.goalscorers) || m.goalscorers.length === 0) continue;
-        let matchChanged = false;
+        const hasGoles = Array.isArray((m as any).goles) && (m as any).goles.length > 0;
+        const hasGoalscorers = Array.isArray(m.goalscorers) && m.goalscorers.length > 0;
+        if (!hasGoles && !hasGoalscorers) continue;
 
-        const updatedScorers = m.goalscorers.map((g: any) => {
+        let matchChanged = false;
+        const updateScorerObj = (g: any) => {
           if (!g) return g;
           const pName = typeof g === 'object' ? (g.jugador || g.player || '') : (String(g).replace(/\d+.*$/, '') || String(g));
-          if (String(pName).trim().toLowerCase() === playerName.toLowerCase()) {
+          const aName = typeof g === 'object' ? (g.asistencia || g.assist || '') : '';
+          const isScorer = String(pName).trim().toLowerCase() === playerName.toLowerCase();
+          const isAssist = String(aName).trim().toLowerCase() === playerName.toLowerCase();
+
+          if (isScorer || isAssist) {
             matchChanged = true;
             if (typeof g === 'object') {
               return { ...g, equipo: canonical };
@@ -1677,13 +1890,19 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             }
           }
           return g;
-        });
+        };
+
+        const updatePayload: any = {};
+        if (hasGoles) {
+          updatePayload.goles = (m as any).goles.map(updateScorerObj);
+        }
+        if (hasGoalscorers) {
+          updatePayload.goalscorers = m.goalscorers.map(updateScorerObj);
+        }
 
         if (matchChanged) {
-          await updateDoc(doc(db, 'matches', m.id), {
-            goalscorers: updatedScorers,
-            updatedAt: Date.now()
-          });
+          updatePayload.updatedAt = Date.now();
+          await updateDoc(doc(db, 'matches', m.id), updatePayload);
           matchesUpdated++;
         }
       }
@@ -1760,12 +1979,17 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Guardar edición de jugador oficial del catálogo
   const handleSaveCatalogPlayerEdit = async () => {
     if (!editingCatalogPlayer) return;
+    const playerToSave: PlayerItem = {
+      ...editingCatalogPlayer,
+      imageUrl: editingCatalogPlayer.imageUrl?.trim() || undefined,
+      image: editingCatalogPlayer.imageUrl?.trim() || editingCatalogPlayer.image?.trim() || undefined,
+    };
     const updated = podiumPlayers.map(p => 
-      p.id === editingCatalogPlayer.id || normalizePlayerKey(p.name) === normalizePlayerKey(editingCatalogPlayer.name)
-        ? editingCatalogPlayer
+      p.id === playerToSave.id || normalizePlayerKey(p.name) === normalizePlayerKey(playerToSave.name)
+        ? playerToSave
         : p
     );
-    await handleSavePlayers(updated, `Jugador "${editingCatalogPlayer.name}" actualizado con éxito.`);
+    await handleSavePlayers(updated, `Jugador "${playerToSave.name}" actualizado con éxito.`);
     setEditingCatalogPlayer(null);
   };
 
@@ -2411,10 +2635,10 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
               )}
             >
               <Shield className="w-4 h-4 text-blue-400" />
-              <span>Goleadores de Partidos ({matchScorersAudit.length})</span>
-              {matchScorersAudit.some(s => s.isInconsistent) && (
+              <span>Goles & Asistencias ({matchScorersAudit.length + matchAssistsAudit.length})</span>
+              {(matchScorersAudit.some(s => s.isInconsistent) || matchAssistsAudit.some(a => a.isInconsistent)) && (
                 <span className="bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full" title="Hay clubes inconsistentes en partidos">
-                  {matchScorersAudit.filter(s => s.isInconsistent).length}
+                  {matchScorersAudit.filter(s => s.isInconsistent).length + matchAssistsAudit.filter(a => a.isInconsistent).length}
                 </span>
               )}
             </button>
@@ -2539,7 +2763,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     <UserPlus className="w-4 h-4 text-emerald-400" />
                     Agregar Jugador Manualmente al Catálogo
                   </span>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
                     <input
                       type="text"
                       placeholder="Nombre Completo *"
@@ -2565,10 +2789,17 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       onChange={(e) => setNewPlayerPosition(e.target.value)}
                       className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
                     />
+                    <input
+                      type="url"
+                      placeholder="URL Foto (ej. UEFA.com)"
+                      value={newPlayerImage}
+                      onChange={(e) => setNewPlayerImage(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                    />
                     <div className="flex gap-2">
                       <input
                         type="text"
-                        placeholder="Nacionalidad (Ej: Francia 🇫🇷)"
+                        placeholder="Nac. (Francia 🇫🇷)"
                         value={newPlayerNationality}
                         onChange={(e) => setNewPlayerNationality(e.target.value)}
                         className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
@@ -2650,6 +2881,27 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 </div>
               )}
 
+              {/* Banner de Unificación de Jugadores de Partidos no Catalogados */}
+              {matchPlayersNotInCatalog.length > 0 && (
+                <div className="bg-blue-950/30 border border-blue-500/40 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
+                    <div className="text-xs text-blue-200">
+                      Hay <strong>{matchPlayersNotInCatalog.length}</strong> {matchPlayersNotInCatalog.length === 1 ? 'jugador registrado' : 'jugadores registrados'} en partidos (goles/asistencias) que aún no están en el Catálogo Oficial.
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleImportAllMatchPlayersToCatalog}
+                    disabled={isSavingPlayers}
+                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 shadow transition-all cursor-pointer"
+                  >
+                    {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                    Unificar Todos al Catálogo ({matchPlayersNotInCatalog.length})
+                  </button>
+                </div>
+              )}
+
               {/* Player Search and List */}
               <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2694,6 +2946,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     const logo = matchEvidence?.canonicalTeam && !isExactOfficial
                       ? getTeamLogoByName(matchEvidence.canonicalTeam)
                       : getTeamLogoByName(player.team);
+                    const playerPhoto = player.imageUrl || player.image;
 
                     return (
                       <div
@@ -2708,7 +2961,25 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         )}
                       >
                         <div className="flex items-center gap-3 min-w-0">
-                          {logo ? (
+                          {playerPhoto ? (
+                            <div className="relative shrink-0">
+                              <img
+                                src={playerPhoto}
+                                alt={player.name}
+                                className="w-10 h-10 rounded-full object-cover shrink-0 border border-amber-500/40 bg-zinc-800 shadow"
+                                onError={(e) => {
+                                  (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=80&bold=true`;
+                                }}
+                              />
+                              {logo && (
+                                <img
+                                  src={logo}
+                                  alt=""
+                                  className="w-4 h-4 object-contain absolute -bottom-1 -right-1 bg-black/90 rounded-full p-0.5 border border-zinc-700"
+                                />
+                              )}
+                            </div>
+                          ) : logo ? (
                             <img src={logo} alt={player.team || 'Club'} className="w-9 h-9 object-contain shrink-0" />
                           ) : (
                             <img
@@ -2826,7 +3097,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             </div>
           )}
 
-          {/* SUBTAB 2: GOLEADORES DE PARTIDOS */}
+          {/* SUBTAB 2: GOLES Y ASISTENCIAS DE PARTIDOS */}
           {playersSubTab === 'match_scorers' && (
             <div className="space-y-6">
               {/* Action Bar */}
@@ -2835,13 +3106,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   <div>
                     <div className="flex items-center gap-2">
                       <Shield className="w-5 h-5 text-blue-400" />
-                      <h3 className="text-base font-bold text-white">Goleadores Registrados en Partidos</h3>
+                      <h3 className="text-base font-bold text-white">Goles y Asistencias en Partidos</h3>
                       <span className="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-xs px-2.5 py-0.5 rounded-full font-black">
-                        {matchScorersAudit.length} goleadores
+                        {matchScorersAudit.length} goleadores • {matchAssistsAudit.length} asistidores
                       </span>
                     </div>
                     <p className="text-xs text-zinc-400 mt-1">
-                      Audita y corrige los clubes asignados a cada gol en los partidos de Champions.
+                      Audita, normaliza y corrige los clubes asignados a cada gol y asistencia en los partidos de Champions.
                     </p>
                   </div>
 
@@ -2859,175 +3130,452 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </div>
                 </div>
 
-                {/* Info notice */}
-                <div className="bg-blue-950/20 border border-blue-800/40 rounded-lg p-3 text-xs text-blue-300 flex items-start gap-2.5">
-                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                  <div className="space-y-1">
-                    <p className="font-semibold">¿Por qué es importante normalizar los clubes?</p>
-                    <p className="text-zinc-400 text-[11px] leading-relaxed">
-                      Si un gol se guardó como "FC Barcelona" y otro como "Barcelona", la tabla pública de goleadores podría no agruparlos o no mostrar el escudo oficial. Con esta herramienta puedes estandarizarlos a los 36 clubes oficiales de Champions con un solo clic.
-                    </p>
-                  </div>
+                {/* Sub-selector: Goleadores vs Asistidores */}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setMatchStatsTab('scorers')}
+                    className={cn(
+                      "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm",
+                      matchStatsTab === 'scorers'
+                        ? "bg-blue-600 text-white"
+                        : "bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
+                    )}
+                  >
+                    <span>⚽ Goleadores ({matchScorersAudit.length})</span>
+                    {matchScorersAudit.some(s => s.isInconsistent) && (
+                      <span className="bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                        {matchScorersAudit.filter(s => s.isInconsistent).length}
+                      </span>
+                    )}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMatchStatsTab('assists')}
+                    className={cn(
+                      "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shadow-sm",
+                      matchStatsTab === 'assists'
+                        ? "bg-blue-600 text-white"
+                        : "bg-zinc-900 text-zinc-400 hover:text-white border border-zinc-800"
+                    )}
+                  >
+                    <span>👟 Asistidores ({matchAssistsAudit.length})</span>
+                    {matchAssistsAudit.some(a => a.isInconsistent) && (
+                      <span className="bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                        {matchAssistsAudit.filter(a => a.isInconsistent).length}
+                      </span>
+                    )}
+                  </button>
                 </div>
               </div>
 
-              {/* Banner de Aviso de Goleadores con Clubes Inconsistentes */}
-              {matchScorersAudit.some(s => s.isInconsistent) && (
-                <div className="bg-amber-950/25 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                  <div className="flex items-start gap-3">
-                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
-                    <div>
+              {/* SECCIÓN 1: GOLEADORES */}
+              {matchStatsTab === 'scorers' && (
+                <>
+                  {/* Banner de Aviso de Goleadores con Clubes Inconsistentes */}
+                  {matchScorersAudit.some(s => s.isInconsistent) && (
+                    <div className="bg-amber-950/25 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs font-bold text-amber-200">
+                              ⚠️ {matchScorersAudit.filter(s => s.isInconsistent).length} goleadores tienen clubes no estándar o fuera de los 36 oficiales de Champions
+                            </p>
+                            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
+                              {matchScorersAudit.filter(s => s.isInconsistent).length} por revisar
+                            </span>
+                          </div>
+                          <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                            Puedes usar el botón "Auto-Normalizar Clubes" arriba para estandarizarlos automáticamente a los 36 oficiales de Champions, o corregirlos individualmente abajo.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowOnlyInconsistentScorers(!showOnlyInconsistentScorers)}
+                          className={cn(
+                            "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm",
+                            showOnlyInconsistentScorers
+                              ? "bg-amber-500 text-black font-black"
+                              : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                          )}
+                        >
+                          <Filter className="w-3.5 h-3.5" />
+                          {showOnlyInconsistentScorers ? 'Ver todos los goleadores' : `Filtrar los ${matchScorersAudit.filter(s => s.isInconsistent).length} con problemas`}
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Search & Scorers List */}
+                  <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={matchScorerSearch}
+                          onChange={(e) => setMatchScorerSearch(e.target.value)}
+                          placeholder="Buscar goleador o club..."
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
+                        />
+                      </div>
                       <div className="flex items-center gap-2 flex-wrap">
-                        <p className="text-xs font-bold text-amber-200">
-                          ⚠️ {matchScorersAudit.filter(s => s.isInconsistent).length} goleadores tienen clubes no estándar o inconsistentes en partidos
-                        </p>
-                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
-                          {matchScorersAudit.filter(s => s.isInconsistent).length} por revisar
+                        {matchScorersAudit.some(s => s.isInconsistent) && (
+                          <button
+                            type="button"
+                            onClick={() => setShowOnlyInconsistentScorers(!showOnlyInconsistentScorers)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer",
+                              showOnlyInconsistentScorers
+                                ? "bg-amber-500 text-black font-black"
+                                : "bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30"
+                            )}
+                          >
+                            <Filter className="w-3 h-3" />
+                            {showOnlyInconsistentScorers ? 'Ver todos' : `Solo con problemas (${matchScorersAudit.filter(s => s.isInconsistent).length})`}
+                          </button>
+                        )}
+                        <span className="text-xs text-zinc-500 whitespace-nowrap">
+                          Mostrando {filteredMatchScorers.length} de {matchScorersAudit.length}
                         </span>
                       </div>
-                      <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
-                        Puedes usar el botón "Auto-Normalizar Clubes" arriba para estandarizarlos automáticamente a los 36 oficiales de Champions, o filtrarlos abajo para corregirlos uno a uno.
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {filteredMatchScorers.map((scorer) => {
+                        const logo = getTeamLogoByName(scorer.canonicalTeam || scorer.teamsList[0]);
+                        const inCatalog = podiumPlayers.some(p => normalizePlayerKey(p.name) === normalizePlayerKey(scorer.playerName));
+
+                        return (
+                          <div
+                            key={scorer.key}
+                            className={cn(
+                              "bg-zinc-900/80 border rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all",
+                              scorer.isInconsistent ? "border-amber-500/50 bg-amber-950/10" : "border-zinc-800/90 hover:border-zinc-700"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              {logo ? (
+                                <img src={logo} alt="Club" className="w-8 h-8 object-contain shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
+                                  ⚽
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-bold text-white">{scorer.playerName}</p>
+                                  <span className="bg-blue-500/20 text-blue-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-blue-500/30">
+                                    {scorer.totalGoals} {scorer.totalGoals === 1 ? 'gol' : 'goles'}
+                                  </span>
+                                  {scorer.hasNonOfficialUclTeam && (
+                                    <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <AlertTriangle className="w-3 h-3 text-rose-400" />
+                                      Club no oficial UCL
+                                    </span>
+                                  )}
+                                  {!scorer.hasNonOfficialUclTeam && scorer.hasNonCanonicalTeam && (
+                                    <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                      Club no estándar
+                                    </span>
+                                  )}
+                                  {inCatalog ? (
+                                    <span className="text-[9px] text-zinc-400 bg-zinc-800/70 border border-zinc-700/50 px-2 py-0.5 rounded-full font-medium">
+                                      ✓ En Catálogo
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
+                                      No catalogado
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-zinc-400">
+                                  <span>Club(es) en BD:</span>
+                                  {scorer.teamsList.length > 0 ? (
+                                    scorer.teamsList.map((t, idx) => {
+                                      const isOfficialUcl = UCL_36_TEAMS.some(ucl => ucl.name === t);
+                                      return (
+                                        <span key={idx} className={cn(
+                                          "px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                                          isOfficialUcl
+                                            ? "bg-zinc-800 text-zinc-300 border-zinc-700/60"
+                                            : "bg-rose-500/10 text-rose-300 border-rose-500/30 font-bold"
+                                        )}>
+                                          {t || 'Sin club'} {!isOfficialUcl && '(No UCL)'}
+                                        </span>
+                                      );
+                                    })
+                                  ) : (
+                                    <span className="text-rose-400 italic font-semibold">Sin club asignado</span>
+                                  )}
+                                  <span className="text-zinc-600">•</span>
+                                  <span className="text-zinc-500">{scorer.matches.length} {scorer.matches.length === 1 ? 'partido' : 'partidos'}</span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                              {!inCatalog && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddPlayerFromMatchToCatalog(scorer.playerName, scorer.canonicalTeam || scorer.teamsList[0], 'Goleador')}
+                                  disabled={isSavingPlayers}
+                                  className="px-2.5 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                                  title="Añadir este goleador al Catálogo Oficial de Champions"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Catálogo</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentT = scorer.teamsList[0] || scorer.canonicalTeam || '';
+                                  const detected = findUclTeam(currentT);
+                                  const initialTarget = detected ? detected.name : (UCL_36_TEAMS.find(t => t.name === currentT)?.name || UCL_36_TEAMS[0].name);
+
+                                  setEditingScorerPlayer({
+                                    playerName: scorer.playerName,
+                                    currentTeam: currentT
+                                  });
+                                  setSelectedTargetTeam(initialTarget);
+                                }}
+                                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                                Cambiar Club
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {filteredMatchScorers.length === 0 && (
+                        <div className="text-center py-8 text-zinc-500 text-xs">
+                          No se encontraron goleadores que coincidan con "{matchScorerSearch}".
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {/* SECCIÓN 2: ASISTIDORES */}
+              {matchStatsTab === 'assists' && (
+                <>
+                  {/* Aviso / Disclaimer sobre Lista de Asistidores */}
+                  <div className="bg-amber-950/30 border border-amber-500/40 rounded-xl p-4 text-xs text-amber-200 flex items-start gap-3 shadow-sm">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div className="space-y-1">
+                      <p className="font-bold text-amber-300">⚠️ Aviso sobre la Lista de Asistencias de Partidos</p>
+                      <p className="text-zinc-300 text-[11px] leading-relaxed">
+                        Esta lista está basada en los datos recuperados de partidos en vivo y archivos JSON importados; puede que contenga discrepancias o esté incompleta. Utilízala para verificar asistidores, corregir clubes o integrarlos al catálogo oficial.
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
-                    <button
-                      type="button"
-                      onClick={() => setShowOnlyInconsistentScorers(!showOnlyInconsistentScorers)}
-                      className={cn(
-                        "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm",
-                        showOnlyInconsistentScorers
-                          ? "bg-amber-500 text-black font-black"
-                          : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
-                      )}
-                    >
-                      <Filter className="w-3.5 h-3.5" />
-                      {showOnlyInconsistentScorers ? 'Ver todos los goleadores' : `Filtrar los ${matchScorersAudit.filter(s => s.isInconsistent).length} con problemas`}
-                    </button>
-                  </div>
-                </div>
-              )}
 
-              {/* Search & Scorers List */}
-              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div className="relative flex-1">
-                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      value={matchScorerSearch}
-                      onChange={(e) => setMatchScorerSearch(e.target.value)}
-                      placeholder="Buscar goleador o club..."
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
-                    />
-                  </div>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {matchScorersAudit.some(s => s.isInconsistent) && (
-                      <button
-                        type="button"
-                        onClick={() => setShowOnlyInconsistentScorers(!showOnlyInconsistentScorers)}
-                        className={cn(
-                          "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer",
-                          showOnlyInconsistentScorers
-                            ? "bg-amber-500 text-black font-black"
-                            : "bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30"
-                        )}
-                      >
-                        <Filter className="w-3 h-3" />
-                        {showOnlyInconsistentScorers ? 'Ver todos' : `Solo con problemas (${matchScorersAudit.filter(s => s.isInconsistent).length})`}
-                      </button>
-                    )}
-                    <span className="text-xs text-zinc-500 whitespace-nowrap">
-                      Mostrando {filteredMatchScorers.length} de {matchScorersAudit.length}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2.5">
-                  {filteredMatchScorers.map((scorer) => {
-                    const logo = getTeamLogoByName(scorer.canonicalTeam || scorer.teamsList[0]);
-                    return (
-                      <div
-                        key={scorer.key}
-                        className={cn(
-                          "bg-zinc-900/80 border rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all",
-                          scorer.isInconsistent ? "border-amber-500/50 bg-amber-950/10" : "border-zinc-800/90 hover:border-zinc-700"
-                        )}
-                      >
-                        <div className="flex items-center gap-3 min-w-0">
-                          {logo ? (
-                            <img src={logo} alt="Club" className="w-8 h-8 object-contain shrink-0" />
-                          ) : (
-                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
-                              ⚽
-                            </div>
-                          )}
-                          <div className="min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap">
-                              <p className="text-sm font-bold text-white">{scorer.playerName}</p>
-                              <span className="bg-blue-500/20 text-blue-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-blue-500/30">
-                                {scorer.totalGoals} {scorer.totalGoals === 1 ? 'gol' : 'goles'}
-                              </span>
-                              {scorer.isInconsistent && (
-                                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
-                                  <AlertTriangle className="w-3 h-3 text-amber-400" />
-                                  Club No Estándar
-                                </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-zinc-400">
-                              <span>Club(es) en BD:</span>
-                              {scorer.teamsList.length > 0 ? (
-                                scorer.teamsList.map((t, idx) => (
-                                  <span key={idx} className={cn(
-                                    "px-1.5 py-0.5 rounded text-[10px] font-medium border",
-                                    t === getCanonicalTeamName(t)
-                                      ? "bg-zinc-800 text-zinc-300 border-zinc-700/60"
-                                      : "bg-amber-500/10 text-amber-300 border-amber-500/30 font-bold"
-                                  )}>
-                                    {t || 'Sin club'}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-rose-400 italic font-semibold">Sin club asignado</span>
-                              )}
-                              <span className="text-zinc-600">•</span>
-                              <span className="text-zinc-500">{scorer.matches.length} {scorer.matches.length === 1 ? 'partido' : 'partidos'}</span>
-                            </div>
+                  {/* Banner de Aviso de Asistidores con Clubes Inconsistentes */}
+                  {matchAssistsAudit.some(a => a.isInconsistent) && (
+                    <div className="bg-amber-950/25 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                      <div className="flex items-start gap-3">
+                        <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="text-xs font-bold text-amber-200">
+                              ⚠️ {matchAssistsAudit.filter(a => a.isInconsistent).length} asistidores tienen clubes no estándar o fuera de los 36 oficiales de Champions
+                            </p>
+                            <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
+                              {matchAssistsAudit.filter(a => a.isInconsistent).length} por revisar
+                            </span>
                           </div>
-                        </div>
-
-                        <div className="flex items-center gap-2 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              const currentT = scorer.teamsList[0] || scorer.canonicalTeam || '';
-                              const detected = findUclTeam(currentT);
-                              const initialTarget = detected ? detected.name : (UCL_36_TEAMS.find(t => t.name === currentT)?.name || UCL_36_TEAMS[0].name);
-
-                              setEditingScorerPlayer({
-                                playerName: scorer.playerName,
-                                currentTeam: currentT
-                              });
-                              setSelectedTargetTeam(initialTarget);
-                            }}
-                            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
-                          >
-                            <Edit3 className="w-3.5 h-3.5 text-blue-400" />
-                            Cambiar Club
-                          </button>
+                          <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                            Puedes corregir su club asignado en los partidos con el botón "Cambiar Club" de cada jugador.
+                          </p>
                         </div>
                       </div>
-                    );
-                  })}
-
-                  {filteredMatchScorers.length === 0 && (
-                    <div className="text-center py-8 text-zinc-500 text-xs">
-                      No se encontraron goleadores que coincidan con "{matchScorerSearch}".
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setShowOnlyInconsistentAssisters(!showOnlyInconsistentAssisters)}
+                          className={cn(
+                            "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm",
+                            showOnlyInconsistentAssisters
+                              ? "bg-amber-500 text-black font-black"
+                              : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                          )}
+                        >
+                          <Filter className="w-3.5 h-3.5" />
+                          {showOnlyInconsistentAssisters ? 'Ver todos los asistidores' : `Filtrar los ${matchAssistsAudit.filter(a => a.isInconsistent).length} con problemas`}
+                        </button>
+                      </div>
                     </div>
                   )}
-                </div>
-              </div>
+
+                  {/* Search & Assists List */}
+                  <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div className="relative flex-1">
+                        <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="text"
+                          value={matchAssistSearch}
+                          onChange={(e) => setMatchAssistSearch(e.target.value)}
+                          placeholder="Buscar asistidor o club..."
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
+                        />
+                      </div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {matchAssistsAudit.some(a => a.isInconsistent) && (
+                          <button
+                            type="button"
+                            onClick={() => setShowOnlyInconsistentAssisters(!showOnlyInconsistentAssisters)}
+                            className={cn(
+                              "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer",
+                              showOnlyInconsistentAssisters
+                                ? "bg-amber-500 text-black font-black"
+                                : "bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30"
+                            )}
+                          >
+                            <Filter className="w-3 h-3" />
+                            {showOnlyInconsistentAssisters ? 'Ver todos' : `Solo con problemas (${matchAssistsAudit.filter(a => a.isInconsistent).length})`}
+                          </button>
+                        )}
+                        <span className="text-xs text-zinc-500 whitespace-nowrap">
+                          Mostrando {filteredMatchAssists.length} de {matchAssistsAudit.length}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-2.5">
+                      {filteredMatchAssists.map((assistItem) => {
+                        const logo = getTeamLogoByName(assistItem.canonicalTeam || assistItem.teamsList[0]);
+                        const inCatalog = podiumPlayers.some(p => normalizePlayerKey(p.name) === normalizePlayerKey(assistItem.playerName));
+
+                        return (
+                          <div
+                            key={assistItem.key}
+                            className={cn(
+                              "bg-zinc-900/80 border rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all",
+                              assistItem.isInconsistent ? "border-amber-500/50 bg-amber-950/10" : "border-zinc-800/90 hover:border-zinc-700"
+                            )}
+                          >
+                            <div className="flex items-center gap-3 min-w-0">
+                              {logo ? (
+                                <img src={logo} alt="Club" className="w-8 h-8 object-contain shrink-0" />
+                              ) : (
+                                <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
+                                  👟
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <p className="text-sm font-bold text-white">{assistItem.playerName}</p>
+                                  <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-emerald-500/30">
+                                    {assistItem.totalAssists} {assistItem.totalAssists === 1 ? 'asistencia' : 'asistencias'}
+                                  </span>
+                                  {assistItem.hasNonOfficialUclTeam && (
+                                    <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <AlertTriangle className="w-3 h-3 text-rose-400" />
+                                      Club no oficial UCL
+                                    </span>
+                                  )}
+                                  {!assistItem.hasNonOfficialUclTeam && assistItem.hasNonCanonicalTeam && (
+                                    <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                                      <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                      Club no estándar
+                                    </span>
+                                  )}
+                                  {inCatalog ? (
+                                    <span className="text-[9px] text-zinc-400 bg-zinc-800/70 border border-zinc-700/50 px-2 py-0.5 rounded-full font-medium">
+                                      ✓ En Catálogo
+                                    </span>
+                                  ) : (
+                                    <span className="text-[9px] text-amber-300 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full font-bold">
+                                      No catalogado
+                                    </span>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-zinc-400">
+                                  <span>Club(es) en BD:</span>
+                                  {assistItem.teamsList.length > 0 ? (
+                                    assistItem.teamsList.map((t, idx) => {
+                                      const isOfficialUcl = UCL_36_TEAMS.some(ucl => ucl.name === t);
+                                      return (
+                                        <span key={idx} className={cn(
+                                          "px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                                          isOfficialUcl
+                                            ? "bg-zinc-800 text-zinc-300 border-zinc-700/60"
+                                            : "bg-rose-500/10 text-rose-300 border-rose-500/30 font-bold"
+                                        )}>
+                                          {t || 'Sin club'} {!isOfficialUcl && '(No UCL)'}
+                                        </span>
+                                      );
+                                    })
+                                  ) : (
+                                    <span className="text-rose-400 italic font-semibold">Sin club asignado</span>
+                                  )}
+                                  <span className="text-zinc-600">•</span>
+                                  <span className="text-zinc-500">
+                                    {assistItem.matches.slice(0, 2).map((m, i) => (
+                                      <span key={i} className="mr-1">
+                                        {m.scorerName ? `asistió a ${m.scorerName} (${m.minute}')` : m.matchTitle}
+                                      </span>
+                                    ))}
+                                    {assistItem.matches.length > 2 && `(+${assistItem.matches.length - 2} más)`}
+                                  </span>
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                              {!inCatalog && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAddPlayerFromMatchToCatalog(assistItem.playerName, assistItem.canonicalTeam || assistItem.teamsList[0], 'Asistidor')}
+                                  disabled={isSavingPlayers}
+                                  className="px-2.5 py-1.5 bg-emerald-600/90 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1 transition-all cursor-pointer shadow-sm disabled:opacity-50"
+                                  title="Añadir este asistidor al Catálogo Oficial de Champions"
+                                >
+                                  <Plus className="w-3.5 h-3.5" />
+                                  <span>Catálogo</span>
+                                </button>
+                              )}
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const currentT = assistItem.teamsList[0] || assistItem.canonicalTeam || '';
+                                  const detected = findUclTeam(currentT);
+                                  const initialTarget = detected ? detected.name : (UCL_36_TEAMS.find(t => t.name === currentT)?.name || UCL_36_TEAMS[0].name);
+
+                                  setEditingScorerPlayer({
+                                    playerName: assistItem.playerName,
+                                    currentTeam: currentT
+                                  });
+                                  setSelectedTargetTeam(initialTarget);
+                                }}
+                                className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                              >
+                                <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                                Cambiar Club
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+
+                      {filteredMatchAssists.length === 0 && (
+                        <div className="text-center py-8 text-zinc-500 text-xs">
+                          No se encontraron asistidores que coincidan con "{matchAssistSearch}".
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -3159,7 +3707,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                   <div className="flex items-center gap-2">
                     <Shield className="w-5 h-5 text-blue-400" />
-                    <h3 className="text-sm font-bold text-white">Corregir Club del Goleador</h3>
+                    <h3 className="text-sm font-bold text-white">Corregir Club de Jugador en Partidos</h3>
                   </div>
                   <button onClick={() => setEditingScorerPlayer(null)} className="text-zinc-400 hover:text-white">
                     <X className="w-4 h-4" />
@@ -3235,7 +3783,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           </optgroup>
                         </select>
                         <p className="text-[10px] text-zinc-500 mt-1">
-                          ℹ️ Se actualizará este club en todos los partidos donde anotó este jugador y en la tabla de goleadores.
+                          ℹ️ Se actualizará este club en todos los partidos donde participó este jugador (goles / asistencias) y en la tabla.
                         </p>
                       </div>
                     </div>
@@ -3574,6 +4122,48 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, nationality: e.target.value })}
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
                         />
+                      </div>
+
+                      <div>
+                        <label className="text-zinc-300 block mb-1 font-semibold flex items-center justify-between">
+                          <span>URL de Foto / Imagen (ej. UEFA.com):</span>
+                          {(editingCatalogPlayer.imageUrl || editingCatalogPlayer.image) && (
+                            <span className="text-[10px] text-emerald-400 font-bold">Foto vinculada</span>
+                          )}
+                        </label>
+                        <div className="flex gap-2 items-center">
+                          {(editingCatalogPlayer.imageUrl || editingCatalogPlayer.image) ? (
+                            <img
+                              src={editingCatalogPlayer.imageUrl || editingCatalogPlayer.image}
+                              alt="Preview"
+                              className="w-9 h-9 rounded-full object-cover shrink-0 border border-amber-500/50 bg-zinc-800"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(editingCatalogPlayer.name)}&background=27272a&color=fff`;
+                              }}
+                            />
+                          ) : (
+                            <div className="w-9 h-9 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs text-zinc-500 shrink-0">
+                              📷
+                            </div>
+                          )}
+                          <input
+                            type="url"
+                            placeholder="https://img.uefa.com/... o enlace de imagen"
+                            value={editingCatalogPlayer.imageUrl || editingCatalogPlayer.image || ''}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setEditingCatalogPlayer({
+                                ...editingCatalogPlayer,
+                                imageUrl: val,
+                                image: val
+                              });
+                            }}
+                            className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500 text-xs"
+                          />
+                        </div>
+                        <p className="text-[10px] text-zinc-500 mt-1">
+                          Pega el enlace de la foto oficial del jugador en UEFA.com u otra web para mostrar su foto en su perfil y podios.
+                        </p>
                       </div>
                     </div>
                   );
