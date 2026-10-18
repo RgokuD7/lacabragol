@@ -174,11 +174,21 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   // Modal para agregar jugador de podio manual al catálogo oficial
   const [addingCustomPlayer, setAddingCustomPlayer] = useState<{
+    customName: string;
+    occurrences: Array<{
+      podiumId: string;
+      userId: string;
+      userName: string;
+      role: 'topScorer' | 'mostAssists' | 'mvp';
+      groupId?: string;
+    }>;
     name: string;
     team: string;
     position: string;
     nationality: string;
+    imageUrl?: string;
   } | null>(null);
+  const [modalCustomError, setModalCustomError] = useState<string | null>(null);
 
   // Modal para vincular jugador manual a jugador oficial existente
   const [linkingCustomPlayer, setLinkingCustomPlayer] = useState<{
@@ -187,6 +197,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     targetOfficialName: string;
   } | null>(null);
   const [isSavingPodiumLink, setIsSavingPodiumLink] = useState(false);
+  const [modalLinkError, setModalLinkError] = useState<string | null>(null);
+  const [officialPlayerSearch, setOfficialPlayerSearch] = useState('');
 
   // Modal para editar jugador oficial del catálogo
   const [editingCatalogPlayer, setEditingCatalogPlayer] = useState<PlayerItem | null>(null);
@@ -731,6 +743,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       p.occurrences.some(o => o.userName.toLowerCase().includes(q))
     );
   }, [customPodiumList, customPodiumSearch]);
+
+  const filteredOfficialForLinking = useMemo(() => {
+    if (!officialPlayerSearch.trim()) return podiumPlayers;
+    const q = officialPlayerSearch.toLowerCase().trim();
+    return podiumPlayers.filter(p => 
+      p.name.toLowerCase().includes(q) || 
+      (p.team && p.team.toLowerCase().includes(q))
+    );
+  }, [podiumPlayers, officialPlayerSearch]);
 
   const handleMatchScoreChange = (matchId: string, field: 'home' | 'away' | 'status', value: string) => {
     setMatchScores(prev => ({
@@ -1557,9 +1578,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
       const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
+      const updatedKeys = new Set(updatedList.map(p => normalizePlayerKey(p.name)));
+      const filteredDeleted = existingDeleted.filter(k => !updatedKeys.has(k));
       await setDoc(doc(db, 'system', 'players'), {
         players: updatedList,
-        deletedKeys: existingDeleted,
+        deletedKeys: filteredDeleted,
         updatedAt: Date.now(),
         updatedBy: user?.email || 'admin'
       });
@@ -1933,26 +1956,67 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Guardar jugador manual en el catálogo oficial
   const handleSaveCustomPlayerToCatalog = async () => {
     if (!addingCustomPlayer || !addingCustomPlayer.name.trim()) return;
-    const incoming: PlayerItem = {
-      name: addingCustomPlayer.name.trim(),
-      team: addingCustomPlayer.team.trim() || undefined,
-      position: formatPosition(addingCustomPlayer.position.trim()) || undefined,
-      nationality: formatNationality(addingCustomPlayer.nationality.trim()) || undefined,
-      id: Math.floor(100000 + Math.random() * 900000)
-    };
-    const { merged, addedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
-    await handleSavePlayers(
-      merged,
-      `Jugador "${incoming.name}" agregado al catálogo oficial con club ${incoming.team || 'Sin Club'}. Ahora aparecerá con escudo en los podios.`
-    );
-    setAddingCustomPlayer(null);
-    fetchCustomPodiums();
+    setIsSavingPlayers(true);
+    setModalCustomError(null);
+    try {
+      const incomingName = addingCustomPlayer.name.trim();
+      const incoming: PlayerItem = {
+        name: incomingName,
+        team: addingCustomPlayer.team.trim() || undefined,
+        position: formatPosition(addingCustomPlayer.position.trim()) || undefined,
+        nationality: formatNationality(addingCustomPlayer.nationality.trim()) || undefined,
+        imageUrl: addingCustomPlayer.imageUrl?.trim() || undefined,
+        image: addingCustomPlayer.imageUrl?.trim() || undefined,
+        id: Math.floor(100000 + Math.random() * 900000)
+      };
+
+      // 1. Si los podios tienen un nombre ligeramente distinto o corregido, actualizar los podios en Firestore
+      let podiumsUpdated = 0;
+      if (addingCustomPlayer.occurrences && addingCustomPlayer.occurrences.length > 0) {
+        for (const occ of addingCustomPlayer.occurrences) {
+          try {
+            await updateDoc(doc(db, 'podiums', occ.podiumId), {
+              [occ.role]: incomingName,
+              updatedAt: Date.now()
+            });
+            podiumsUpdated++;
+          } catch (podErr) {
+            console.warn(`Podium update failed for ${occ.podiumId}:`, podErr);
+          }
+        }
+      }
+
+      // 2. Agregar al catálogo oficial
+      const { merged } = deduplicatePlayers(podiumPlayers, [incoming]);
+      await handleSavePlayers(
+        merged,
+        `Jugador "${incoming.name}" agregado al catálogo oficial con club ${incoming.team || 'Sin Club'}.${podiumsUpdated > 0 ? ` Actualizados ${podiumsUpdated} podios.` : ''}`
+      );
+
+      // 3. Remover inmediatamente de la lista local de podios manuales pendientes
+      const customKey = normalizePlayerKey(addingCustomPlayer.customName);
+      const incomingKey = normalizePlayerKey(incomingName);
+      setCustomPodiumList(prev => prev.filter(p => {
+        const k = normalizePlayerKey(p.playerName);
+        return k !== customKey && k !== incomingKey;
+      }));
+
+      setAddingCustomPlayer(null);
+      fetchCustomPodiums();
+    } catch (e: any) {
+      console.error(e);
+      setModalCustomError(`Error: ${e?.message || 'Error desconocido al guardar'}`);
+      setFeedback({ type: 'error', text: `Error al guardar jugador: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsSavingPlayers(false);
+    }
   };
 
   // Vincular jugador manual a jugador oficial existente en los podios
   const handleLinkCustomPlayerToOfficial = async () => {
     if (!linkingCustomPlayer || !linkingCustomPlayer.targetOfficialName) return;
     setIsSavingPodiumLink(true);
+    setModalLinkError(null);
     try {
       let count = 0;
       for (const occ of linkingCustomPlayer.occurrences) {
@@ -1962,14 +2026,20 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         });
         count++;
       }
+
+      // Remover inmediatamente de la lista local de podios manuales pendientes
+      const linkedKey = normalizePlayerKey(linkingCustomPlayer.customName);
+      setCustomPodiumList(prev => prev.filter(p => normalizePlayerKey(p.playerName) !== linkedKey));
+
       setFeedback({
         type: 'success',
-        text: `¡Vinculación exitosa! Se actualizaron ${count} podios: "${linkingCustomPlayer.customName}" ahora apunta a "${linkingCustomPlayer.targetOfficialName}".`
+        text: `¡Vinculación exitosa! Se actualizaron ${count} podio(s): "${linkingCustomPlayer.customName}" ahora apunta a "${linkingCustomPlayer.targetOfficialName}".`
       });
       setLinkingCustomPlayer(null);
       fetchCustomPodiums();
     } catch (e: any) {
       console.error(e);
+      setModalLinkError(`Error: ${e?.message || 'Error desconocido al vincular'}`);
       setFeedback({ type: 'error', text: `Error al vincular jugador en podios: ${e?.message || 'Error desconocido'}` });
     } finally {
       setIsSavingPodiumLink(false);
@@ -3661,12 +3731,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       <div className="flex items-center gap-2 flex-wrap shrink-0">
                         <button
                           type="button"
-                          onClick={() => setAddingCustomPlayer({
-                            name: item.playerName,
-                            team: UCL_36_TEAMS[0].name,
-                            position: item.roles.includes('Goleador') ? 'Delantero' : item.roles.includes('Asistidor') ? 'Centrocampista' : 'Delantero',
-                            nationality: ''
-                          })}
+                          onClick={() => {
+                            setModalCustomError(null);
+                            setAddingCustomPlayer({
+                              customName: item.playerName,
+                              occurrences: item.occurrences,
+                              name: item.playerName,
+                              team: UCL_36_TEAMS[0].name,
+                              position: item.roles.includes('Goleador') ? 'Delantero' : item.roles.includes('Asistidor') ? 'Centrocampista' : 'Delantero',
+                              nationality: '',
+                              imageUrl: ''
+                            });
+                          }}
                           className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-colors cursor-pointer"
                         >
                           <Plus className="w-3.5 h-3.5" />
@@ -3674,11 +3750,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         </button>
                         <button
                           type="button"
-                          onClick={() => setLinkingCustomPlayer({
-                            customName: item.playerName,
-                            occurrences: item.occurrences,
-                            targetOfficialName: podiumPlayers[0]?.name || ''
-                          })}
+                          onClick={() => {
+                            setModalLinkError(null);
+                            setOfficialPlayerSearch('');
+                            setLinkingCustomPlayer({
+                              customName: item.playerName,
+                              occurrences: item.occurrences,
+                              targetOfficialName: podiumPlayers[0]?.name || ''
+                            });
+                          }}
                           className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                         >
                           <Link2 className="w-3.5 h-3.5 text-amber-400" />
@@ -3826,6 +3906,12 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </button>
                 </div>
 
+                {modalCustomError && (
+                  <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+                    {modalCustomError}
+                  </div>
+                )}
+
                 <div className="space-y-3 text-xs">
                   <div>
                     <label className="text-zinc-300 block mb-1 font-semibold">Nombre del Jugador:</label>
@@ -3875,6 +3961,17 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
                     />
                   </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">URL de Foto / Imagen (Opcional):</label>
+                    <input
+                      type="url"
+                      placeholder="https://img.uefa.com/... (link oficial UEFA o foto)"
+                      value={addingCustomPlayer.imageUrl || ''}
+                      onChange={(e) => setAddingCustomPlayer({ ...addingCustomPlayer, imageUrl: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
                 </div>
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
@@ -3913,6 +4010,12 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </button>
                 </div>
 
+                {modalLinkError && (
+                  <div className="p-2.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400 text-xs">
+                    {modalLinkError}
+                  </div>
+                )}
+
                 <div className="space-y-3 text-xs">
                   <div>
                     <label className="text-zinc-400 block mb-1 font-semibold">Nombre Escrito por el Usuario:</label>
@@ -3922,18 +4025,38 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </div>
 
                   <div>
-                    <label className="text-zinc-300 block mb-1 font-semibold">Seleccionar Jugador Oficial Canónico:</label>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Buscar Jugador Oficial Canónico:</label>
+                    <div className="relative mb-2">
+                      <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500" />
+                      <input
+                        type="text"
+                        value={officialPlayerSearch}
+                        onChange={(e) => setOfficialPlayerSearch(e.target.value)}
+                        placeholder="Filtrar por nombre o club (ej: Grimaldo, Mbappe)..."
+                        className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-8 pr-2.5 py-2 text-white text-xs outline-none focus:border-amber-400"
+                      />
+                    </div>
+
+                    <label className="text-zinc-300 block mb-1 font-semibold">
+                      Seleccionar de la Lista ({filteredOfficialForLinking.length} disponibles):
+                    </label>
                     <select
                       value={linkingCustomPlayer.targetOfficialName}
                       onChange={(e) => setLinkingCustomPlayer({ ...linkingCustomPlayer, targetOfficialName: e.target.value })}
-                      className="w-full bg-zinc-900 border border-amber-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-amber-400"
+                      className="w-full bg-zinc-900 border border-amber-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-amber-400 max-h-40"
+                      size={filteredOfficialForLinking.length > 5 ? 5 : undefined}
                     >
-                      {podiumPlayers.map(p => (
-                        <option key={p.id || p.name} value={p.name}>
+                      {filteredOfficialForLinking.map(p => (
+                        <option key={p.id || p.name} value={p.name} className="py-1">
                           {p.name} {p.team ? `(${p.team})` : ''}
                         </option>
                       ))}
                     </select>
+                    {filteredOfficialForLinking.length === 0 && (
+                      <p className="text-[10px] text-rose-400 mt-1">
+                        No se encontraron jugadores oficiales con "{officialPlayerSearch}".
+                      </p>
+                    )}
                     <p className="text-[10px] text-zinc-500 mt-1">
                       ℹ️ Se actualizarán los {linkingCustomPlayer.occurrences.length} podios de los usuarios para que usen este nombre oficial.
                     </p>

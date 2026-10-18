@@ -18,6 +18,7 @@ import { recalculateStandings } from '../lib/standings';
 import { vibrateTap } from '../lib/haptics';
 import { cn } from '../lib/utils';
 import { TopScorersView } from '../components/TopScorersView';
+import { TopAssistsView } from '../components/TopAssistsView';
 
 interface StandingTeam {
   id?: number;
@@ -292,7 +293,7 @@ export function StandingsTab() {
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'brackets'>('table');
-  const [activeSection, setActiveSection] = useState<'standings' | 'scorers'>('standings');
+  const [activeSection, setActiveSection] = useState<'standings' | 'scorers' | 'assists'>('standings');
 
   // Apple Sports Scrubber Stage Range State
   const [startRoundIdx, setStartRoundIdx] = useState<number>(0);
@@ -489,7 +490,9 @@ export function StandingsTab() {
             <p className="text-[10px] sm:text-xs text-zinc-400 truncate">
               {activeSection === 'standings' 
                 ? 'Tabla de Posiciones Oficial · Fase de Liga (36 clubes)'
-                : 'Tabla Oficial de Máximos Goleadores (Top Scorers)'}
+                : activeSection === 'scorers'
+                  ? 'Tabla Oficial de Máximos Goleadores (Top Scorers)'
+                  : 'Tabla de Máximos Asistidores (Top Assists)'}
             </p>
           </div>
 
@@ -511,7 +514,7 @@ export function StandingsTab() {
           )}
         </div>
 
-        {/* Sub-navigation Switcher: Clasificación vs Goleadores */}
+        {/* Sub-navigation Switcher: Clasificación vs Goleadores vs Asistidores */}
         <div className="flex bg-[#121215] p-1 rounded-xl border border-zinc-800/80 gap-1 shrink-0">
           <button
             type="button"
@@ -520,14 +523,14 @@ export function StandingsTab() {
               setActiveSection('standings');
             }}
             className={cn(
-              "flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              "flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
               activeSection === 'standings'
                 ? "bg-blue-600 text-white shadow-sm font-black"
                 : "text-zinc-400 hover:text-white"
             )}
           >
             <Table2 className="w-3.5 h-3.5" />
-            <span>Clasificación</span>
+            <span className="truncate">Clasificación</span>
           </button>
           <button
             type="button"
@@ -536,20 +539,38 @@ export function StandingsTab() {
               setActiveSection('scorers');
             }}
             className={cn(
-              "flex-1 py-1.5 px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              "flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
               activeSection === 'scorers'
                 ? "bg-blue-600 text-white shadow-sm font-black"
                 : "text-zinc-400 hover:text-white"
             )}
           >
             <span className="text-xs">⚽</span>
-            <span>Goleadores</span>
+            <span className="truncate">Goleadores</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              vibrateTap();
+              setActiveSection('assists');
+            }}
+            className={cn(
+              "flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              activeSection === 'assists'
+                ? "bg-purple-600 text-white shadow-sm font-black"
+                : "text-zinc-400 hover:text-white"
+            )}
+          >
+            <span className="text-xs">👟</span>
+            <span className="truncate">Asistidores</span>
           </button>
         </div>
       </div>
 
       {activeSection === 'scorers' ? (
         <TopScorersView />
+      ) : activeSection === 'assists' ? (
+        <TopAssistsView />
       ) : (
         <>
           {/* Search filter denso */}
