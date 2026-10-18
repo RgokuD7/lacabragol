@@ -16,6 +16,7 @@ import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
 import { recalculateStandings, findUclTeam } from '../lib/standings';
 import { recalculateAllUsersFromDatabase } from '../lib/recalculation';
+import { buildPlayerMatchEvidenceMap, PlayerMatchEvidence } from '../lib/matchEventsAuditor';
 import { 
   fetchGeminiMatchesPreview, 
   commitGeminiMatchesToFirestore, 
@@ -465,14 +466,37 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     );
   }, [matchScorersAudit, matchScorerSearch, showOnlyInconsistentScorers]);
 
-  // Cuántos jugadores del catálogo se pueden auto-vincular inmediatamente por tener un alias ortográfico del mismo club oficial (ej. "Bayern Munich" -> "FC Bayern München")
+  // Evidencia detallada de jugadores según eventos de partidos (goles, asistencias, cambios/sustituciones, tarjetas, lesiones)
+  const catalogPlayerMatchEvidenceMap = useMemo(() => {
+    return buildPlayerMatchEvidenceMap(matches, podiumPlayers);
+  }, [matches, podiumPlayers]);
+
+  // Jugadores del catálogo sin club oficial que fueron detectados en partidos con un club de Champions
+  const matchEventDetectedPlayers = useMemo(() => {
+    return unlinkedCatalogPlayers.filter(p => {
+      const key = p.id ? String(p.id) : normalizePlayerKey(p.name);
+      const evidence = catalogPlayerMatchEvidenceMap.get(key);
+      return !!(evidence && evidence.canonicalTeam && UCL_36_TEAMS.some(t => t.name === evidence.canonicalTeam));
+    });
+  }, [unlinkedCatalogPlayers, catalogPlayerMatchEvidenceMap]);
+
+  // Cuántos jugadores del catálogo se pueden auto-vincular (bien por alias ortográfico o bien por registros encontrados en partidos)
   const autoLinkableCatalogPlayers = useMemo(() => {
     return unlinkedCatalogPlayers.filter(p => {
-      if (!p.team) return false;
-      const match = findUclTeam(p.team);
-      return match && match.name !== p.team;
+      // 1. Alias ortográfico (ej. "Bayern Munich" -> "FC Bayern München")
+      if (p.team) {
+        const match = findUclTeam(p.team);
+        if (match && match.name !== p.team) return true;
+      }
+      // 2. Registro en partidos (ej. Alejandro Grimaldo -> Club Atlético de Madrid por sustitución; Enzo Fernández -> Manchester City por asistencia)
+      const key = p.id ? String(p.id) : normalizePlayerKey(p.name);
+      const evidence = catalogPlayerMatchEvidenceMap.get(key);
+      if (evidence && evidence.canonicalTeam && UCL_36_TEAMS.some(t => t.name === evidence.canonicalTeam)) {
+        return true;
+      }
+      return false;
     });
-  }, [unlinkedCatalogPlayers]);
+  }, [unlinkedCatalogPlayers, catalogPlayerMatchEvidenceMap]);
 
   // Carga y escaneo de jugadores de podio manuales
   const fetchCustomPodiums = useCallback(async () => {
@@ -1481,29 +1505,62 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   const [isNormalizingCatalogClubs, setIsNormalizingCatalogClubs] = useState(false);
 
-  // Auto-vincular clubes del catálogo oficial que tengan alias ortográficos reconocibles (ej. "Bayern Munich" -> "FC Bayern München")
+  // Asignar rápidamente un club a un jugador específico
+  const handleQuickLinkPlayerToTeam = async (player: PlayerItem, targetTeam: string) => {
+    const canonical = findUclTeam(targetTeam)?.name || getCanonicalTeamName(targetTeam) || targetTeam;
+    const keyToUpdate = normalizePlayerKey(player.name);
+    const updated = podiumPlayers.map(p => {
+      if (p.id === player.id || normalizePlayerKey(p.name) === keyToUpdate) {
+        return { ...p, team: canonical };
+      }
+      return p;
+    });
+    await handleSavePlayers(updated, `Jugador "${player.name}" vinculado con éxito a "${canonical}".`);
+  };
+
+  // Auto-vincular clubes del catálogo oficial que tengan alias ortográficos o evidencia en partidos (goles, asistencias, cambios, etc.)
   const handleAutoNormalizeCatalogClubs = async () => {
     setIsNormalizingCatalogClubs(true);
     try {
       let changedCount = 0;
+      const changedDetails: string[] = [];
+
       const updated = podiumPlayers.map(p => {
-        // Solo normalizar si es un alias del mismo club oficial (ej: "Bayern Munich" -> "FC Bayern München")
+        // 1. Si coincide con un alias directo del mismo club oficial
         if (p.team) {
           const uclMatch = findUclTeam(p.team);
           if (uclMatch && uclMatch.name !== p.team) {
             changedCount++;
+            changedDetails.push(`${p.name} ➡️ ${uclMatch.name}`);
             return { ...p, team: uclMatch.name };
           }
         }
+
+        // 2. Si no tiene club oficial UCL pero tiene evidencia en partidos (goles, cambios, asistencias...)
+        const isOfficial = !!p.team && UCL_36_TEAMS.some(t => t.name === p.team);
+        if (!isOfficial) {
+          const key = p.id ? String(p.id) : normalizePlayerKey(p.name);
+          const evidence = catalogPlayerMatchEvidenceMap.get(key);
+          if (evidence && evidence.canonicalTeam && UCL_36_TEAMS.some(t => t.name === evidence.canonicalTeam)) {
+            changedCount++;
+            changedDetails.push(`${p.name} ➡️ ${evidence.canonicalTeam}`);
+            return { ...p, team: evidence.canonicalTeam };
+          }
+        }
+
         return p;
       });
 
       if (changedCount === 0) {
-        setFeedback({ type: 'info', text: 'Todos los clubes con alias de nombre ya están vinculados.' });
+        setFeedback({ type: 'info', text: 'Todos los clubes con alias o registros en partidos ya están vinculados.' });
         return;
       }
 
-      await handleSavePlayers(updated, `¡Listo! Se auto-vincularon ${changedCount} clubes del catálogo al nombre oficial de Champions.`);
+      const summaryMsg = changedDetails.length <= 2
+        ? `Se vincularon: ${changedDetails.join(', ')}`
+        : `Se vincularon ${changedCount} jugadores a sus clubes oficiales según partidos y alias.`;
+
+      await handleSavePlayers(updated, `¡Listo! ${summaryMsg}`);
     } catch (err: any) {
       console.error('Error auto-normalizing catalog clubs:', err);
       setFeedback({ type: 'error', text: `Error al auto-vincular clubes: ${err?.message || 'Error desconocido'}` });
@@ -2539,16 +2596,43 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         <p className="text-xs font-bold text-amber-200">
                           ⚠️ {unlinkedCatalogPlayers.length} {unlinkedCatalogPlayers.length === 1 ? 'jugador no tiene' : 'jugadores no tienen'} club oficial UCL vinculado
                         </p>
+                        {matchEventDetectedPlayers.length > 0 && (
+                          <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Sparkles className="w-2.5 h-2.5 text-amber-300" />
+                            {matchEventDetectedPlayers.length} detectados en partidos
+                          </span>
+                        )}
                         <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
                           Requieren revisión
                         </span>
                       </div>
                       <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
-                        Tienen clubes no canónicos o de equipos no participantes en los 36 de esta Champions (ej. "Chelsea", "Bayer Leverkusen") o están vacíos. Corrígelos para que se muestre su escudo oficial y sumen correctamente.
+                        {matchEventDetectedPlayers.length > 0 ? (
+                          <span>
+                            💡 Encontramos registros en los partidos (cambios, asistencias o goles) para: <strong className="text-emerald-300">{matchEventDetectedPlayers.map(p => {
+                              const ev = catalogPlayerMatchEvidenceMap.get(p.id ? String(p.id) : normalizePlayerKey(p.name));
+                              return `${p.name} (${ev?.canonicalTeam})`;
+                            }).slice(0, 3).join(', ')}{matchEventDetectedPlayers.length > 3 ? '...' : ''}</strong>. Puedes auto-vincularlos de inmediato con un solo clic.
+                          </span>
+                        ) : (
+                          'Tienen clubes no canónicos o de equipos no participantes en los 36 de esta Champions (ej. "Chelsea", "Bayer Leverkusen") o están vacíos. Corrígelos para que se muestre su escudo oficial y sumen correctamente.'
+                        )}
                       </p>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 shrink-0">
+                  <div className="flex items-center gap-2 shrink-0 flex-wrap">
+                    {autoLinkableCatalogPlayers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleAutoNormalizeCatalogClubs}
+                        disabled={isNormalizingCatalogClubs || isSavingPlayers}
+                        className="px-3.5 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-xl text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-md shadow-emerald-900/30 disabled:opacity-50"
+                        title="Vincular automáticamente todos los detectados en partidos o con alias"
+                      >
+                        {isNormalizingCatalogClubs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                        Auto-Vincular ({autoLinkableCatalogPlayers.length})
+                      </button>
+                    )}
                     <button
                       type="button"
                       onClick={() => setShowOnlyUnlinkedCatalog(!showOnlyUnlinkedCatalog)}
@@ -2605,7 +2689,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   {filteredPodiumPlayers.map((player) => {
                     const isExactOfficial = !!player.team && UCL_36_TEAMS.some(t => t.name === player.team);
                     const aliasMatch = findUclTeam(player.team);
-                    const logo = getTeamLogoByName(player.team);
+                    const pKey = player.id ? String(player.id) : normalizePlayerKey(player.name);
+                    const matchEvidence = catalogPlayerMatchEvidenceMap.get(pKey);
+                    const logo = matchEvidence?.canonicalTeam && !isExactOfficial
+                      ? getTeamLogoByName(matchEvidence.canonicalTeam)
+                      : getTeamLogoByName(player.team);
 
                     return (
                       <div
@@ -2613,7 +2701,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         className={cn(
                           "rounded-xl p-3 flex items-center justify-between gap-3 group transition-all border",
                           !isExactOfficial
-                            ? "bg-amber-950/15 border-amber-500/40 hover:border-amber-500/70"
+                            ? matchEvidence
+                              ? "bg-emerald-950/15 border-emerald-500/40 hover:border-emerald-500/70"
+                              : "bg-amber-950/15 border-amber-500/40 hover:border-amber-500/70"
                             : "bg-zinc-900/80 border-zinc-800/90 hover:border-zinc-700"
                         )}
                       >
@@ -2631,9 +2721,14 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                             <div className="flex items-center gap-1.5 flex-wrap">
                               <p className="text-xs font-bold text-white truncate">{player.name}</p>
                               {!isExactOfficial && (
-                                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-black flex items-center gap-0.5" title="No está vinculado exactamente a un club de los 36 de Champions">
-                                  <AlertTriangle className="w-2.5 h-2.5" />
-                                  {player.team ? 'No oficial' : 'Sin club'}
+                                <span className={cn(
+                                  "text-[9px] px-1.5 py-0.2 rounded font-black flex items-center gap-0.5",
+                                  matchEvidence
+                                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40"
+                                    : "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                                )} title={matchEvidence ? `Detectado en partidos: ${matchEvidence.canonicalTeam}` : "No está vinculado exactamente a un club de los 36 de Champions"}>
+                                  {matchEvidence ? <Sparkles className="w-2.5 h-2.5 text-amber-300" /> : <AlertTriangle className="w-2.5 h-2.5" />}
+                                  {matchEvidence ? 'Detectado en Partidos' : (player.team ? 'No oficial' : 'Sin club')}
                                 </span>
                               )}
                             </div>
@@ -2661,11 +2756,34 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                                 </span>
                               )}
                             </div>
+                            {!isExactOfficial && matchEvidence && (
+                              <div className="flex items-center gap-1.5 flex-wrap mt-1">
+                                <span className="text-[9px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-1.5 py-0.2 rounded font-black flex items-center gap-1" title={matchEvidence.summaryText}>
+                                  <Sparkles className="w-2.5 h-2.5 text-amber-300" />
+                                  En partidos: {matchEvidence.canonicalTeam}
+                                </span>
+                                <span className="text-[9px] text-zinc-400 truncate max-w-[140px]" title={matchEvidence.summaryText}>
+                                  ({matchEvidence.summaryText})
+                                </span>
+                              </div>
+                            )}
                           </div>
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
-                          {!isExactOfficial && (
+                          {!isExactOfficial && matchEvidence && (
+                            <button
+                              type="button"
+                              onClick={() => handleQuickLinkPlayerToTeam(player, matchEvidence.canonicalTeam)}
+                              disabled={isSavingPlayers}
+                              className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-black flex items-center gap-1 transition-all cursor-pointer mr-1 shadow-sm"
+                              title={`Asignar inmediatamente a ${matchEvidence.canonicalTeam} según eventos de partidos`}
+                            >
+                              <Sparkles className="w-3 h-3 text-amber-300" />
+                              <span>Asignar {matchEvidence.canonicalTeam.split(' ')[0]}</span>
+                            </button>
+                          )}
+                          {!isExactOfficial && !matchEvidence && (
                             <button
                               type="button"
                               onClick={() => setEditingCatalogPlayer(player)}
@@ -3314,7 +3432,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   const currentDbTeam = editingCatalogPlayer.team?.trim() || '';
                   const detectedUcl = findUclTeam(currentDbTeam);
                   const isExactOfficial = UCL_36_TEAMS.some(t => t.name === currentDbTeam);
-                  const matchScorerInfo = matchScorersAudit.find(s => s.playerName.toLowerCase() === editingCatalogPlayer.name.toLowerCase());
+                  const pKey = editingCatalogPlayer.id ? String(editingCatalogPlayer.id) : normalizePlayerKey(editingCatalogPlayer.name);
+                  const matchEvidence = catalogPlayerMatchEvidenceMap.get(pKey);
 
                   return (
                     <div className="space-y-3 text-xs">
@@ -3342,11 +3461,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           )}
                         </div>
 
-                        {/* Sugerencia inteligente de coincidencia por alias */}
+                        {/* Sugerencia inteligente de coincidencia por alias ortográfico */}
                         {detectedUcl && detectedUcl.name !== currentDbTeam && (
                           <div className="bg-blue-950/40 border border-blue-500/40 rounded-lg p-2.5 flex items-center justify-between gap-2">
                             <div className="text-[11px] text-blue-200">
-                              💡 Sugerencia: Se detectó como <strong>{detectedUcl.name}</strong> ({detectedUcl.country})
+                              💡 Sugerencia por alias: Se detectó como <strong>{detectedUcl.name}</strong> ({detectedUcl.country})
                             </div>
                             <button
                               type="button"
@@ -3359,24 +3478,38 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           </div>
                         )}
 
-                        {/* Sugerencia a partir de goles anotados en partidos de Champions */}
-                        {matchScorerInfo && matchScorerInfo.canonicalTeam && matchScorerInfo.canonicalTeam !== currentDbTeam && (
-                          <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-lg p-2.5 flex items-center justify-between gap-2">
-                            <div className="text-[11px] text-emerald-200">
-                              ⚽ En partidos jugados: tiene <strong>{matchScorerInfo.totalGoals} gol(es)</strong> registrados con <strong>{matchScorerInfo.canonicalTeam}</strong>
+                        {/* Sugerencia destacada a partir de eventos de partidos de Champions (cambios, asistencias, goles, tarjetas) */}
+                        {matchEvidence && matchEvidence.canonicalTeam && matchEvidence.canonicalTeam !== currentDbTeam && (
+                          <div className="bg-emerald-950/40 border border-emerald-500/50 rounded-xl p-3 space-y-2">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-emerald-300 font-bold flex items-center gap-1.5">
+                                <Sparkles className="w-3.5 h-3.5 text-amber-300" />
+                                Detectado en Partidos: <strong>{matchEvidence.canonicalTeam}</strong>
+                              </span>
+                              <span className="text-[10px] bg-emerald-500/20 text-emerald-200 px-2 py-0.5 rounded-full font-bold">
+                                {matchEvidence.totalEvents} evento(s)
+                              </span>
                             </div>
+                            <p className="text-[11px] text-emerald-200/90 leading-relaxed">
+                              Este jugador participó en partidos para <strong>{matchEvidence.canonicalTeam}</strong>:
+                            </p>
+                            <ul className="text-[10px] text-emerald-100/80 space-y-1 pl-2 border-l border-emerald-500/30 max-h-24 overflow-y-auto">
+                              {matchEvidence.sampleEvents.slice(0, 4).map((ev, i) => (
+                                <li key={i}>• <strong>{ev.matchTitle}</strong>: {ev.description}</li>
+                              ))}
+                            </ul>
                             <button
                               type="button"
-                              onClick={() => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: matchScorerInfo.canonicalTeam })}
-                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black rounded-lg shadow transition-all shrink-0 flex items-center gap-1 cursor-pointer"
+                              onClick={() => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: matchEvidence.canonicalTeam })}
+                              className="w-full py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-lg shadow flex items-center justify-center gap-1.5 transition-all cursor-pointer"
                             >
-                              <Check className="w-3 h-3" />
-                              Usar {matchScorerInfo.canonicalTeam}
+                              <Check className="w-3.5 h-3.5" />
+                              Asignar a {matchEvidence.canonicalTeam}
                             </button>
                           </div>
                         )}
 
-                        {!isExactOfficial && !detectedUcl && (!matchScorerInfo || matchScorerInfo.canonicalTeam === currentDbTeam) && currentDbTeam && (
+                        {!isExactOfficial && !detectedUcl && (!matchEvidence || matchEvidence.canonicalTeam === currentDbTeam) && currentDbTeam && (
                           <p className="text-[11px] text-amber-300/90 leading-tight">
                             ⚠️ "{currentDbTeam}" no coincide con ninguno de los 36 clubes de esta Champions. Búscalo en la lista desplegable abajo para vincularlo al club oficial correspondiente.
                           </p>
@@ -3401,6 +3534,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500 font-medium"
                         >
                           <option value="">-- Sin Club --</option>
+                          {matchEvidence && matchEvidence.canonicalTeam && matchEvidence.canonicalTeam !== currentDbTeam && (
+                            <option value={matchEvidence.canonicalTeam} className="text-emerald-400 bg-zinc-950 font-bold">
+                              🎯 Detectado en partidos: {matchEvidence.canonicalTeam}
+                            </option>
+                          )}
                           {currentDbTeam && !isExactOfficial && (
                             <option value={currentDbTeam} className="text-amber-400 bg-zinc-950 font-bold">
                               ⚠️ Actual en BD: "{currentDbTeam}" (No estándar)
