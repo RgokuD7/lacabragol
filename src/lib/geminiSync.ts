@@ -698,9 +698,16 @@ export async function fetchSingleMatchStatsWithGemini(
     };
   }
 
-  const dateFormatted = match.date ? new Date(match.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+  const matchDate = match.date ? new Date(match.date) : null;
+  const dateFormatted = matchDate && !isNaN(matchDate.getTime()) 
+    ? matchDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) 
+    : '';
+  const dateShort = matchDate && !isNaN(matchDate.getTime())
+    ? matchDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+    : '';
+  const roundStr = match.group ? `${match.group}` : 'Fase de Liga';
   
-  // 1. BÚSQUEDA WEB EN VIVO (GOOGLE SEARCH)
+  // 1. BÚSQUEDA WEB EN VIVO (GOOGLE SEARCH) CON FECHA Y JORNADA EXACTAS
   let step1Text = '';
   let searchQueries: string[] = [];
 
@@ -709,11 +716,23 @@ export async function fetchSingleMatchStatsWithGemini(
     try {
       console.log(`[Gemini Single Match] Intentando búsqueda en Google con ${modelName}...`);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const searchPrompt = `Busca en internet los resultados y estadísticas oficiales del siguiente partido específico:
+Competición: UEFA Champions League
+Jornada/Fase: ${roundStr}
+Partido: "${match.homeTeam}" (Local) vs "${match.awayTeam}" (Visitante)
+Fecha programada del encuentro: ${dateFormatted || '2024-2025'}
+
+ATENCIÓN SOBRE LA FECHA:
+- Este partido corresponde a la fecha ${dateFormatted}. NO asumas que se juega hoy a menos que esa fecha sea hoy.
+- Si el partido ya se jugó en esa fecha (por ejemplo hace días, semanas o un mes), busca el resultado histórico oficial de ese día específico.
+- Si aún no se juega, indícalo claramente.
+- Dame marcador, goleadores con minutos y asistentes, y amonestados.`;
+
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: `Busca en internet los resultados y estadísticas oficiales del partido de UEFA Champions League: "${match.homeTeam}" vs "${match.awayTeam}". Fecha: ${dateFormatted}. Dame marcador, goleadores con minutos y asistentes, y amonestados.` }] }],
+          contents: [{ parts: [{ text: searchPrompt }] }],
           tools: [{ googleSearchRetrieval: {} }],
           generationConfig: { temperature: 0.1 }
         })
@@ -744,7 +763,7 @@ export async function fetchSingleMatchStatsWithGemini(
     try {
       console.log(`[Gemini Single Match] Buscando en Google en vivo mediante SerpAPI...`);
       const { fetchSerpApiRaw } = await import('./serpapiSync');
-      const searchQuery = `"${match.homeTeam}" vs "${match.awayTeam}" resultado goles Champions League`;
+      const searchQuery = `"${match.homeTeam}" vs "${match.awayTeam}" Champions League ${roundStr} ${dateShort} resultado goles`;
       const searchData = await fetchSerpApiRaw(searchQuery);
       if (searchData) {
         step1Text = JSON.stringify(searchData);
