@@ -1895,3 +1895,16 @@ export function getTeamLogoByName(teamName?: string): string {
   }
   return '';
 }
+
+export function getCanonicalTeamName(rawName?: string): string {
+  if (!rawName) return '';
+  const clean = rawName.toLowerCase().trim();
+  const team = UCL_36_TEAMS.find(t => 
+    t.name.toLowerCase() === clean ||
+    t.short.toLowerCase() === clean ||
+    clean.includes(t.name.toLowerCase()) ||
+    t.name.toLowerCase().includes(clean)
+  );
+  return team ? team.name : rawName.trim();
+}
+

@@ -1,4 +1,3 @@
-import { AdminTab } from './AdminTab';
 import { PodiumSection } from './PodiumTab';
 import React, { useState } from 'react';
 import { useAuth } from '../components/AuthProvider';
@@ -7,7 +6,7 @@ import { useSettings } from '../components/SettingsProvider';
 import { db } from '../lib/firebase';
 import { doc, updateDoc, setDoc, arrayRemove, collection, addDoc, deleteDoc } from 'firebase/firestore';
 import { User, Group, Setting } from '../types';
-import { Award, CheckCircle2, User as UserIcon, LogOut, Plus, LogIn, Share2, Save, Users, AlertCircle, Copy, Hash, Edit3, X, Trash2 } from 'lucide-react';
+import { Award, CheckCircle2, User as UserIcon, LogOut, Plus, LogIn, Share2, Save, Users, AlertCircle, Copy, Hash, Edit3, X, Trash2, Crown } from 'lucide-react';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { GroupMembersList } from '../components/GroupMembersList';
 import { isCabraSuprema } from '../lib/utils';
@@ -125,7 +124,7 @@ function ReadOnlyRules({ settings }: { settings: any }) {
   );
 }
 
-export function SettingsTab() {
+export function SettingsTab({ onNavigateToAdmin }: { onNavigateToAdmin?: () => void } = {}) {
   const { user, profile, logout } = useAuth();
   const { groups, activeGroupId, setActiveGroupId } = useGroups();
   
@@ -825,10 +824,31 @@ export function SettingsTab() {
         </div>
       </div>
       
-      {/* Admin Button */}
-      {(profile?.role === 'admin' || profile?.isAdmin || user?.uid === activeGroup?.ownerId) && (
+      {/* Super Admin Direct Access Banner */}
+      {(profile?.role === 'admin' || profile?.isAdmin || user?.email === 'richarddiaz0107@gmail.com') && (
         <div className="mt-4 pt-4 border-t border-zinc-800">
-          <AdminTab inline={true} />
+          <div className="bg-gradient-to-r from-blue-950/40 via-purple-950/30 to-[#121215] border border-blue-500/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-blue-500/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                <Crown className="w-5 h-5 text-amber-400" />
+              </div>
+              <div>
+                <p className="text-xs font-black text-white uppercase tracking-wider">Panel de Super Admin</p>
+                <p className="text-[11px] text-zinc-400">
+                  Partidos, resultados, catálogo de jugadores y usuarios se gestionan en su pestaña dedicada.
+                </p>
+              </div>
+            </div>
+            {onNavigateToAdmin && (
+              <button
+                type="button"
+                onClick={onNavigateToAdmin}
+                className="w-full sm:w-auto px-4 py-2.5 bg-blue-600 hover:bg-blue-500 text-white font-black text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-blue-600/20 shrink-0 cursor-pointer"
+              >
+                Abrir Super Admin 👑
+              </button>
+            )}
+          </div>
         </div>
       )}
 

@@ -1,20 +1,25 @@
 import React from 'react';
-import { Home, Table2, Users, Shield, User as UserIcon } from 'lucide-react';
+import { Home, Table2, Users, Shield, User as UserIcon, Crown } from 'lucide-react';
 import { cn } from '../lib/utils';
 
 interface BottomNavProps {
   activeTab: string;
   setActiveTab: (tab: string) => void;
   unpredictedCount: number;
+  isAdmin?: boolean;
 }
 
-export function BottomNav({ activeTab, setActiveTab, unpredictedCount }: BottomNavProps) {
-  const tabs = [
+export function BottomNav({ activeTab, setActiveTab, unpredictedCount, isAdmin }: BottomNavProps) {
+  const mainTabs = [
     { id: 'predictions', label: 'Partidos', icon: Home, domId: 'nav-matches' },
     { id: 'standings', label: 'Tabla', icon: Table2, domId: 'nav-standings' },
+  ];
+
+  const secondaryTabs = [
     { id: 'ranking', label: 'Ranking', icon: Users, domId: 'nav-ranking' },
     { id: 'settings', label: 'Grupo', icon: Shield, domId: 'nav-settings' },
     { id: 'profile', label: 'Perfil', icon: UserIcon, domId: 'nav-profile' },
+    ...(isAdmin ? [{ id: 'admin', label: 'Admin', icon: Crown, domId: 'nav-admin' }] : []),
   ];
 
   return (
@@ -24,7 +29,7 @@ export function BottomNav({ activeTab, setActiveTab, unpredictedCount }: BottomN
     >
       <div className="max-w-4xl mx-auto flex justify-between px-1 py-1">
         {/* Main 2 Tabs: Partidos y Tabla */}
-        {tabs.slice(0, 2).map((tab) => {
+        {mainTabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;
           return (
@@ -54,9 +59,9 @@ export function BottomNav({ activeTab, setActiveTab, unpredictedCount }: BottomN
           );
         })}
 
-        {/* Grouping for Ranking, Grupo and Perfil */}
-        <div id="nav-group-ranking-profile" className="flex flex-[3] justify-between">
-          {tabs.slice(2).map((tab) => {
+        {/* Grouping for Ranking, Grupo, Perfil and Admin */}
+        <div id="nav-group-ranking-profile" className={cn("flex justify-between", isAdmin ? "flex-[4]" : "flex-[3]")}>
+          {secondaryTabs.map((tab) => {
             const Icon = tab.icon;
             const isActive = activeTab === tab.id;
             return (

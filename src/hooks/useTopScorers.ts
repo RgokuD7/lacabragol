@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Match } from '../types';
-import { getTeamLogoByName } from '../data/fixtures';
+import { getTeamLogoByName, getCanonicalTeamName } from '../data/fixtures';
 import { DEFAULT_PLAYERS } from '../data/players';
 
 export interface TopScorer {
@@ -68,6 +68,9 @@ export function useTopScorers() {
           if (!teamName) {
             teamName = match.homeTeam || match.awayTeam || '';
           }
+
+          // Canonicalize team name to merge variations (e.g. "FC Barcelona" -> "Barcelona")
+          teamName = getCanonicalTeamName(teamName);
 
           const mapKey = `${playerName.toLowerCase()}___${teamName.toLowerCase()}`;
           const existing = scorerMap.get(mapKey);

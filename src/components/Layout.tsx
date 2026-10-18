@@ -69,6 +69,7 @@ export function Layout() {
   
   const activeGroup = groups.find(g => g.id === activeGroupId);
   const inviteLink = `${window.location.origin}?invite=${activeGroup?.code || ''}`;
+  const isSuperAdmin = Boolean(profile?.isAdmin || profile?.role === 'admin' || user?.email === 'richarddiaz0107@gmail.com');
 
   // Reloj Interno: Auto-sincronización en vivo cada 60 segundos con batching de Gemini
   const matchesRef = useRef<Match[]>([]);
@@ -488,8 +489,9 @@ export function Layout() {
           {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
           {activeTab === 'standings' && <StandingsTab />}
           {activeTab === 'ranking' && <RankingTab />}
-          {activeTab === 'settings' && <SettingsTab />}
+          {activeTab === 'settings' && <SettingsTab onNavigateToAdmin={() => setActiveTab('admin')} />}
           {activeTab === 'profile' && <ProfileTab />}
+          {activeTab === 'admin' && <AdminTab onBack={() => setActiveTab('predictions')} />}
         </div>
       </main>
 
@@ -530,6 +532,7 @@ export function Layout() {
         activeTab={activeTab} 
         setActiveTab={setActiveTab} 
         unpredictedCount={unpredictedCount} 
+        isAdmin={isSuperAdmin}
       />
 
       {/* Share Group Modal using BaseBottomSheet */}

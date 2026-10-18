@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../components/AuthProvider';
 import { useGroups } from '../components/GroupsProvider';
 import { db } from '../lib/firebase';
@@ -6,9 +6,9 @@ import { collection, doc, query, where, onSnapshot, getDocs, writeBatch, updateD
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
-import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
+import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
 import { cn } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
@@ -137,6 +137,50 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const [showJsonInput, setShowJsonInput] = useState(false);
   const [isSavingPlayers, setIsSavingPlayers] = useState(false);
   const [isResettingPlayers, setIsResettingPlayers] = useState(false);
+
+  // Jugadores & Goleadores Subtabs
+  const [playersSubTab, setPlayersSubTab] = useState<'catalog' | 'match_scorers' | 'custom_podiums'>('catalog');
+
+  // Goleadores de Partidos state
+  const [matchScorerSearch, setMatchScorerSearch] = useState('');
+  const [isNormalizingMatchClubs, setIsNormalizingMatchClubs] = useState(false);
+  const [editingScorerPlayer, setEditingScorerPlayer] = useState<{ playerName: string; currentTeam: string } | null>(null);
+  const [selectedTargetTeam, setSelectedTargetTeam] = useState('');
+  const [isUpdatingScorerTeam, setIsUpdatingScorerTeam] = useState(false);
+
+  // Podios Manuales state
+  const [customPodiumList, setCustomPodiumList] = useState<Array<{
+    playerName: string;
+    roles: string[];
+    occurrences: Array<{
+      podiumId: string;
+      userId: string;
+      userName: string;
+      role: 'topScorer' | 'mostAssists' | 'mvp';
+      groupId?: string;
+    }>;
+  }>>([]);
+  const [isLoadingCustomPodiums, setIsLoadingCustomPodiums] = useState(false);
+  const [customPodiumSearch, setCustomPodiumSearch] = useState('');
+
+  // Modal para agregar jugador de podio manual al catálogo oficial
+  const [addingCustomPlayer, setAddingCustomPlayer] = useState<{
+    name: string;
+    team: string;
+    position: string;
+    nationality: string;
+  } | null>(null);
+
+  // Modal para vincular jugador manual a jugador oficial existente
+  const [linkingCustomPlayer, setLinkingCustomPlayer] = useState<{
+    customName: string;
+    occurrences: Array<{ podiumId: string; role: 'topScorer' | 'mostAssists' | 'mvp' }>;
+    targetOfficialName: string;
+  } | null>(null);
+  const [isSavingPodiumLink, setIsSavingPodiumLink] = useState(false);
+
+  // Modal para editar jugador oficial del catálogo
+  const [editingCatalogPlayer, setEditingCatalogPlayer] = useState<PlayerItem | null>(null);
 
   // Listen to stages for activeGroupId
   useEffect(() => {
@@ -312,6 +356,182 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       (p.position && p.position.toLowerCase().includes(q)) ||
       (p.nationality && p.nationality.toLowerCase().includes(q));
   });
+
+  // Auditoría en tiempo real de goleadores registrados en partidos
+  const matchScorersAudit = useMemo(() => {
+    const map = new Map<string, {
+      key: string;
+      playerName: string;
+      totalGoals: number;
+      distinctTeams: Set<string>;
+      matches: Array<{
+        matchId: string;
+        matchTitle: string;
+        date: string;
+        currentTeam: string;
+        goalIndex: number;
+      }>;
+    }>();
+
+    matches.forEach(m => {
+      if (!Array.isArray(m.goalscorers) || m.goalscorers.length === 0) return;
+      m.goalscorers.forEach((g: any, idx: number) => {
+        if (!g) return;
+        const pName = typeof g === 'object' ? (g.jugador || g.player || '') : (String(g).replace(/\d+.*$/, '') || String(g));
+        const cleanPlayer = String(pName).trim();
+        if (!cleanPlayer || cleanPlayer.toLowerCase() === 'undefined') return;
+
+        let cleanTeam = '';
+        if (typeof g === 'object') {
+          cleanTeam = String(g.equipo || g.team || '').trim();
+        } else if (typeof g === 'string') {
+          const mTeam = g.match(/\((.*?)\)/);
+          if (mTeam?.[1]) cleanTeam = mTeam[1].trim();
+        }
+
+        const key = cleanPlayer.toLowerCase();
+        if (!map.has(key)) {
+          map.set(key, {
+            key,
+            playerName: cleanPlayer,
+            totalGoals: 0,
+            distinctTeams: new Set(),
+            matches: []
+          });
+        }
+
+        const item = map.get(key)!;
+        item.totalGoals += 1;
+        if (cleanTeam) item.distinctTeams.add(cleanTeam);
+        item.matches.push({
+          matchId: m.id,
+          matchTitle: `${m.homeTeam} vs ${m.awayTeam}`,
+          date: m.date || '',
+          currentTeam: cleanTeam,
+          goalIndex: idx
+        });
+      });
+    });
+
+    return Array.from(map.values())
+      .map(item => {
+        const teamsArr = Array.from(item.distinctTeams);
+        const canonical = getCanonicalTeamName(teamsArr[0] || '');
+        const hasMissingTeam = teamsArr.length === 0 || teamsArr.some(t => !t);
+        const hasMultipleTeams = teamsArr.length > 1;
+        const hasNonCanonicalTeam = teamsArr.some(t => t !== getCanonicalTeamName(t));
+        const isInconsistent = hasMissingTeam || hasMultipleTeams || hasNonCanonicalTeam;
+        return {
+          ...item,
+          teamsList: teamsArr,
+          canonicalTeam: canonical,
+          hasMissingTeam,
+          hasMultipleTeams,
+          hasNonCanonicalTeam,
+          isInconsistent
+        };
+      })
+      .sort((a, b) => (b.isInconsistent ? 1 : 0) - (a.isInconsistent ? 1 : 0) || b.totalGoals - a.totalGoals);
+  }, [matches]);
+
+  const filteredMatchScorers = useMemo(() => {
+    const q = matchScorerSearch.toLowerCase().trim();
+    if (!q) return matchScorersAudit;
+    return matchScorersAudit.filter(s => 
+      s.playerName.toLowerCase().includes(q) ||
+      s.teamsList.some(t => t.toLowerCase().includes(q)) ||
+      s.canonicalTeam.toLowerCase().includes(q)
+    );
+  }, [matchScorersAudit, matchScorerSearch]);
+
+  // Carga y escaneo de jugadores de podio manuales
+  const fetchCustomPodiums = useCallback(async () => {
+    setIsLoadingCustomPodiums(true);
+    try {
+      const snap = await getDocs(collection(db, 'podiums'));
+      const officialKeys = new Set(podiumPlayers.map(p => normalizePlayerKey(p.name)));
+      
+      const customMap = new Map<string, {
+        playerName: string;
+        roles: Set<string>;
+        occurrences: Array<{
+          podiumId: string;
+          userId: string;
+          userName: string;
+          role: 'topScorer' | 'mostAssists' | 'mvp';
+          groupId?: string;
+        }>;
+      }>();
+
+      const userMap = new Map(users.map(u => [u.uid, u.displayName || u.email?.split('@')[0] || u.uid]));
+
+      snap.docs.forEach(d => {
+        const data = d.data();
+        const podiumId = d.id;
+        const uid = data.userId || (podiumId.includes('_') ? podiumId.split('_')[1] : podiumId);
+        const userName = userMap.get(uid) || uid;
+
+        const checkField = (fieldVal?: string, role?: 'topScorer' | 'mostAssists' | 'mvp', roleLabel?: string) => {
+          if (!fieldVal || !fieldVal.trim()) return;
+          const trimmed = fieldVal.trim();
+          const key = normalizePlayerKey(trimmed);
+          if (!officialKeys.has(key)) {
+            if (!customMap.has(key)) {
+              customMap.set(key, {
+                playerName: trimmed,
+                roles: new Set(),
+                occurrences: []
+              });
+            }
+            const entry = customMap.get(key)!;
+            if (roleLabel) entry.roles.add(roleLabel);
+            if (role) {
+              entry.occurrences.push({
+                podiumId,
+                userId: uid,
+                userName,
+                role,
+                groupId: data.groupId
+              });
+            }
+          }
+        };
+
+        checkField(data.topScorer, 'topScorer', 'Goleador');
+        checkField(data.mostAssists, 'mostAssists', 'Asistidor');
+        checkField(data.mvp, 'mvp', 'MVP');
+      });
+
+      const list = Array.from(customMap.values()).map(item => ({
+        playerName: item.playerName,
+        roles: Array.from(item.roles),
+        occurrences: item.occurrences
+      }));
+
+      setCustomPodiumList(list);
+    } catch (e: any) {
+      console.error("Error fetching custom podiums:", e);
+      setFeedback({ type: 'error', text: `Error al cargar podios: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsLoadingCustomPodiums(false);
+    }
+  }, [podiumPlayers, users]);
+
+  useEffect(() => {
+    if (adminTab === 'players' && playersSubTab === 'custom_podiums') {
+      fetchCustomPodiums();
+    }
+  }, [adminTab, playersSubTab, fetchCustomPodiums]);
+
+  const filteredCustomPodiums = useMemo(() => {
+    const q = customPodiumSearch.toLowerCase().trim();
+    if (!q) return customPodiumList;
+    return customPodiumList.filter(p => 
+      p.playerName.toLowerCase().includes(q) ||
+      p.roles.some(r => r.toLowerCase().includes(q)) ||
+      p.occurrences.some(o => o.userName.toLowerCase().includes(q))
+    );
+  }, [customPodiumList, customPodiumSearch]);
 
   const handleMatchScoreChange = (matchId: string, field: 'home' | 'away' | 'status', value: string) => {
     setMatchScores(prev => ({
@@ -1229,6 +1449,204 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }
   };
 
+  // Auto-normalizar clubes de goleadores en todos los partidos de Firestore
+  const handleAutoNormalizeMatchClubs = async () => {
+    setIsNormalizingMatchClubs(true);
+    try {
+      let updatedMatchesCount = 0;
+      let updatedGoalsCount = 0;
+
+      for (const m of matches) {
+        if (!Array.isArray(m.goalscorers) || m.goalscorers.length === 0) continue;
+
+        let matchChanged = false;
+        const newGoalscorers = m.goalscorers.map((g: any) => {
+          if (!g) return g;
+          let playerName = '';
+          let teamName = '';
+
+          if (typeof g === 'object') {
+            playerName = String(g.jugador || g.player || '').trim();
+            teamName = String(g.equipo || g.team || '').trim();
+          } else if (typeof g === 'string') {
+            const matchStr = g.match(/^(.*?)\s*(\d+)?['’]?\s*(?:\((.*?)\))?$/);
+            playerName = matchStr?.[1]?.trim() || g.trim();
+            teamName = matchStr?.[3]?.trim() || '';
+          }
+
+          if (!playerName) return g;
+
+          // Obtener nombre canónico de club oficial
+          let canonicalTeam = getCanonicalTeamName(teamName);
+
+          // Si el gol no traía equipo o no se reconoció, buscar en catálogo oficial de jugadores
+          if (!canonicalTeam) {
+            const found = podiumPlayers.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+            if (found && found.team) {
+              canonicalTeam = getCanonicalTeamName(found.team);
+            }
+          }
+
+          // Si aún no hay club, intentar inferir de los equipos del partido
+          if (!canonicalTeam) {
+            canonicalTeam = m.homeTeam;
+          }
+
+          if (typeof g === 'object') {
+            if (g.equipo !== canonicalTeam) {
+              matchChanged = true;
+              updatedGoalsCount++;
+              return { ...g, equipo: canonicalTeam };
+            }
+          } else {
+            matchChanged = true;
+            updatedGoalsCount++;
+            return {
+              jugador: playerName,
+              equipo: canonicalTeam,
+              minuto: ''
+            };
+          }
+          return g;
+        });
+
+        if (matchChanged) {
+          await updateDoc(doc(db, 'matches', m.id), {
+            goalscorers: newGoalscorers,
+            updatedAt: Date.now()
+          });
+          updatedMatchesCount++;
+        }
+      }
+
+      setFeedback({
+        type: 'success',
+        text: `¡Normalización completada! Se actualizaron ${updatedGoalsCount} goles en ${updatedMatchesCount} partidos con los clubes canónicos de Champions.`
+      });
+    } catch (e: any) {
+      console.error(e);
+      setFeedback({ type: 'error', text: `Error al normalizar clubes: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsNormalizingMatchClubs(false);
+    }
+  };
+
+  // Actualizar el club de un jugador específico en todos los partidos donde anotó
+  const handleUpdatePlayerClubAcrossMatches = async (playerName: string, newTeamName: string) => {
+    if (!newTeamName) return;
+    setIsUpdatingScorerTeam(true);
+    try {
+      let matchesUpdated = 0;
+      const canonical = getCanonicalTeamName(newTeamName);
+
+      for (const m of matches) {
+        if (!Array.isArray(m.goalscorers) || m.goalscorers.length === 0) continue;
+        let matchChanged = false;
+
+        const updatedScorers = m.goalscorers.map((g: any) => {
+          if (!g) return g;
+          const pName = typeof g === 'object' ? (g.jugador || g.player || '') : (String(g).replace(/\d+.*$/, '') || String(g));
+          if (String(pName).trim().toLowerCase() === playerName.toLowerCase()) {
+            matchChanged = true;
+            if (typeof g === 'object') {
+              return { ...g, equipo: canonical };
+            } else {
+              return { jugador: String(pName).trim(), equipo: canonical, minuto: '' };
+            }
+          }
+          return g;
+        });
+
+        if (matchChanged) {
+          await updateDoc(doc(db, 'matches', m.id), {
+            goalscorers: updatedScorers,
+            updatedAt: Date.now()
+          });
+          matchesUpdated++;
+        }
+      }
+
+      // También actualizar en el catálogo oficial si el jugador está registrado
+      const foundInCatalog = podiumPlayers.find(p => p.name.toLowerCase() === playerName.toLowerCase());
+      if (foundInCatalog) {
+        const updatedCatalog = podiumPlayers.map(p => 
+          p.name.toLowerCase() === playerName.toLowerCase() ? { ...p, team: canonical } : p
+        );
+        await handleSavePlayers(updatedCatalog, `Club de "${playerName}" actualizado a "${canonical}" en catálogo y ${matchesUpdated} partidos.`);
+      } else {
+        setFeedback({
+          type: 'success',
+          text: `Club de "${playerName}" actualizado a "${canonical}" en ${matchesUpdated} partidos.`
+        });
+      }
+
+      setEditingScorerPlayer(null);
+    } catch (e: any) {
+      console.error(e);
+      setFeedback({ type: 'error', text: `Error al actualizar club: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsUpdatingScorerTeam(false);
+    }
+  };
+
+  // Guardar jugador manual en el catálogo oficial
+  const handleSaveCustomPlayerToCatalog = async () => {
+    if (!addingCustomPlayer || !addingCustomPlayer.name.trim()) return;
+    const incoming: PlayerItem = {
+      name: addingCustomPlayer.name.trim(),
+      team: addingCustomPlayer.team.trim() || undefined,
+      position: formatPosition(addingCustomPlayer.position.trim()) || undefined,
+      nationality: formatNationality(addingCustomPlayer.nationality.trim()) || undefined,
+      id: Math.floor(100000 + Math.random() * 900000)
+    };
+    const { merged, addedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
+    await handleSavePlayers(
+      merged,
+      `Jugador "${incoming.name}" agregado al catálogo oficial con club ${incoming.team || 'Sin Club'}. Ahora aparecerá con escudo en los podios.`
+    );
+    setAddingCustomPlayer(null);
+    fetchCustomPodiums();
+  };
+
+  // Vincular jugador manual a jugador oficial existente en los podios
+  const handleLinkCustomPlayerToOfficial = async () => {
+    if (!linkingCustomPlayer || !linkingCustomPlayer.targetOfficialName) return;
+    setIsSavingPodiumLink(true);
+    try {
+      let count = 0;
+      for (const occ of linkingCustomPlayer.occurrences) {
+        await updateDoc(doc(db, 'podiums', occ.podiumId), {
+          [occ.role]: linkingCustomPlayer.targetOfficialName,
+          updatedAt: Date.now()
+        });
+        count++;
+      }
+      setFeedback({
+        type: 'success',
+        text: `¡Vinculación exitosa! Se actualizaron ${count} podios: "${linkingCustomPlayer.customName}" ahora apunta a "${linkingCustomPlayer.targetOfficialName}".`
+      });
+      setLinkingCustomPlayer(null);
+      fetchCustomPodiums();
+    } catch (e: any) {
+      console.error(e);
+      setFeedback({ type: 'error', text: `Error al vincular jugador en podios: ${e?.message || 'Error desconocido'}` });
+    } finally {
+      setIsSavingPodiumLink(false);
+    }
+  };
+
+  // Guardar edición de jugador oficial del catálogo
+  const handleSaveCatalogPlayerEdit = async () => {
+    if (!editingCatalogPlayer) return;
+    const updated = podiumPlayers.map(p => 
+      p.id === editingCatalogPlayer.id || normalizePlayerKey(p.name) === normalizePlayerKey(editingCatalogPlayer.name)
+        ? editingCatalogPlayer
+        : p
+    );
+    await handleSavePlayers(updated, `Jugador "${editingCatalogPlayer.name}" actualizado con éxito.`);
+    setEditingCatalogPlayer(null);
+  };
+
   return (
     <div className={`font-sans text-[#e4e4e7] mx-auto max-w-4xl ${inline ? "space-y-3" : "p-3 sm:p-6 md:p-8 space-y-6 pb-[120px]"}`}>
       {/* Header */}
@@ -1319,13 +1737,17 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         <button
           type="button"
           onClick={() => setAdminTab('players')}
-          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all cursor-pointer ${
+          className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider whitespace-nowrap transition-all flex items-center gap-1.5 cursor-pointer ${
             adminTab === 'players'
               ? 'bg-amber-600 text-white shadow-md shadow-amber-500/20'
               : 'bg-[#121215] text-zinc-400 border border-zinc-800 hover:text-zinc-300'
           }`}
         >
-          Jugadores Podio ({podiumPlayers.length})
+          <Users className="w-3 h-3 text-amber-300" />
+          <span>Jugadores & Goleadores ({podiumPlayers.length})</span>
+          {matchScorersAudit.some(s => s.isInconsistent) && (
+            <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" title="Hay clubes inconsistentes en partidos" />
+          )}
         </button>
         <button
           type="button"
@@ -1836,198 +2258,850 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
       {adminTab === 'players' && (
         <div className="space-y-6">
-          {/* Action Bar */}
-          <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
-              <div>
-                <div className="flex items-center gap-2">
-                  <Users className="w-5 h-5 text-amber-400" />
-                  <h3 className="text-base font-bold text-white">Jugadores para Podio / Candidatos</h3>
-                  <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-0.5 rounded-full font-black">
-                    {podiumPlayers.length}
-                  </span>
-                </div>
-                <p className="text-xs text-zinc-400 mt-1">
-                  Controla la lista de estrellas disponibles para que los participantes elijan Goleador, Asistente y MVP.
-                </p>
-              </div>
+          {/* Subtabs Navigation */}
+          <div className="flex gap-2 border-b border-zinc-800 pb-3 overflow-x-auto scrollbar-hide">
+            <button
+              type="button"
+              onClick={() => setPlayersSubTab('catalog')}
+              className={cn(
+                "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0",
+                playersSubTab === 'catalog'
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/40 shadow-sm"
+                  : "bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800"
+              )}
+            >
+              <Users className="w-4 h-4 text-amber-400" />
+              <span>Catálogo Oficial ({podiumPlayers.length})</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setPlayersSubTab('match_scorers')}
+              className={cn(
+                "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0 relative",
+                playersSubTab === 'match_scorers'
+                  ? "bg-blue-500/20 text-blue-300 border border-blue-500/40 shadow-sm"
+                  : "bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800"
+              )}
+            >
+              <Shield className="w-4 h-4 text-blue-400" />
+              <span>Goleadores de Partidos ({matchScorersAudit.length})</span>
+              {matchScorersAudit.some(s => s.isInconsistent) && (
+                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" title="Hay clubes inconsistentes en partidos" />
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setPlayersSubTab('custom_podiums');
+                fetchCustomPodiums();
+              }}
+              className={cn(
+                "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer shrink-0",
+                playersSubTab === 'custom_podiums'
+                  ? "bg-purple-500/20 text-purple-300 border border-purple-500/40 shadow-sm"
+                  : "bg-zinc-900/60 text-zinc-400 hover:text-white border border-zinc-800"
+              )}
+            >
+              <Sparkles className="w-4 h-4 text-purple-400" />
+              <span>Podios Manuales de Usuarios ({customPodiumList.length})</span>
+              {customPodiumList.length > 0 && (
+                <span className="bg-purple-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full">
+                  {customPodiumList.length}
+                </span>
+              )}
+            </button>
+          </div>
 
-              <div className="flex items-center gap-2 flex-wrap">
-                <button
-                  onClick={() => setShowJsonInput(!showJsonInput)}
-                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors"
-                >
-                  <FileCode className="w-4 h-4 text-blue-400" />
-                  {showJsonInput ? 'Ocultar JSON' : 'Importar JSON'}
-                </button>
-                <button
-                  onClick={handleResetToDefaultPlayers}
-                  disabled={isResettingPlayers || isSavingPlayers}
-                  className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50"
-                  title="Restablece la lista a las estrellas oficiales 2026/27 (con Olise, sin Lewandowski)"
-                >
-                  <RotateCcw className={cn("w-4 h-4 text-amber-400", isResettingPlayers && "animate-spin")} />
-                  Restaurar 2026/27
-                </button>
-              </div>
-            </div>
+          {/* SUBTAB 1: CATÁLOGO OFICIAL */}
+          {playersSubTab === 'catalog' && (
+            <div className="space-y-6">
+              {/* Action Bar */}
+              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Users className="w-5 h-5 text-amber-400" />
+                      <h3 className="text-base font-bold text-white">Catálogo Oficial de Estrellas UCL</h3>
+                      <span className="bg-amber-500/10 text-amber-400 border border-amber-500/30 text-xs px-2.5 py-0.5 rounded-full font-black">
+                        {podiumPlayers.length}
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Estrellas oficiales disponibles en el selector de Goleador, Asistente y MVP del torneo.
+                    </p>
+                  </div>
 
-            {/* JSON Importer Panel */}
-            {showJsonInput && (
-              <div className="bg-zinc-900/90 border border-blue-500/30 rounded-xl p-4 space-y-3 animate-in fade-in duration-200">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
-                    <Sparkles className="w-4 h-4 text-amber-400" />
-                    Pegar JSON de Jugadores (Fusión Inteligente sin Duplicados)
-                  </span>
-                  <span className="text-[10px] text-zinc-400">Acepta arreglo o {`{"top_players": [...]}`}</span>
-                </div>
-                <textarea
-                  value={jsonInput}
-                  onChange={(e) => setJsonInput(e.target.value)}
-                  rows={6}
-                  placeholder={`{\n  "top_players": [\n    {\n      "name": "Michael Olise",\n      "team": "Bayern Munich",\n      "position": "Forward",\n      "nationality": "France"\n    }\n  ]\n}`}
-                  className="w-full bg-black/60 border border-zinc-700 rounded-lg p-3 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500 custom-scrollbar"
-                />
-                <div className="flex items-center justify-between gap-2 flex-wrap">
-                  <span className="text-[11px] text-zinc-400">
-                    ℹ️ Los jugadores existentes se actualizarán y los nuevos se agregarán sin repetir nombres.
-                  </span>
-                  <div className="flex gap-2">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <button
-                      onClick={() => setShowJsonInput(false)}
-                      className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white"
+                      onClick={() => setShowJsonInput(!showJsonInput)}
+                      className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                     >
-                      Cancelar
+                      <FileCode className="w-4 h-4 text-blue-400" />
+                      {showJsonInput ? 'Ocultar JSON' : 'Importar JSON'}
                     </button>
                     <button
-                      onClick={handleImportJson}
-                      disabled={isSavingPlayers || !jsonInput.trim()}
-                      className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow transition-all flex items-center gap-1.5"
+                      onClick={handleResetToDefaultPlayers}
+                      disabled={isResettingPlayers || isSavingPlayers}
+                      className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
+                      title="Restablece la lista a las estrellas oficiales 2026/27"
                     >
-                      {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
-                      Procesar y Guardar
+                      <RotateCcw className={cn("w-4 h-4 text-amber-400", isResettingPlayers && "animate-spin")} />
+                      Restaurar 2026/27
                     </button>
                   </div>
                 </div>
-              </div>
-            )}
 
-            {/* Quick Add Form */}
-            <form onSubmit={handleAddSinglePlayer} className="space-y-3 bg-black/30 border border-zinc-800/80 rounded-xl p-3">
-              <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
-                <UserPlus className="w-4 h-4 text-emerald-400" />
-                Agregar Jugador Manualmente
-              </span>
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
-                <input
-                  type="text"
-                  placeholder="Nombre Completo *"
-                  value={newPlayerName}
-                  onChange={(e) => setNewPlayerName(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
-                  required
-                />
-                <input
-                  type="text"
-                  placeholder="Equipo (Ej: Real Madrid)"
-                  value={newPlayerTeam}
-                  onChange={(e) => setNewPlayerTeam(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
-                />
-                <input
-                  type="text"
-                  placeholder="Posición (Ej: Delantero)"
-                  value={newPlayerPosition}
-                  onChange={(e) => setNewPlayerPosition(e.target.value)}
-                  className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
-                />
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="Nacionalidad (Ej: Francia)"
-                    value={newPlayerNationality}
-                    onChange={(e) => setNewPlayerNationality(e.target.value)}
-                    className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
-                  />
-                  <button
-                    type="submit"
-                    disabled={isSavingPlayers || !newPlayerName.trim()}
-                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors shrink-0 flex items-center gap-1"
-                  >
-                    {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    Agregar
-                  </button>
-                </div>
-              </div>
-            </form>
-          </div>
-
-          {/* Player Search and List */}
-          <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
-                <input
-                  type="text"
-                  value={playerSearch}
-                  onChange={(e) => setPlayerSearch(e.target.value)}
-                  placeholder="Buscar jugador por nombre, equipo, nacionalidad..."
-                  className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
-                />
-              </div>
-              <span className="text-xs text-zinc-500 whitespace-nowrap">
-                Mostrando {filteredPodiumPlayers.length} de {podiumPlayers.length}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-              {filteredPodiumPlayers.map((player) => (
-                <div
-                  key={player.id || player.name}
-                  className="bg-zinc-900/80 border border-zinc-800/90 hover:border-zinc-700 rounded-xl p-3 flex items-center justify-between gap-3 group transition-all"
-                >
-                  <div className="flex items-center gap-3 min-w-0">
-                    <img
-                      src={`https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=80&bold=true`}
-                      alt={player.name}
-                      className="w-9 h-9 rounded-full object-cover shrink-0 border border-zinc-700/50"
+                {/* JSON Importer Panel */}
+                {showJsonInput && (
+                  <div className="bg-zinc-900/90 border border-blue-500/30 rounded-xl p-4 space-y-3 animate-in fade-in duration-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-blue-400 uppercase tracking-wider flex items-center gap-1.5">
+                        <Sparkles className="w-4 h-4 text-amber-400" />
+                        Pegar JSON de Jugadores (Fusión Inteligente sin Duplicados)
+                      </span>
+                      <span className="text-[10px] text-zinc-400">Acepta arreglo o {`{"top_players": [...]}`}</span>
+                    </div>
+                    <textarea
+                      value={jsonInput}
+                      onChange={(e) => setJsonInput(e.target.value)}
+                      rows={6}
+                      placeholder={`{\n  "top_players": [\n    {\n      "name": "Michael Olise",\n      "team": "Bayern Munich",\n      "position": "Forward",\n      "nationality": "France"\n    }\n  ]\n}`}
+                      className="w-full bg-black/60 border border-zinc-700 rounded-lg p-3 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-blue-500 custom-scrollbar"
                     />
-                    <div className="min-w-0">
-                      <p className="text-xs font-bold text-white truncate">{player.name}</p>
-                      <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                        {player.team && (
-                          <span className="text-[10px] text-zinc-400 truncate max-w-[120px]">
-                            {player.team}
-                          </span>
-                        )}
-                        {player.nationality && (
-                          <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium border border-zinc-700/50">
-                            {formatNationality(player.nationality)}
-                          </span>
-                        )}
+                    <div className="flex items-center justify-between gap-2 flex-wrap">
+                      <span className="text-[11px] text-zinc-400">
+                        ℹ️ Los jugadores existentes se actualizarán y los nuevos se agregarán sin repetir nombres.
+                      </span>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => setShowJsonInput(false)}
+                          className="px-3 py-1.5 text-xs text-zinc-400 hover:text-white"
+                        >
+                          Cancelar
+                        </button>
+                        <button
+                          onClick={handleImportJson}
+                          disabled={isSavingPlayers || !jsonInput.trim()}
+                          className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-bold rounded-lg shadow transition-all flex items-center gap-1.5 cursor-pointer"
+                        >
+                          {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                          Procesar y Guardar
+                        </button>
                       </div>
                     </div>
                   </div>
+                )}
+
+                {/* Quick Add Form */}
+                <form onSubmit={handleAddSinglePlayer} className="space-y-3 bg-black/30 border border-zinc-800/80 rounded-xl p-3">
+                  <span className="text-xs font-bold text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                    <UserPlus className="w-4 h-4 text-emerald-400" />
+                    Agregar Jugador Manualmente al Catálogo
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+                    <input
+                      type="text"
+                      placeholder="Nombre Completo *"
+                      value={newPlayerName}
+                      onChange={(e) => setNewPlayerName(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                      required
+                    />
+                    <select
+                      value={newPlayerTeam}
+                      onChange={(e) => setNewPlayerTeam(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-emerald-500"
+                    >
+                      <option value="">Seleccionar Club UCL...</option>
+                      {UCL_36_TEAMS.map(t => (
+                        <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
+                      ))}
+                    </select>
+                    <input
+                      type="text"
+                      placeholder="Posición (Ej: Delantero)"
+                      value={newPlayerPosition}
+                      onChange={(e) => setNewPlayerPosition(e.target.value)}
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        placeholder="Nacionalidad (Ej: Francia 🇫🇷)"
+                        value={newPlayerNationality}
+                        onChange={(e) => setNewPlayerNationality(e.target.value)}
+                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
+                      />
+                      <button
+                        type="submit"
+                        disabled={isSavingPlayers || !newPlayerName.trim()}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-lg transition-colors shrink-0 flex items-center gap-1 cursor-pointer"
+                      >
+                        {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                        Agregar
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              </div>
+
+              {/* Player Search and List */}
+              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={playerSearch}
+                      onChange={(e) => setPlayerSearch(e.target.value)}
+                      placeholder="Buscar jugador por nombre, equipo, nacionalidad..."
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <span className="text-xs text-zinc-500 whitespace-nowrap">
+                    Mostrando {filteredPodiumPlayers.length} de {podiumPlayers.length}
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
+                  {filteredPodiumPlayers.map((player) => {
+                    const logo = getTeamLogoByName(player.team);
+                    return (
+                      <div
+                        key={player.id || player.name}
+                        className="bg-zinc-900/80 border border-zinc-800/90 hover:border-zinc-700 rounded-xl p-3 flex items-center justify-between gap-3 group transition-all"
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {logo ? (
+                            <img src={logo} alt={player.team || 'Club'} className="w-9 h-9 object-contain shrink-0" />
+                          ) : (
+                            <img
+                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(player.name)}&background=27272a&color=fff&size=80&bold=true`}
+                              alt={player.name}
+                              className="w-9 h-9 rounded-full object-cover shrink-0 border border-zinc-700/50"
+                            />
+                          )}
+                          <div className="min-w-0">
+                            <p className="text-xs font-bold text-white truncate">{player.name}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
+                              {player.team && (
+                                <span className="text-[10px] text-zinc-400 truncate max-w-[120px]">
+                                  {player.team}
+                                </span>
+                              )}
+                              {player.nationality && (
+                                <span className="text-[9px] bg-zinc-800 text-zinc-300 px-1.5 py-0.5 rounded font-medium border border-zinc-700/50">
+                                  {formatNationality(player.nationality)}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setEditingCatalogPlayer(player)}
+                            className="p-1.5 text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors cursor-pointer"
+                            title={`Editar datos de ${player.name}`}
+                          >
+                            <Edit3 className="w-4 h-4" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeletePlayer(player)}
+                            disabled={isSavingPlayers}
+                            className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors disabled:opacity-30 cursor-pointer"
+                            title={`Eliminar a ${player.name}`}
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+
+                {filteredPodiumPlayers.length === 0 && (
+                  <div className="text-center py-8 text-zinc-500 text-xs">
+                    No se encontraron jugadores que coincidan con "{playerSearch}".
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SUBTAB 2: GOLEADORES DE PARTIDOS */}
+          {playersSubTab === 'match_scorers' && (
+            <div className="space-y-6">
+              {/* Action Bar */}
+              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Shield className="w-5 h-5 text-blue-400" />
+                      <h3 className="text-base font-bold text-white">Goleadores Registrados en Partidos</h3>
+                      <span className="bg-blue-500/10 text-blue-400 border border-blue-500/30 text-xs px-2.5 py-0.5 rounded-full font-black">
+                        {matchScorersAudit.length} goleadores
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Audita y corrige los clubes asignados a cada gol en los partidos de Champions.
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <button
+                      type="button"
+                      onClick={handleAutoNormalizeMatchClubs}
+                      disabled={isNormalizingMatchClubs}
+                      className="px-4 py-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-black uppercase tracking-wider flex items-center gap-2 shadow-lg shadow-blue-600/20 transition-all cursor-pointer"
+                      title="Normaliza 'FC Barcelona' -> 'Barcelona', 'PSG' -> 'Paris Saint-Germain', etc. en todos los partidos"
+                    >
+                      {isNormalizingMatchClubs ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4 text-amber-300" />}
+                      Auto-Normalizar Clubes
+                    </button>
+                  </div>
+                </div>
+
+                {/* Info notice */}
+                <div className="bg-blue-950/20 border border-blue-800/40 rounded-lg p-3 text-xs text-blue-300 flex items-start gap-2.5">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">¿Por qué es importante normalizar los clubes?</p>
+                    <p className="text-zinc-400 text-[11px] leading-relaxed">
+                      Si un gol se guardó como "FC Barcelona" y otro como "Barcelona", la tabla pública de goleadores podría no agruparlos o no mostrar el escudo oficial. Con esta herramienta puedes estandarizarlos a los 36 clubes oficiales de Champions con un solo clic.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Search & Scorers List */}
+              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={matchScorerSearch}
+                      onChange={(e) => setMatchScorerSearch(e.target.value)}
+                      placeholder="Buscar goleador o club..."
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <span className="text-xs text-zinc-500 whitespace-nowrap">
+                    Mostrando {filteredMatchScorers.length} de {matchScorersAudit.length}
+                  </span>
+                </div>
+
+                <div className="space-y-2.5">
+                  {filteredMatchScorers.map((scorer) => {
+                    const logo = getTeamLogoByName(scorer.canonicalTeam || scorer.teamsList[0]);
+                    return (
+                      <div
+                        key={scorer.key}
+                        className={cn(
+                          "bg-zinc-900/80 border rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all",
+                          scorer.isInconsistent ? "border-amber-500/50 bg-amber-950/10" : "border-zinc-800/90 hover:border-zinc-700"
+                        )}
+                      >
+                        <div className="flex items-center gap-3 min-w-0">
+                          {logo ? (
+                            <img src={logo} alt="Club" className="w-8 h-8 object-contain shrink-0" />
+                          ) : (
+                            <div className="w-8 h-8 rounded-full bg-zinc-800 flex items-center justify-center text-xs font-bold text-zinc-400">
+                              ⚽
+                            </div>
+                          )}
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="text-sm font-bold text-white">{scorer.playerName}</p>
+                              <span className="bg-blue-500/20 text-blue-300 text-[10px] font-black px-2 py-0.5 rounded-full border border-blue-500/30">
+                                {scorer.totalGoals} {scorer.totalGoals === 1 ? 'gol' : 'goles'}
+                              </span>
+                              {scorer.isInconsistent && (
+                                <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full flex items-center gap-1">
+                                  <AlertTriangle className="w-3 h-3 text-amber-400" />
+                                  Club No Estándar
+                                </span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-wrap mt-1 text-[11px] text-zinc-400">
+                              <span>Club(es) en BD:</span>
+                              {scorer.teamsList.length > 0 ? (
+                                scorer.teamsList.map((t, idx) => (
+                                  <span key={idx} className={cn(
+                                    "px-1.5 py-0.5 rounded text-[10px] font-medium border",
+                                    t === getCanonicalTeamName(t)
+                                      ? "bg-zinc-800 text-zinc-300 border-zinc-700/60"
+                                      : "bg-amber-500/10 text-amber-300 border-amber-500/30 font-bold"
+                                  )}>
+                                    {t || 'Sin club'}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-rose-400 italic font-semibold">Sin club asignado</span>
+                              )}
+                              <span className="text-zinc-600">•</span>
+                              <span className="text-zinc-500">{scorer.matches.length} {scorer.matches.length === 1 ? 'partido' : 'partidos'}</span>
+                            </div>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingScorerPlayer({
+                                playerName: scorer.playerName,
+                                currentTeam: scorer.canonicalTeam || scorer.teamsList[0] || ''
+                              });
+                              setSelectedTargetTeam(scorer.canonicalTeam || scorer.teamsList[0] || UCL_36_TEAMS[0].name);
+                            }}
+                            className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                          >
+                            <Edit3 className="w-3.5 h-3.5 text-blue-400" />
+                            Cambiar Club
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {filteredMatchScorers.length === 0 && (
+                    <div className="text-center py-8 text-zinc-500 text-xs">
+                      No se encontraron goleadores que coincidan con "{matchScorerSearch}".
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* SUBTAB 3: PODIOS MANUALES DE USUARIOS */}
+          {playersSubTab === 'custom_podiums' && (
+            <div className="space-y-6">
+              {/* Action Bar */}
+              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <Sparkles className="w-5 h-5 text-purple-400" />
+                      <h3 className="text-base font-bold text-white">Jugadores Manuales en Podios</h3>
+                      <span className="bg-purple-500/10 text-purple-400 border border-purple-500/30 text-xs px-2.5 py-0.5 rounded-full font-black">
+                        {customPodiumList.length} detectados
+                      </span>
+                    </div>
+                    <p className="text-xs text-zinc-400 mt-1">
+                      Nombres que los participantes escribieron a mano porque no salían en la lista oficial.
+                    </p>
+                  </div>
 
                   <button
-                    onClick={() => handleDeletePlayer(player)}
-                    disabled={isSavingPlayers}
-                    className="p-1.5 text-zinc-500 hover:text-rose-400 hover:bg-rose-500/10 rounded-lg transition-colors shrink-0 disabled:opacity-30"
-                    title={`Eliminar a ${player.name}`}
+                    type="button"
+                    onClick={fetchCustomPodiums}
+                    disabled={isLoadingCustomPodiums}
+                    className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors disabled:opacity-50 cursor-pointer"
                   >
-                    <Trash2 className="w-4 h-4" />
+                    <RefreshCw className={cn("w-4 h-4 text-purple-400", isLoadingCustomPodiums && "animate-spin")} />
+                    Reescanear Podios
                   </button>
                 </div>
-              ))}
-            </div>
 
-            {filteredPodiumPlayers.length === 0 && (
-              <div className="text-center py-8 text-zinc-500 text-xs">
-                No se encontraron jugadores que coincidan con "{playerSearch}".
+                <div className="bg-purple-950/20 border border-purple-800/40 rounded-lg p-3 text-xs text-purple-300 flex items-start gap-2.5">
+                  <Sparkles className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+                  <div className="space-y-1">
+                    <p className="font-semibold">¿Cómo resolver los jugadores manuales?</p>
+                    <p className="text-zinc-400 text-[11px] leading-relaxed">
+                      Puedes <strong>Añadir al Catálogo</strong> (seleccionando su Club de Champions y Nacionalidad para que en el podio se vea su escudo y bandera oficial) o <strong>Vincular a Jugador Oficial</strong> si el usuario escribió un apodo o error ortográfico (ej: "Haaland" ➡️ "Erling Haaland").
+                    </p>
+                  </div>
+                </div>
               </div>
-            )}
-          </div>
+
+              {/* Search & List */}
+              <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="relative flex-1">
+                    <Search className="w-4 h-4 text-zinc-500 absolute left-3 top-1/2 -translate-y-1/2" />
+                    <input
+                      type="text"
+                      value={customPodiumSearch}
+                      onChange={(e) => setCustomPodiumSearch(e.target.value)}
+                      placeholder="Buscar por jugador manual, usuario o rol..."
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <span className="text-xs text-zinc-500 whitespace-nowrap">
+                    Mostrando {filteredCustomPodiums.length} de {customPodiumList.length}
+                  </span>
+                </div>
+
+                <div className="space-y-3">
+                  {filteredCustomPodiums.map((item, idx) => (
+                    <div
+                      key={idx}
+                      className="bg-zinc-900/80 border border-purple-500/20 hover:border-purple-500/40 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 transition-all"
+                    >
+                      <div className="space-y-1.5 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-sm font-bold text-white">"{item.playerName}"</span>
+                          {item.roles.map((r, rIdx) => (
+                            <span key={rIdx} className="bg-purple-500/20 text-purple-300 border border-purple-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
+                              {r}
+                            </span>
+                          ))}
+                        </div>
+                        <p className="text-[11px] text-zinc-400">
+                          Elegido por <span className="text-zinc-200 font-bold">{item.occurrences.length} usuario(s)</span>: {item.occurrences.map(o => o.userName).join(', ')}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-2 flex-wrap shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => setAddingCustomPlayer({
+                            name: item.playerName,
+                            team: UCL_36_TEAMS[0].name,
+                            position: item.roles.includes('Goleador') ? 'Delantero' : item.roles.includes('Asistidor') ? 'Centrocampista' : 'Delantero',
+                            nationality: ''
+                          })}
+                          className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow transition-colors cursor-pointer"
+                        >
+                          <Plus className="w-3.5 h-3.5" />
+                          Añadir al Catálogo con Club
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setLinkingCustomPlayer({
+                            customName: item.playerName,
+                            occurrences: item.occurrences,
+                            targetOfficialName: podiumPlayers[0]?.name || ''
+                          })}
+                          className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
+                        >
+                          <Link2 className="w-3.5 h-3.5 text-amber-400" />
+                          Vincular a Oficial
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+
+                  {filteredCustomPodiums.length === 0 && !isLoadingCustomPodiums && (
+                    <div className="text-center py-12 text-zinc-500 text-xs space-y-2">
+                      <CheckCircle2 className="w-8 h-8 text-emerald-400 mx-auto" />
+                      <p className="font-bold text-zinc-300">¡No hay jugadores manuales pendientes!</p>
+                      <p className="text-zinc-500">Todos los participantes han elegido jugadores registrados en el catálogo oficial.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 1: CAMBIAR CLUB DE GOLEADOR EN PARTIDOS */}
+          {editingScorerPlayer && (
+            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-blue-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Shield className="w-5 h-5 text-blue-400" />
+                    <h3 className="text-sm font-bold text-white">Corregir Club del Goleador</h3>
+                  </div>
+                  <button onClick={() => setEditingScorerPlayer(null)} className="text-zinc-400 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-zinc-400 block mb-1 font-semibold">Jugador:</label>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white font-bold text-sm">
+                      {editingScorerPlayer.playerName}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-400 block mb-1 font-semibold">Club Actual:</label>
+                    <div className="text-zinc-300 font-mono text-[11px] bg-black/40 p-2 rounded border border-zinc-800">
+                      {editingScorerPlayer.currentTeam || 'Sin club'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Nuevo Club Oficial (Champions):</label>
+                    <select
+                      value={selectedTargetTeam}
+                      onChange={(e) => setSelectedTargetTeam(e.target.value)}
+                      className="w-full bg-zinc-900 border border-blue-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-blue-400"
+                    >
+                      {UCL_36_TEAMS.map(t => (
+                        <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-zinc-500 mt-1">
+                      ℹ️ Se actualizará este club en todos los partidos donde anotó este jugador y en la tabla de goleadores.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setEditingScorerPlayer(null)}
+                    className="px-4 py-2 text-xs text-zinc-400 hover:text-white"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isUpdatingScorerTeam || !selectedTargetTeam}
+                    onClick={() => handleUpdatePlayerClubAcrossMatches(editingScorerPlayer.playerName, selectedTargetTeam)}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isUpdatingScorerTeam ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Guardar en Todos sus Partidos
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 2: AÑADIR JUGADOR MANUAL AL CATÁLOGO OFICIAL */}
+          {addingCustomPlayer && (
+            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-emerald-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Plus className="w-5 h-5 text-emerald-400" />
+                    <h3 className="text-sm font-bold text-white">Añadir Jugador al Catálogo Oficial</h3>
+                  </div>
+                  <button onClick={() => setAddingCustomPlayer(null)} className="text-zinc-400 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Nombre del Jugador:</label>
+                    <input
+                      type="text"
+                      value={addingCustomPlayer.name}
+                      onChange={(e) => setAddingCustomPlayer({ ...addingCustomPlayer, name: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Club Oficial (UCL):</label>
+                    <select
+                      value={addingCustomPlayer.team}
+                      onChange={(e) => setAddingCustomPlayer({ ...addingCustomPlayer, team: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
+                    >
+                      <option value="">Seleccionar Club...</option>
+                      {UCL_36_TEAMS.map(t => (
+                        <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Posición:</label>
+                    <select
+                      value={addingCustomPlayer.position}
+                      onChange={(e) => setAddingCustomPlayer({ ...addingCustomPlayer, position: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
+                    >
+                      <option value="Delantero">Delantero</option>
+                      <option value="Centrocampista">Centrocampista</option>
+                      <option value="Defensa">Defensa</option>
+                      <option value="Portero">Portero</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Nacionalidad:</label>
+                    <input
+                      type="text"
+                      placeholder="Ej: Suecia 🇸🇪 o Francia"
+                      value={addingCustomPlayer.nationality}
+                      onChange={(e) => setAddingCustomPlayer({ ...addingCustomPlayer, nationality: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setAddingCustomPlayer(null)}
+                    className="px-4 py-2 text-xs text-zinc-400 hover:text-white"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingPlayers || !addingCustomPlayer.name.trim()}
+                    onClick={handleSaveCustomPlayerToCatalog}
+                    className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Guardar en Catálogo Oficial
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 3: VINCULAR JUGADOR MANUAL A OFICIAL */}
+          {linkingCustomPlayer && (
+            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-amber-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Link2 className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-sm font-bold text-white">Vincular a Jugador Oficial</h3>
+                  </div>
+                  <button onClick={() => setLinkingCustomPlayer(null)} className="text-zinc-400 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-zinc-400 block mb-1 font-semibold">Nombre Escrito por el Usuario:</label>
+                    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-amber-300 font-bold text-sm">
+                      "{linkingCustomPlayer.customName}"
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Seleccionar Jugador Oficial Canónico:</label>
+                    <select
+                      value={linkingCustomPlayer.targetOfficialName}
+                      onChange={(e) => setLinkingCustomPlayer({ ...linkingCustomPlayer, targetOfficialName: e.target.value })}
+                      className="w-full bg-zinc-900 border border-amber-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-amber-400"
+                    >
+                      {podiumPlayers.map(p => (
+                        <option key={p.id || p.name} value={p.name}>
+                          {p.name} {p.team ? `(${p.team})` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    <p className="text-[10px] text-zinc-500 mt-1">
+                      ℹ️ Se actualizarán los {linkingCustomPlayer.occurrences.length} podios de los usuarios para que usen este nombre oficial.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setLinkingCustomPlayer(null)}
+                    className="px-4 py-2 text-xs text-zinc-400 hover:text-white"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingPodiumLink || !linkingCustomPlayer.targetOfficialName}
+                    onClick={handleLinkCustomPlayerToOfficial}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isSavingPodiumLink ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Vincular y Actualizar Podios
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 4: EDITAR JUGADOR DEL CATÁLOGO */}
+          {editingCatalogPlayer && (
+            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-zinc-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+                <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
+                  <div className="flex items-center gap-2">
+                    <Edit3 className="w-5 h-5 text-amber-400" />
+                    <h3 className="text-sm font-bold text-white">Editar Jugador del Catálogo</h3>
+                  </div>
+                  <button onClick={() => setEditingCatalogPlayer(null)} className="text-zinc-400 hover:text-white">
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Nombre:</label>
+                    <input
+                      type="text"
+                      value={editingCatalogPlayer.name}
+                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, name: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Club Oficial (UCL):</label>
+                    <select
+                      value={editingCatalogPlayer.team || ''}
+                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                    >
+                      <option value="">Sin Club</option>
+                      {UCL_36_TEAMS.map(t => (
+                        <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Posición:</label>
+                    <select
+                      value={editingCatalogPlayer.position || ''}
+                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, position: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                    >
+                      <option value="Delantero">Delantero</option>
+                      <option value="Centrocampista">Centrocampista</option>
+                      <option value="Defensa">Defensa</option>
+                      <option value="Portero">Portero</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-zinc-300 block mb-1 font-semibold">Nacionalidad:</label>
+                    <input
+                      type="text"
+                      value={editingCatalogPlayer.nationality || ''}
+                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, nationality: e.target.value })}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCatalogPlayer(null)}
+                    className="px-4 py-2 text-xs text-zinc-400 hover:text-white"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isSavingPlayers || !editingCatalogPlayer.name.trim()}
+                    onClick={handleSaveCatalogPlayerEdit}
+                    className="px-4 py-2 bg-amber-600 hover:bg-amber-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                  >
+                    {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                    Guardar Cambios
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 
