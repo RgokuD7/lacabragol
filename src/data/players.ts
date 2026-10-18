@@ -306,28 +306,37 @@ export function deduplicatePlayers(
       const existing = merged[existingIndex];
       const preferredName = cleanName.length >= existing.name.length ? cleanName : existing.name;
       const photo = inc.imageUrl || inc.image || existing.imageUrl || existing.image;
-      merged[existingIndex] = {
+      const updatedItem: PlayerItem = {
         ...existing,
         name: preferredName,
-        team: inc.team || existing.team,
-        position: formattedPos || existing.position,
-        nationality: formattedNat || existing.nationality,
-        imageUrl: photo,
-        image: photo,
+        team: inc.team || existing.team || '',
+        position: formattedPos || existing.position || '',
+        nationality: formattedNat || existing.nationality || '',
         id: existing.id || inc.id || Math.floor(100000 + Math.random() * 900000)
       };
+      if (photo && photo.trim()) {
+        updatedItem.imageUrl = photo.trim();
+        updatedItem.image = photo.trim();
+      } else {
+        delete updatedItem.imageUrl;
+        delete updatedItem.image;
+      }
+      merged[existingIndex] = updatedItem;
       updatedCount++;
     } else {
       const photo = inc.imageUrl || inc.image;
-      merged.push({
+      const newItem: PlayerItem = {
         id: inc.id || Math.floor(100000 + Math.random() * 900000),
         name: cleanName,
         team: inc.team || '',
         position: formattedPos || '',
-        nationality: formattedNat || '',
-        imageUrl: photo,
-        image: photo
-      });
+        nationality: formattedNat || ''
+      };
+      if (photo && photo.trim()) {
+        newItem.imageUrl = photo.trim();
+        newItem.image = photo.trim();
+      }
+      merged.push(newItem);
       addedCount++;
     }
   }
@@ -336,6 +345,25 @@ export function deduplicatePlayers(
   merged.sort((a, b) => a.name.localeCompare(b.name));
 
   return { merged, addedCount, updatedCount };
+}
+
+/**
+ * Sanitizes a PlayerItem so it never contains undefined fields (which crashes Firestore setDoc).
+ */
+export function cleanPlayerForStorage(p: PlayerItem): PlayerItem {
+  const clean: PlayerItem = {
+    name: p.name.trim(),
+    id: p.id || Math.floor(100000 + Math.random() * 900000)
+  };
+  if (p.team && p.team.trim()) clean.team = p.team.trim();
+  if (p.position && p.position.trim()) clean.position = p.position.trim();
+  if (p.nationality && p.nationality.trim()) clean.nationality = p.nationality.trim();
+  const photo = p.imageUrl || p.image;
+  if (photo && photo.trim()) {
+    clean.imageUrl = photo.trim();
+    clean.image = photo.trim();
+  }
+  return clean;
 }
 
 // Initial 10 players present in early app version to identify custom names

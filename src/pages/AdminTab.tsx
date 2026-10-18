@@ -9,8 +9,8 @@ import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../t
 import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, FileJson, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
-import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition, findMatchingCatalogPlayer, arePlayerNamesEquivalent } from '../data/players';
-import { cn } from '../lib/utils';
+import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition, findMatchingCatalogPlayer, arePlayerNamesEquivalent, cleanPlayerForStorage } from '../data/players';
+import { cn, sanitizeForFirestore } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
@@ -1713,19 +1713,22 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   const handleSavePlayers = async (updatedList: PlayerItem[], message: string) => {
     setIsSavingPlayers(true);
+    // Sanitizar completamente para evitar cualquier valor undefined que rechace Firestore
+    const cleanedList = updatedList.map(cleanPlayerForStorage);
     // Actualización optimista inmediata en memoria para que la interfaz reaccione al instante
-    setPodiumPlayers(updatedList);
+    setPodiumPlayers(cleanedList);
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
       const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
-      const updatedKeys = new Set(updatedList.map(p => normalizePlayerKey(p.name)));
+      const updatedKeys = new Set(cleanedList.map(p => normalizePlayerKey(p.name)));
       const filteredDeleted = existingDeleted.filter(k => !updatedKeys.has(k));
-      await setDoc(doc(db, 'system', 'players'), {
-        players: updatedList,
+      const payload = sanitizeForFirestore({
+        players: cleanedList,
         deletedKeys: filteredDeleted,
         updatedAt: Date.now(),
         updatedBy: user?.email || 'admin'
       });
+      await setDoc(doc(db, 'system', 'players'), payload);
       setFeedback({ type: 'success', text: message });
       vibrateSuccess();
     } catch (e: any) {
@@ -1766,19 +1769,20 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const handleDeletePlayer = async (player: PlayerItem) => {
     if (!window.confirm(`¿Estás seguro de eliminar definitivamente a "${player.name}" del catálogo oficial?`)) return;
     const keyToDelete = normalizePlayerKey(player.name);
-    const updated = podiumPlayers.filter(p => normalizePlayerKey(p.name) !== keyToDelete);
+    const updated = podiumPlayers.filter(p => normalizePlayerKey(p.name) !== keyToDelete).map(cleanPlayerForStorage);
     setIsSavingPlayers(true);
     setPodiumPlayers(updated);
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
       const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
       const newDeleted = Array.from(new Set([...existingDeleted, keyToDelete]));
-      await setDoc(doc(db, 'system', 'players'), {
+      const payload = sanitizeForFirestore({
         players: updated,
         deletedKeys: newDeleted,
         updatedAt: Date.now(),
         updatedBy: user?.email || 'admin'
       });
+      await setDoc(doc(db, 'system', 'players'), payload);
       setFeedback({ type: 'success', text: `Jugador "${player.name}" eliminado definitivamente del catálogo.` });
       vibrateSuccess();
     } catch (e: any) {
@@ -1919,12 +1923,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     if (!window.confirm(`¿Deseas restaurar la lista oficial 2026/27 predeterminada (${DEFAULT_PLAYERS.length} jugadores estrella de Champions)? Esto reemplazará la lista en Firestore.`)) return;
     setIsResettingPlayers(true);
     try {
-      await setDoc(doc(db, 'system', 'players'), {
-        players: DEFAULT_PLAYERS,
+      const payload = sanitizeForFirestore({
+        players: DEFAULT_PLAYERS.map(cleanPlayerForStorage),
         deletedKeys: [],
         updatedAt: Date.now(),
         updatedBy: user?.email || 'admin'
       });
+      await setDoc(doc(db, 'system', 'players'), payload);
       setFeedback({ type: 'success', text: `Lista oficial 2026/27 restaurada con éxito (${DEFAULT_PLAYERS.length} jugadores).` });
     } catch (e: any) {
       setFeedback({ type: 'error', text: `Error al restaurar lista: ${e?.message || 'Error desconocido'}` });
