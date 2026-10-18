@@ -129,6 +129,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   // Podium Players management state
   const [podiumPlayers, setPodiumPlayers] = useState<PlayerItem[]>(DEFAULT_PLAYERS);
+  const [deletedPlayerKeys, setDeletedPlayerKeys] = useState<Set<string>>(new Set());
   const [playerSearch, setPlayerSearch] = useState('');
   const [newPlayerName, setNewPlayerName] = useState('');
   const [newPlayerTeam, setNewPlayerTeam] = useState('');
@@ -328,6 +329,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       if (snap.exists() && Array.isArray(snap.data()?.players) && snap.data().players.length > 0) {
         const data = snap.data();
         const deletedKeys = new Set<string>(data.deletedKeys || []);
+        setDeletedPlayerKeys(deletedKeys);
         const firestoreFormatted: PlayerItem[] = snap.data().players
           .filter((p: any) => !deletedKeys.has(normalizePlayerKey(p.name)))
           .map((p: any) => ({
@@ -337,6 +339,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           }));
         setPodiumPlayers(firestoreFormatted);
       } else {
+        setDeletedPlayerKeys(new Set());
         setPodiumPlayers(DEFAULT_PLAYERS);
       }
     });
@@ -595,9 +598,10 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     const map = new Map<string, { name: string; team: string; type: string }>();
 
     matchScorersAudit.forEach(s => {
+      const key = normalizePlayerKey(s.playerName);
+      if (deletedPlayerKeys.has(key)) return; // Omitir si fue eliminado intencionalmente por el admin
       const matched = findMatchingCatalogPlayer(s.playerName, podiumPlayers);
       if (!matched) {
-        const key = normalizePlayerKey(s.playerName);
         map.set(key, {
           name: s.playerName,
           team: s.canonicalTeam || s.teamsList[0] || '',
@@ -607,9 +611,10 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     });
 
     matchAssistsAudit.forEach(a => {
+      const key = normalizePlayerKey(a.playerName);
+      if (deletedPlayerKeys.has(key)) return; // Omitir si fue eliminado intencionalmente por el admin
       const matched = findMatchingCatalogPlayer(a.playerName, podiumPlayers);
       if (!matched) {
-        const key = normalizePlayerKey(a.playerName);
         if (!map.has(key)) {
           map.set(key, {
             name: a.playerName,
@@ -621,7 +626,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     });
 
     return Array.from(map.values());
-  }, [podiumPlayers, matchScorersAudit, matchAssistsAudit]);
+  }, [podiumPlayers, matchScorersAudit, matchAssistsAudit, deletedPlayerKeys]);
 
   // Evidencia detallada de jugadores según eventos de partidos (goles, asistencias, cambios/sustituciones, tarjetas, lesiones)
   const catalogPlayerMatchEvidenceMap = useMemo(() => {
@@ -1753,6 +1758,12 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       id: Math.floor(100000 + Math.random() * 900000)
     };
     const { merged, addedCount } = deduplicatePlayers(podiumPlayers, [incoming]);
+    const addedKey = normalizePlayerKey(incoming.name);
+    setDeletedPlayerKeys(prev => {
+      const next = new Set(prev);
+      next.delete(addedKey);
+      return next;
+    });
     await handleSavePlayers(
       merged, 
       addedCount > 0 
@@ -1772,6 +1783,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     const updated = podiumPlayers.filter(p => normalizePlayerKey(p.name) !== keyToDelete).map(cleanPlayerForStorage);
     setIsSavingPlayers(true);
     setPodiumPlayers(updated);
+    setDeletedPlayerKeys(prev => new Set([...prev, keyToDelete]));
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
       const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
