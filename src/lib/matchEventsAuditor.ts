@@ -2,7 +2,13 @@ import { Match } from '../types';
 import { UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
 import { findUclTeam } from './standings';
 import { areTeamsEquivalent } from './geminiSync';
-import { PlayerItem, normalizePlayerKey } from '../data/players';
+import { 
+  PlayerItem, 
+  normalizePlayerKey, 
+  arePlayerNamesEquivalent, 
+  findMatchingCatalogPlayer, 
+  KNOWN_FOOTBALL_ALIASES 
+} from '../data/players';
 
 export interface RawMatchEvent {
   matchId: string;
@@ -82,7 +88,7 @@ export {
   KNOWN_FOOTBALL_ALIASES, 
   arePlayerNamesEquivalent, 
   findMatchingCatalogPlayer 
-} from '../data/players';
+};
 
 /**
  * Compara de forma inteligente un jugador del catálogo con el nombre que figura en un evento de partido.

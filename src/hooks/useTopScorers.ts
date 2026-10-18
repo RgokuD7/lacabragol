@@ -4,7 +4,7 @@ import { db } from '../lib/firebase';
 import { Match } from '../types';
 import { getTeamLogoByName, getCanonicalTeamName } from '../data/fixtures';
 import { usePlayers } from './usePlayers';
-import { findMatchingCatalogPlayer } from '../lib/matchEventsAuditor';
+import { findMatchingCatalogPlayer } from '../data/players';
 
 export interface TopScorer {
   position: number;

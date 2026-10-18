@@ -9,14 +9,14 @@ import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../t
 import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, FileJson, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
-import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
+import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition, findMatchingCatalogPlayer, arePlayerNamesEquivalent } from '../data/players';
 import { cn } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
 import { recalculateStandings, findUclTeam } from '../lib/standings';
 import { recalculateAllUsersFromDatabase } from '../lib/recalculation';
-import { buildPlayerMatchEvidenceMap, PlayerMatchEvidence, extractAllMatchEvents, findMatchingCatalogPlayer } from '../lib/matchEventsAuditor';
+import { buildPlayerMatchEvidenceMap, PlayerMatchEvidence, extractAllMatchEvents } from '../lib/matchEventsAuditor';
 import { 
   fetchGeminiMatchesPreview, 
   commitGeminiMatchesToFirestore, 
