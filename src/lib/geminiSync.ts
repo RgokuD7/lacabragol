@@ -93,9 +93,8 @@ export function notifyGeminiRateLimit(customMessage?: string) {
 
 export const GEMINI_MODELS = [
   'gemini-3.8-flash',
-  'gemini-2.5-flash',
-  'gemini-2.0-flash',
-  'gemini-1.5-flash'
+  'gemini-3.5-flash',
+  'gemini-3.5-flash-lite'
 ];
 
 /**
@@ -701,83 +700,16 @@ export async function fetchSingleMatchStatsWithGemini(
 
   const dateFormatted = match.date ? new Date(match.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
   
-  // Paso 1: Búsqueda Web en Vivo con Google Search Grounding
-  const promptStep1 = `USANDO TU HERRAMIENTA DE BÚSQUEDA EN INTERNET (Google Search), busca en la web los resultados y estadísticas reales, actuales y oficiales (en vivo o finalizado) del siguiente partido de fútbol de la UEFA Champions League:
-Partido: "${match.homeTeam}" (Equipo Local) vs "${match.awayTeam}" (Equipo Visitante)
+  const prompt = `Actúa como una base de datos deportiva oficial de la UEFA Champions League 2024-2025.
+Proporciona la información oficial, resultados y estadísticas del siguiente partido de fútbol:
+Partido: "${match.homeTeam}" (Local) vs "${match.awayTeam}" (Visitante)
+Fase/Jornada: ${match.group || 'Fase de Liga'}
 Fecha programada: ${dateFormatted}
 
-Dame un reporte detallado con:
-1. Marcador exacto de goles actual o final (o 0-0 si aún no empieza).
-2. Estado del encuentro: "Finalizado", "En vivo [minuto]" (ej. "En Vivo 74'"), "Entretiempo" / "Descanso", o "Programado" / "No iniciado".
-3. Lista completa de goles indicando para cada uno: Minuto exacto, Jugador que anotó, Jugador que dio la ASISTENCIA (o "sin asistencia" si no hubo), y a qué club pertenece el gol.
-4. Lista de tarjetas (amarillas o rojas) con minuto, jugador amonestado y equipo.
-5. Lista de sustituciones o cambios (jugador que entra, jugador que sale, minuto y equipo).
-6. Lesiones destacadas si ocurrieron.
-
-IMPORTANTE: Consulta fuentes deportivas oficiales en vivo (UEFA.com, Google Sports, FlashScore, ESPN, SofaScore). Si el partido aún no ha comenzado, indícalo claramente como "Programado" con 0-0 y listas vacías.`;
-
-  let step1Text = '';
-  let searchQueries: string[] = [];
-  let lastError: any = null;
-
-  for (const modelName of GEMINI_MODELS) {
-    try {
-      console.log(`[Gemini Single Match] Paso 1: Buscando en la web con ${modelName}...`);
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: promptStep1 }] }],
-          tools: [{ googleSearch: {} }],
-          generationConfig: {
-            temperature: 0.1
-          }
-        })
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        if (response.status === 429 || errData?.error?.code === 429 || errData?.error?.status === 'RESOURCE_EXHAUSTED') {
-          notifyGeminiRateLimit();
-          throw new GeminiRateLimitError();
-        }
-        throw new Error(errData?.error?.message || `HTTP ${response.status}`);
-      }
-
-      const data = await response.json();
-      const candidate = data.candidates?.[0];
-      const partText = candidate?.content?.parts?.[0]?.text;
-      const groundingMeta = candidate?.groundingMetadata;
-
-      searchQueries = groundingMeta?.webSearchQueries || [];
-
-      if (partText && partText.trim()) {
-        step1Text = partText.trim();
-        console.log(`[Gemini Single Match] Éxito en Paso 1 con ${modelName}.`);
-        break;
-      }
-    } catch (err: any) {
-      if (isGeminiRateLimit(err)) throw err;
-      lastError = err;
-      console.warn(`[Gemini Single Match] Error con ${modelName}:`, err.message);
-    }
-  }
-
-  if (!step1Text) {
-    return {
-      success: false,
-      message: `No se pudo obtener información web del partido: ${lastError?.message || 'Sin respuesta'}`,
-      error: lastError?.message
-    };
-  }
-
-  // Paso 2: Conversión estricta a JSON con responseMimeType
-  const promptStep2 = `A partir de la siguiente información verificada del partido de fútbol "${match.homeTeam}" vs "${match.awayTeam}", extrae los datos y devuelve ÚNICAMENTE un objeto JSON estricto con esta estructura:
-
+Devuelve ÚNICAMENTE un objeto JSON estricto con la siguiente estructura exacta:
 {
   "partido": "${match.homeTeam} vs ${match.awayTeam}",
-  "estado": "Finalizado / En vivo XX' / Entretiempo / Programado",
+  "estado": "Finalizado",
   "marcador": {
     "local": 0,
     "visitante": 0
@@ -810,24 +742,24 @@ IMPORTANTE: Consulta fuentes deportivas oficiales en vivo (UEFA.com, Google Spor
   "lesiones": []
 }
 
-REGLAS ESTRICTAS DE EQUIPOS Y ASISTENCIAS:
-1. El campo "equipo" en cada gol, tarjeta y cambio DEBE ser EXACTAMENTE "${match.homeTeam}" si corresponde al equipo local, o EXACTAMENTE "${match.awayTeam}" si corresponde al equipo visitante. No uses variaciones como "FC Barcelona" o "FCB" si el nombre provisto es "${match.homeTeam}" o "${match.awayTeam}".
-2. Si un gol tuvo asistencia, coloca el nombre del asistente en "asistencia". Si no tuvo asistencia o fue penal/autogol/jugada solitaria, pon null.
-3. Si el partido no ha comenzado, marcador debe ser 0-0, estado "Programado", y goles/tarjetas/cambios arrays vacíos [].
-
-TEXTO VERIFICADO:
-${step1Text}`;
+REGLAS ESTRICTAS DE RESPUESTA:
+1. El campo "equipo" en cada gol, tarjeta y cambio DEBE ser EXACTAMENTE "${match.homeTeam}" o EXACTAMENTE "${match.awayTeam}".
+2. Si un gol tuvo asistencia, coloca el nombre exacto del asistente en "asistencia". Si no hubo asistencia o fue penal/autogol/jugada individual, coloca null.
+3. Si el partido aún no ha comenzado o no se ha jugado, marcador debe ser 0-0, estado "Programado", y goles/tarjetas/cambios arrays vacíos [].
+4. Si el partido ya finalizó, entrega el marcador exacto oficial, goleadores con sus minutos, asistidores y tarjetas.`;
 
   let parsedJson: any = null;
+  let lastError: any = null;
+
   for (const modelName of GEMINI_MODELS) {
     try {
-      console.log(`[Gemini Single Match] Paso 2: Estructurando JSON con ${modelName}...`);
+      console.log(`[Gemini Single Match] Consultando estadísticas directamente con ${modelName}...`);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: promptStep2 }] }],
+          contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             responseMimeType: 'application/json',
             temperature: 0.1
@@ -854,14 +786,14 @@ ${step1Text}`;
     } catch (err: any) {
       if (isGeminiRateLimit(err)) throw err;
       lastError = err;
-      console.warn(`[Gemini Single Match] Error parseando JSON con ${modelName}:`, err.message);
+      console.warn(`[Gemini Single Match] Error con ${modelName}:`, err.message);
     }
   }
 
   if (!parsedJson || typeof parsedJson !== 'object') {
     return {
       success: false,
-      message: `Error al estructurar los datos del partido con Gemini: ${lastError?.message || 'Formato inválido'}`,
+      message: `Error al consultar estadísticas con Gemini: ${lastError?.message || 'Formato inválido'}`,
       error: lastError?.message
     };
   }
@@ -926,9 +858,7 @@ ${step1Text}`;
     lesiones: Array.isArray(parsedJson.lesiones) ? parsedJson.lesiones : []
   };
 
-  const searchSummary = searchQueries.length > 0 
-    ? `Búsquedas web realizadas: ${searchQueries.join(', ')}`
-    : `Búsqueda web en vivo de ${match.homeTeam} vs ${match.awayTeam} completada con Gemini.`;
+  const searchSummary = `Estadísticas de ${match.homeTeam} vs ${match.awayTeam} obtenidas directamente con Gemini.`;
 
   return {
     success: true,

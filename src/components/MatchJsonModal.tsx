@@ -903,8 +903,8 @@ export function MatchJsonModal({
                   <Sparkles className="w-4 h-4" />
                 </div>
                 <div>
-                  <h4 className="text-xs font-bold text-white">Google Gemini 3.8 Flash</h4>
-                  <p className="text-[10px] text-zinc-400">Búsqueda web en vivo de estadísticas y eventos</p>
+                  <h4 className="text-xs font-bold text-white">Google Gemini IA</h4>
+                  <p className="text-[10px] text-zinc-400">Consulta directa de estadísticas y eventos oficiales</p>
                 </div>
               </div>
 
@@ -916,7 +916,7 @@ export function MatchJsonModal({
                 title="Volver a buscar estadísticas"
               >
                 <RefreshCw className={`w-3.5 h-3.5 ${isAiSearching ? 'animate-spin' : ''}`} />
-                <span>{isAiSearching ? 'Buscando...' : 'Re-buscar'}</span>
+                <span>{isAiSearching ? 'Consultando...' : 'Re-consultar'}</span>
               </button>
             </div>
 
@@ -927,9 +927,9 @@ export function MatchJsonModal({
                   <Sparkles className="w-6 h-6 text-purple-400 animate-spin" />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-white">Buscando estadísticas con Gemini 3.8 Flash...</p>
+                  <p className="text-sm font-bold text-white">Consultando estadísticas con Gemini...</p>
                   <p className="text-xs text-zinc-400 mt-1 max-w-xs">
-                    Consultando marcadores, goleadores, asistencias y tarjetas con Google Search Grounding.
+                    Extrayendo marcadores, goleadores, asistencias y tarjetas oficiales del partido.
                   </p>
                 </div>
               </div>
@@ -1165,9 +1165,9 @@ export function MatchJsonModal({
             {!isAiSearching && !parsedData && !error && (
               <div className="p-8 text-center bg-[#121215] border border-zinc-800 rounded-2xl space-y-3">
                 <Sparkles className="w-8 h-8 text-purple-400 mx-auto" />
-                <h4 className="text-sm font-bold text-white">Búsqueda Automática con Gemini 3.8 Flash</h4>
+                <h4 className="text-sm font-bold text-white">Consulta Automática con Gemini</h4>
                 <p className="text-xs text-zinc-400 max-w-sm mx-auto">
-                  Presiona el botón a continuación para rastrear el marcador oficial, los goleadores, las asistencias y las tarjetas de este partido en vivo.
+                  Presiona el botón a continuación para obtener el marcador oficial, los goleadores, las asistencias y las tarjetas de este partido.
                 </p>
                 <button
                   type="button"
@@ -1175,7 +1175,7 @@ export function MatchJsonModal({
                   className="py-2.5 px-5 bg-purple-600 hover:bg-purple-500 text-white font-bold text-xs uppercase tracking-wider rounded-xl transition-all shadow-md shadow-purple-600/30 cursor-pointer inline-flex items-center gap-2"
                 >
                   <Search className="w-4 h-4" />
-                  <span>Buscar Estadísticas Ahora</span>
+                  <span>Consultar Estadísticas Ahora</span>
                 </button>
               </div>
             )}
