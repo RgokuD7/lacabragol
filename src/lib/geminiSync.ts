@@ -700,16 +700,75 @@ export async function fetchSingleMatchStatsWithGemini(
 
   const dateFormatted = match.date ? new Date(match.date).toLocaleDateString('es-ES', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
   
-  const prompt = `Actúa como una base de datos deportiva oficial de la UEFA Champions League 2024-2025.
-Proporciona la información oficial, resultados y estadísticas del siguiente partido de fútbol:
-Partido: "${match.homeTeam}" (Local) vs "${match.awayTeam}" (Visitante)
-Fase/Jornada: ${match.group || 'Fase de Liga'}
-Fecha programada: ${dateFormatted}
+  // 1. BÚSQUEDA WEB EN VIVO (GOOGLE SEARCH)
+  let step1Text = '';
+  let searchQueries: string[] = [];
 
-Devuelve ÚNICAMENTE un objeto JSON estricto con la siguiente estructura exacta:
+  // Intento A: Google Search Grounding nativo con Gemini
+  for (const modelName of GEMINI_MODELS) {
+    try {
+      console.log(`[Gemini Single Match] Intentando búsqueda en Google con ${modelName}...`);
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: `Busca en internet los resultados y estadísticas oficiales del partido de UEFA Champions League: "${match.homeTeam}" vs "${match.awayTeam}". Fecha: ${dateFormatted}. Dame marcador, goleadores con minutos y asistentes, y amonestados.` }] }],
+          tools: [{ googleSearchRetrieval: {} }],
+          generationConfig: { temperature: 0.1 }
+        })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        const candidate = data.candidates?.[0];
+        const partText = candidate?.content?.parts?.[0]?.text;
+        const groundingMeta = candidate?.groundingMetadata;
+        searchQueries = groundingMeta?.webSearchQueries || [];
+
+        if (partText && partText.trim()) {
+          step1Text = partText.trim();
+          console.log(`[Gemini Single Match] Búsqueda web exitosa con ${modelName}.`);
+          break;
+        }
+      } else {
+        console.warn(`[Gemini Grounding] Modelo ${modelName} retornó ${response.status}. Intentando fallback.`);
+      }
+    } catch (err: any) {
+      console.warn(`[Gemini Grounding] Error en ${modelName}:`, err?.message);
+    }
+  }
+
+  // Intento B: Si la cuota de Google Search Grounding en AI Studio está bloqueada o agotada, buscar en Google en vivo vía SerpAPI
+  if (!step1Text) {
+    try {
+      console.log(`[Gemini Single Match] Buscando en Google en vivo mediante SerpAPI...`);
+      const { fetchSerpApiRaw } = await import('./serpapiSync');
+      const searchQuery = `"${match.homeTeam}" vs "${match.awayTeam}" resultado goles Champions League`;
+      const searchData = await fetchSerpApiRaw(searchQuery);
+      if (searchData) {
+        step1Text = JSON.stringify(searchData);
+        searchQueries = [searchQuery];
+      }
+    } catch (serpErr: any) {
+      console.warn(`[Gemini Single Match] Fallback de búsqueda web falló:`, serpErr?.message);
+    }
+  }
+
+  if (!step1Text) {
+    return {
+      success: false,
+      message: 'No se pudo obtener información en vivo del partido desde Google Search. Por favor verifica tu conexión a internet o ingresa el marcador manualmente.',
+      error: 'NO_WEB_DATA'
+    };
+  }
+
+  // 2. ESTRUCTURACIÓN ESTRICTA EN JSON CON GEMINI A PARTIR DE LOS DATOS REALES DE GOOGLE
+  const promptStep2 = `A partir de la siguiente información verificada obtenida de la búsqueda en Google para el partido de UEFA Champions League "${match.homeTeam}" vs "${match.awayTeam}", extrae los datos y devuelve ÚNICAMENTE un objeto JSON estricto con esta estructura:
+
 {
   "partido": "${match.homeTeam} vs ${match.awayTeam}",
-  "estado": "Finalizado",
+  "estado": "Finalizado / En vivo XX' / Entretiempo / Programado",
   "marcador": {
     "local": 0,
     "visitante": 0
@@ -742,24 +801,27 @@ Devuelve ÚNICAMENTE un objeto JSON estricto con la siguiente estructura exacta:
   "lesiones": []
 }
 
-REGLAS ESTRICTAS DE RESPUESTA:
+REGLAS ESTRICTAS DE EXTRACCIÓN:
 1. El campo "equipo" en cada gol, tarjeta y cambio DEBE ser EXACTAMENTE "${match.homeTeam}" o EXACTAMENTE "${match.awayTeam}".
-2. Si un gol tuvo asistencia, coloca el nombre exacto del asistente en "asistencia". Si no hubo asistencia o fue penal/autogol/jugada individual, coloca null.
-3. Si el partido aún no ha comenzado o no se ha jugado, marcador debe ser 0-0, estado "Programado", y goles/tarjetas/cambios arrays vacíos [].
-4. Si el partido ya finalizó, entrega el marcador exacto oficial, goleadores con sus minutos, asistidores y tarjetas.`;
+2. Si un gol tuvo asistencia registrada en la búsqueda, coloca el nombre en "asistencia". Si no tuvo asistencia o fue penal/autogol/solitaria, pon null.
+3. Si el partido aún no comienza o no se jugó, marcador 0-0, estado "Programado", y goles/tarjetas/cambios arrays vacíos [].
+4. NUNCA inventes jugadores ni goles que no aparezcan en la información real de búsqueda.
+
+INFORMACIÓN EXTRAÍDA DE GOOGLE:
+${step1Text}`;
 
   let parsedJson: any = null;
   let lastError: any = null;
 
   for (const modelName of GEMINI_MODELS) {
     try {
-      console.log(`[Gemini Single Match] Consultando estadísticas directamente con ${modelName}...`);
+      console.log(`[Gemini Single Match] Estructurando datos reales de Google con ${modelName}...`);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
+          contents: [{ parts: [{ text: promptStep2 }] }],
           generationConfig: {
             responseMimeType: 'application/json',
             temperature: 0.1
@@ -793,7 +855,7 @@ REGLAS ESTRICTAS DE RESPUESTA:
   if (!parsedJson || typeof parsedJson !== 'object') {
     return {
       success: false,
-      message: `Error al consultar estadísticas con Gemini: ${lastError?.message || 'Formato inválido'}`,
+      message: `Error al procesar la información de Google: ${lastError?.message || 'Formato inválido'}`,
       error: lastError?.message
     };
   }
@@ -858,7 +920,9 @@ REGLAS ESTRICTAS DE RESPUESTA:
     lesiones: Array.isArray(parsedJson.lesiones) ? parsedJson.lesiones : []
   };
 
-  const searchSummary = `Estadísticas de ${match.homeTeam} vs ${match.awayTeam} obtenidas directamente con Gemini.`;
+  const searchSummary = searchQueries.length > 0 
+    ? `Búsqueda en Google completada: ${searchQueries.join(', ')}`
+    : `Búsqueda oficial en vivo completada en Google para ${match.homeTeam} vs ${match.awayTeam}.`;
 
   return {
     success: true,
