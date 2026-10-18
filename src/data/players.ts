@@ -237,21 +237,21 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 351860,
     name: "Kylian Mbappé",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Delantero",
     nationality: "Francia 🇫🇷"
   },
   {
     id: 954060,
     name: "Jude Bellingham",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Centrocampista",
     nationality: "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     id: 843926,
     name: "Vinícius Júnior",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Delantero",
     nationality: "Brasil 🇧🇷"
   },
@@ -272,21 +272,21 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 988562,
     name: "Michael Olise",
-    team: "Bayern Munich",
+    team: "FC Bayern München",
     position: "Delantero",
     nationality: "Francia 🇫🇷"
   },
   {
     id: 981996,
     name: "Jamal Musiala",
-    team: "Bayern Munich",
+    team: "FC Bayern München",
     position: "Centrocampista",
     nationality: "Alemania 🇩🇪"
   },
   {
     id: 170323,
     name: "Harry Kane",
-    team: "Bayern Munich",
+    team: "FC Bayern München",
     position: "Delantero",
     nationality: "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
@@ -314,21 +314,21 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 934389,
     name: "Bukayo Saka",
-    team: "Arsenal Football Club",
+    team: "Arsenal",
     position: "Delantero",
     nationality: "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
   {
     id: 345091,
     name: "Martin Ødegaard",
-    team: "Arsenal Football Club",
+    team: "Arsenal",
     position: "Centrocampista",
     nationality: "Noruega 🇳🇴"
   },
   {
     id: 843927,
     name: "Declan Rice",
-    team: "Arsenal Football Club",
+    team: "Arsenal",
     position: "Centrocampista",
     nationality: "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
@@ -349,14 +349,14 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 825700,
     name: "Lautaro Martínez",
-    team: "Inter de Milán",
+    team: "Inter",
     position: "Delantero",
     nationality: "Argentina 🇦🇷"
   },
   {
     id: 839957,
     name: "Nicolò Barella",
-    team: "Inter de Milán",
+    team: "Inter",
     position: "Centrocampista",
     nationality: "Italia 🇮🇹"
   },
@@ -365,7 +365,7 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 159665,
     name: "Mohamed Salah",
-    team: "Liverpool",
+    team: "Liverpool FC",
     position: "Delantero",
     nationality: "Egipto 🇪🇬"
   },
@@ -393,7 +393,7 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 41856,
     name: "Antoine Griezmann",
-    team: "Atlético de Madrid",
+    team: "Atlético Madrid",
     position: "Delantero",
     nationality: "Francia 🇫🇷"
   },
@@ -409,21 +409,21 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 843928,
     name: "Rodrygo",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Delantero",
     nationality: "Brasil 🇧🇷"
   },
   {
     id: 839958,
     name: "Luis Díaz",
-    team: "Liverpool",
+    team: "Liverpool FC",
     position: "Delantero",
     nationality: "Colombia 🇨🇴"
   },
   {
     id: 954062,
     name: "Julián Álvarez",
-    team: "Atlético de Madrid",
+    team: "Atlético Madrid",
     position: "Delantero",
     nationality: "Argentina 🇦🇷"
   },
@@ -444,14 +444,14 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 843930,
     name: "Kai Havertz",
-    team: "Arsenal Football Club",
+    team: "Arsenal",
     position: "Delantero",
     nationality: "Alemania 🇩🇪"
   },
   {
     id: 843931,
     name: "Marcus Thuram",
-    team: "Inter de Milán",
+    team: "Inter",
     position: "Delantero",
     nationality: "Francia 🇫🇷"
   },
@@ -507,28 +507,28 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 1478145,
     name: "Endrick",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Delantero",
     nationality: "Brasil 🇧🇷"
   },
   {
     id: 988566,
     name: "Arda Güler",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Centrocampista",
     nationality: "Turquía 🇹🇷"
   },
   {
     id: 843935,
     name: "Federico Valverde",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Centrocampista",
     nationality: "Uruguay 🇺🇾"
   },
   {
     id: 843936,
     name: "Brahim Díaz",
-    team: "Real Madrid C.F.",
+    team: "Real Madrid",
     position: "Centrocampista",
     nationality: "Marruecos 🇲🇦"
   },
@@ -549,21 +549,21 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 839962,
     name: "Leroy Sané",
-    team: "Bayern Munich",
+    team: "FC Bayern München",
     position: "Delantero",
     nationality: "Alemania 🇩🇪"
   },
   {
     id: 843937,
     name: "Darwin Núñez",
-    team: "Liverpool",
+    team: "Liverpool FC",
     position: "Delantero",
     nationality: "Uruguay 🇺🇾"
   },
   {
     id: 843938,
     name: "Gabriel Martinelli",
-    team: "Arsenal Football Club",
+    team: "Arsenal",
     position: "Delantero",
     nationality: "Brasil 🇧🇷"
   },
@@ -591,21 +591,21 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 843939,
     name: "Cody Gakpo",
-    team: "Liverpool",
+    team: "Liverpool FC",
     position: "Delantero",
     nationality: "Países Bajos 🇳🇱"
   },
   {
     id: 843940,
     name: "Diogo Jota",
-    team: "Liverpool",
+    team: "Liverpool FC",
     position: "Delantero",
     nationality: "Portugal 🇵🇹"
   },
   {
     id: 839964,
     name: "Trent Alexander-Arnold",
-    team: "Liverpool",
+    team: "Liverpool FC",
     position: "Defensa",
     nationality: "Inglaterra 🏴󠁧󠁢󠁥󠁮󠁧󠁿"
   },
@@ -647,7 +647,7 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 839965,
     name: "Hakan Çalhanoğlu",
-    team: "Inter de Milán",
+    team: "Inter",
     position: "Centrocampista",
     nationality: "Turquía 🇹🇷"
   },
@@ -703,14 +703,14 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 839967,
     name: "Leandro Trossard",
-    team: "Arsenal Football Club",
+    team: "Arsenal",
     position: "Delantero",
     nationality: "Bélgica 🇧🇪"
   },
   {
     id: 839968,
     name: "Alexander Sørloth",
-    team: "Atlético de Madrid",
+    team: "Atlético Madrid",
     position: "Delantero",
     nationality: "Noruega 🇳🇴"
   },
@@ -745,7 +745,7 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 839970,
     name: "Serge Gnabry",
-    team: "Bayern Munich",
+    team: "FC Bayern München",
     position: "Delantero",
     nationality: "Alemania 🇩🇪"
   },

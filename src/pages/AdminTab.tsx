@@ -6,7 +6,7 @@ import { collection, doc, query, where, onSnapshot, getDocs, writeBatch, updateD
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
@@ -14,7 +14,7 @@ import { cn } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
-import { recalculateStandings } from '../lib/standings';
+import { recalculateStandings, findUclTeam } from '../lib/standings';
 import { recalculateAllUsersFromDatabase } from '../lib/recalculation';
 import { 
   fetchGeminiMatchesPreview, 
@@ -181,6 +181,10 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   // Modal para editar jugador oficial del catálogo
   const [editingCatalogPlayer, setEditingCatalogPlayer] = useState<PlayerItem | null>(null);
+
+  // Filtros rápidos para problemas de clubes
+  const [showOnlyUnlinkedCatalog, setShowOnlyUnlinkedCatalog] = useState(false);
+  const [showOnlyInconsistentScorers, setShowOnlyInconsistentScorers] = useState(false);
 
   // Listen to stages for activeGroupId
   useEffect(() => {
@@ -349,13 +353,33 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     return (u.nickname || '').toLowerCase().includes(q) || (u.displayName || '').toLowerCase().includes(q) || (u.email || '').toLowerCase().includes(q);
   });
 
-  const filteredPodiumPlayers = podiumPlayers.filter(p => {
-    const q = playerSearch.toLowerCase();
-    return p.name.toLowerCase().includes(q) || 
+  // Jugadores del catálogo oficial que NO tienen un club oficial de Champions vinculado de forma exacta
+  const unlinkedCatalogPlayers = useMemo(() => {
+    return podiumPlayers.filter(p => !p.team || !UCL_36_TEAMS.some(t => t.name === p.team));
+  }, [podiumPlayers]);
+
+  // Cuántos de ellos se pueden auto-vincular inmediatamente por alias
+  const autoLinkableCatalogPlayers = useMemo(() => {
+    return unlinkedCatalogPlayers.filter(p => {
+      const match = findUclTeam(p.team);
+      return match && match.name !== p.team;
+    });
+  }, [unlinkedCatalogPlayers]);
+
+  const filteredPodiumPlayers = useMemo(() => {
+    let list = podiumPlayers;
+    if (showOnlyUnlinkedCatalog) {
+      list = list.filter(p => !p.team || !UCL_36_TEAMS.some(t => t.name === p.team));
+    }
+    const q = playerSearch.toLowerCase().trim();
+    if (!q) return list;
+    return list.filter(p => 
+      p.name.toLowerCase().includes(q) || 
       (p.team && p.team.toLowerCase().includes(q)) ||
       (p.position && p.position.toLowerCase().includes(q)) ||
-      (p.nationality && p.nationality.toLowerCase().includes(q));
-  });
+      (p.nationality && p.nationality.toLowerCase().includes(q))
+    );
+  }, [podiumPlayers, playerSearch, showOnlyUnlinkedCatalog]);
 
   // Auditoría en tiempo real de goleadores registrados en partidos
   const matchScorersAudit = useMemo(() => {
@@ -435,14 +459,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   }, [matches]);
 
   const filteredMatchScorers = useMemo(() => {
+    let list = matchScorersAudit;
+    if (showOnlyInconsistentScorers) {
+      list = list.filter(s => s.isInconsistent);
+    }
     const q = matchScorerSearch.toLowerCase().trim();
-    if (!q) return matchScorersAudit;
-    return matchScorersAudit.filter(s => 
+    if (!q) return list;
+    return list.filter(s => 
       s.playerName.toLowerCase().includes(q) ||
       s.teamsList.some(t => t.toLowerCase().includes(q)) ||
       s.canonicalTeam.toLowerCase().includes(q)
     );
-  }, [matchScorersAudit, matchScorerSearch]);
+  }, [matchScorersAudit, matchScorerSearch, showOnlyInconsistentScorers]);
 
   // Carga y escaneo de jugadores de podio manuales
   const fetchCustomPodiums = useCallback(async () => {
@@ -1449,6 +1477,37 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }
   };
 
+  const [isNormalizingCatalogClubs, setIsNormalizingCatalogClubs] = useState(false);
+
+  // Auto-vincular clubes del catálogo oficial que tengan alias reconocibles (ej. "Bayern Munich" -> "FC Bayern München")
+  const handleAutoNormalizeCatalogClubs = async () => {
+    setIsNormalizingCatalogClubs(true);
+    try {
+      let changedCount = 0;
+      const updated = podiumPlayers.map(p => {
+        if (!p.team) return p;
+        const uclMatch = findUclTeam(p.team);
+        if (uclMatch && uclMatch.name !== p.team) {
+          changedCount++;
+          return { ...p, team: uclMatch.name };
+        }
+        return p;
+      });
+
+      if (changedCount === 0) {
+        setFeedback({ type: 'info', text: 'Todos los clubes con alias reconocibles ya están vinculados.' });
+        return;
+      }
+
+      await handleSavePlayers(updated, `¡Listo! Se auto-vincularon ${changedCount} clubes del catálogo al nombre oficial de Champions.`);
+    } catch (err: any) {
+      console.error('Error auto-normalizing catalog clubs:', err);
+      setFeedback({ type: 'error', text: `Error al auto-vincular clubes: ${err?.message || 'Error desconocido'}` });
+    } finally {
+      setIsNormalizingCatalogClubs(false);
+    }
+  };
+
   // Auto-normalizar clubes de goleadores en todos los partidos de Firestore
   const handleAutoNormalizeMatchClubs = async () => {
     setIsNormalizingMatchClubs(true);
@@ -1477,13 +1536,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           if (!playerName) return g;
 
           // Obtener nombre canónico de club oficial
-          let canonicalTeam = getCanonicalTeamName(teamName);
+          const uclFromTeam = findUclTeam(teamName);
+          let canonicalTeam = uclFromTeam ? uclFromTeam.name : getCanonicalTeamName(teamName);
 
           // Si el gol no traía equipo o no se reconoció, buscar en catálogo oficial de jugadores
-          if (!canonicalTeam) {
+          if (!canonicalTeam || !UCL_36_TEAMS.some(t => t.name === canonicalTeam)) {
             const found = podiumPlayers.find(p => p.name.toLowerCase() === playerName.toLowerCase());
             if (found && found.team) {
-              canonicalTeam = getCanonicalTeamName(found.team);
+              const uclFromCatalog = findUclTeam(found.team);
+              canonicalTeam = uclFromCatalog ? uclFromCatalog.name : getCanonicalTeamName(found.team);
             }
           }
 
@@ -1537,7 +1598,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setIsUpdatingScorerTeam(true);
     try {
       let matchesUpdated = 0;
-      const canonical = getCanonicalTeamName(newTeamName);
+      const canonical = findUclTeam(newTeamName)?.name || getCanonicalTeamName(newTeamName) || newTeamName;
 
       for (const m of matches) {
         if (!Array.isArray(m.goalscorers) || m.goalscorers.length === 0) continue;
@@ -2272,6 +2333,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
             >
               <Users className="w-4 h-4 text-amber-400" />
               <span>Catálogo Oficial ({podiumPlayers.length})</span>
+              {unlinkedCatalogPlayers.length > 0 && (
+                <span className="bg-amber-500 text-black text-[9px] font-black px-1.5 py-0.2 rounded-full shadow-sm" title={`${unlinkedCatalogPlayers.length} jugadores sin club oficial UCL`}>
+                  {unlinkedCatalogPlayers.length} sin club
+                </span>
+              )}
             </button>
             <button
               type="button"
@@ -2286,7 +2352,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
               <Shield className="w-4 h-4 text-blue-400" />
               <span>Goleadores de Partidos ({matchScorersAudit.length})</span>
               {matchScorersAudit.some(s => s.isInconsistent) && (
-                <span className="w-2 h-2 rounded-full bg-rose-500 animate-pulse" title="Hay clubes inconsistentes en partidos" />
+                <span className="bg-rose-500 text-white text-[9px] font-black px-1.5 py-0.2 rounded-full" title="Hay clubes inconsistentes en partidos">
+                  {matchScorersAudit.filter(s => s.isInconsistent).length}
+                </span>
               )}
             </button>
             <button
@@ -2332,6 +2400,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
+                    {autoLinkableCatalogPlayers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={handleAutoNormalizeCatalogClubs}
+                        disabled={isNormalizingCatalogClubs || isSavingPlayers}
+                        className="px-3 py-2 bg-gradient-to-r from-amber-600 to-orange-600 hover:from-amber-500 hover:to-orange-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/20 cursor-pointer disabled:opacity-50"
+                        title="Vincular automáticamente nombres con alias reconocibles a su club oficial UCL"
+                      >
+                        {isNormalizingCatalogClubs ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                        Auto-Vincular ({autoLinkableCatalogPlayers.length})
+                      </button>
+                    )}
                     <button
                       onClick={() => setShowJsonInput(!showJsonInput)}
                       className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -2445,6 +2525,43 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 </form>
               </div>
 
+              {/* Banner de Aviso de Jugadores Sin Club Oficial UCL */}
+              {unlinkedCatalogPlayers.length > 0 && (
+                <div className="bg-amber-950/25 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold text-amber-200">
+                          ⚠️ {unlinkedCatalogPlayers.length} {unlinkedCatalogPlayers.length === 1 ? 'jugador no tiene' : 'jugadores no tienen'} club oficial UCL vinculado
+                        </p>
+                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
+                          Requieren revisión
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                        Tienen clubes no canónicos o de equipos no participantes en los 36 de esta Champions (ej. "Chelsea", "Bayer Leverkusen") o están vacíos. Corrígelos para que se muestre su escudo oficial y sumen correctamente.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowOnlyUnlinkedCatalog(!showOnlyUnlinkedCatalog)}
+                      className={cn(
+                        "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm",
+                        showOnlyUnlinkedCatalog
+                          ? "bg-amber-500 text-black font-black"
+                          : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                      )}
+                    >
+                      <Filter className="w-3.5 h-3.5" />
+                      {showOnlyUnlinkedCatalog ? 'Ver todos los jugadores' : `Filtrar los ${unlinkedCatalogPlayers.length} sin club`}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Player Search and List */}
               <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2458,18 +2575,43 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
                     />
                   </div>
-                  <span className="text-xs text-zinc-500 whitespace-nowrap">
-                    Mostrando {filteredPodiumPlayers.length} de {podiumPlayers.length}
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {unlinkedCatalogPlayers.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOnlyUnlinkedCatalog(!showOnlyUnlinkedCatalog)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer",
+                          showOnlyUnlinkedCatalog
+                            ? "bg-amber-500 text-black font-black"
+                            : "bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30"
+                        )}
+                      >
+                        <Filter className="w-3 h-3" />
+                        {showOnlyUnlinkedCatalog ? 'Ver todos' : `Solo sin club (${unlinkedCatalogPlayers.length})`}
+                      </button>
+                    )}
+                    <span className="text-xs text-zinc-500 whitespace-nowrap">
+                      Mostrando {filteredPodiumPlayers.length} de {podiumPlayers.length}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
                   {filteredPodiumPlayers.map((player) => {
+                    const isExactOfficial = !!player.team && UCL_36_TEAMS.some(t => t.name === player.team);
+                    const aliasMatch = findUclTeam(player.team);
                     const logo = getTeamLogoByName(player.team);
+
                     return (
                       <div
                         key={player.id || player.name}
-                        className="bg-zinc-900/80 border border-zinc-800/90 hover:border-zinc-700 rounded-xl p-3 flex items-center justify-between gap-3 group transition-all"
+                        className={cn(
+                          "rounded-xl p-3 flex items-center justify-between gap-3 group transition-all border",
+                          !isExactOfficial
+                            ? "bg-amber-950/15 border-amber-500/40 hover:border-amber-500/70"
+                            : "bg-zinc-900/80 border-zinc-800/90 hover:border-zinc-700"
+                        )}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           {logo ? (
@@ -2482,11 +2624,31 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                             />
                           )}
                           <div className="min-w-0">
-                            <p className="text-xs font-bold text-white truncate">{player.name}</p>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <p className="text-xs font-bold text-white truncate">{player.name}</p>
+                              {!isExactOfficial && (
+                                <span className="text-[9px] bg-amber-500/20 text-amber-300 border border-amber-500/40 px-1.5 py-0.2 rounded font-black flex items-center gap-0.5" title="No está vinculado exactamente a un club de los 36 de Champions">
+                                  <AlertTriangle className="w-2.5 h-2.5" />
+                                  {player.team ? 'No oficial' : 'Sin club'}
+                                </span>
+                              )}
+                            </div>
                             <div className="flex items-center gap-1.5 flex-wrap mt-0.5">
-                              {player.team && (
-                                <span className="text-[10px] text-zinc-400 truncate max-w-[120px]">
-                                  {player.team}
+                              {player.team ? (
+                                <span className={cn(
+                                  "text-[10px] truncate max-w-[140px]",
+                                  isExactOfficial ? "text-zinc-400" : "text-amber-300 font-bold"
+                                )}>
+                                  {isExactOfficial ? player.team : `BD: "${player.team}"`}
+                                </span>
+                              ) : (
+                                <span className="text-[10px] text-zinc-500 italic">
+                                  (Sin club asignado)
+                                </span>
+                              )}
+                              {aliasMatch && aliasMatch.name !== player.team && (
+                                <span className="text-[9px] bg-blue-500/20 text-blue-300 border border-blue-500/30 px-1 py-0.2 rounded font-medium">
+                                  Sugerido: {aliasMatch.short}
                                 </span>
                               )}
                               {player.nationality && (
@@ -2499,6 +2661,17 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         </div>
 
                         <div className="flex items-center gap-1 shrink-0">
+                          {!isExactOfficial && (
+                            <button
+                              type="button"
+                              onClick={() => setEditingCatalogPlayer(player)}
+                              className="px-2 py-1 bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 rounded-lg text-[10px] font-bold flex items-center gap-1 transition-colors cursor-pointer mr-1"
+                              title="Corregir y vincular a club oficial UCL"
+                            >
+                              <Edit3 className="w-3 h-3 text-amber-400" />
+                              <span>Vincular</span>
+                            </button>
+                          )}
                           <button
                             type="button"
                             onClick={() => setEditingCatalogPlayer(player)}
@@ -2576,6 +2749,43 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                 </div>
               </div>
 
+              {/* Banner de Aviso de Goleadores con Clubes Inconsistentes */}
+              {matchScorersAudit.some(s => s.isInconsistent) && (
+                <div className="bg-amber-950/25 border border-amber-500/40 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
+                  <div className="flex items-start gap-3">
+                    <AlertTriangle className="w-5 h-5 text-amber-400 shrink-0 mt-0.5" />
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-xs font-bold text-amber-200">
+                          ⚠️ {matchScorersAudit.filter(s => s.isInconsistent).length} goleadores tienen clubes no estándar o inconsistentes en partidos
+                        </p>
+                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 text-[9px] font-black px-2 py-0.5 rounded-full">
+                          {matchScorersAudit.filter(s => s.isInconsistent).length} por revisar
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-400 mt-1 leading-relaxed">
+                        Puedes usar el botón "Auto-Normalizar Clubes" arriba para estandarizarlos automáticamente a los 36 oficiales de Champions, o filtrarlos abajo para corregirlos uno a uno.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => setShowOnlyInconsistentScorers(!showOnlyInconsistentScorers)}
+                      className={cn(
+                        "px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-sm",
+                        showOnlyInconsistentScorers
+                          ? "bg-amber-500 text-black font-black"
+                          : "bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40"
+                      )}
+                    >
+                      <Filter className="w-3.5 h-3.5" />
+                      {showOnlyInconsistentScorers ? 'Ver todos los goleadores' : `Filtrar los ${matchScorersAudit.filter(s => s.isInconsistent).length} con problemas`}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Search & Scorers List */}
               <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -2589,9 +2799,26 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       className="w-full bg-zinc-900 border border-zinc-800 rounded-lg pl-9 pr-4 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-blue-500"
                     />
                   </div>
-                  <span className="text-xs text-zinc-500 whitespace-nowrap">
-                    Mostrando {filteredMatchScorers.length} de {matchScorersAudit.length}
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {matchScorersAudit.some(s => s.isInconsistent) && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOnlyInconsistentScorers(!showOnlyInconsistentScorers)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer",
+                          showOnlyInconsistentScorers
+                            ? "bg-amber-500 text-black font-black"
+                            : "bg-zinc-800 hover:bg-zinc-700 text-amber-400 border border-amber-500/30"
+                        )}
+                      >
+                        <Filter className="w-3 h-3" />
+                        {showOnlyInconsistentScorers ? 'Ver todos' : `Solo con problemas (${matchScorersAudit.filter(s => s.isInconsistent).length})`}
+                      </button>
+                    )}
+                    <span className="text-xs text-zinc-500 whitespace-nowrap">
+                      Mostrando {filteredMatchScorers.length} de {matchScorersAudit.length}
+                    </span>
+                  </div>
                 </div>
 
                 <div className="space-y-2.5">
@@ -2652,11 +2879,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           <button
                             type="button"
                             onClick={() => {
+                              const currentT = scorer.teamsList[0] || scorer.canonicalTeam || '';
+                              const detected = findUclTeam(currentT);
+                              const initialTarget = detected ? detected.name : (UCL_36_TEAMS.find(t => t.name === currentT)?.name || UCL_36_TEAMS[0].name);
+
                               setEditingScorerPlayer({
                                 playerName: scorer.playerName,
-                                currentTeam: scorer.canonicalTeam || scorer.teamsList[0] || ''
+                                currentTeam: currentT
                               });
-                              setSelectedTargetTeam(scorer.canonicalTeam || scorer.teamsList[0] || UCL_36_TEAMS[0].name);
+                              setSelectedTargetTeam(initialTarget);
                             }}
                             className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
                           >
@@ -2813,37 +3044,81 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </button>
                 </div>
 
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <label className="text-zinc-400 block mb-1 font-semibold">Jugador:</label>
-                    <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white font-bold text-sm">
-                      {editingScorerPlayer.playerName}
-                    </div>
-                  </div>
+                {(() => {
+                  const currentScorerTeam = editingScorerPlayer.currentTeam?.trim() || '';
+                  const detectedScorerUcl = findUclTeam(currentScorerTeam);
+                  const isExactOfficialScorer = UCL_36_TEAMS.some(t => t.name === currentScorerTeam);
 
-                  <div>
-                    <label className="text-zinc-400 block mb-1 font-semibold">Club Actual:</label>
-                    <div className="text-zinc-300 font-mono text-[11px] bg-black/40 p-2 rounded border border-zinc-800">
-                      {editingScorerPlayer.currentTeam || 'Sin club'}
-                    </div>
-                  </div>
+                  return (
+                    <div className="space-y-3 text-xs">
+                      <div>
+                        <label className="text-zinc-400 block mb-1 font-semibold">Jugador:</label>
+                        <div className="bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white font-bold text-sm">
+                          {editingScorerPlayer.playerName}
+                        </div>
+                      </div>
 
-                  <div>
-                    <label className="text-zinc-300 block mb-1 font-semibold">Nuevo Club Oficial (Champions):</label>
-                    <select
-                      value={selectedTargetTeam}
-                      onChange={(e) => setSelectedTargetTeam(e.target.value)}
-                      className="w-full bg-zinc-900 border border-blue-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-blue-400"
-                    >
-                      {UCL_36_TEAMS.map(t => (
-                        <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
-                      ))}
-                    </select>
-                    <p className="text-[10px] text-zinc-500 mt-1">
-                      ℹ️ Se actualizará este club en todos los partidos donde anotó este jugador y en la tabla de goleadores.
-                    </p>
-                  </div>
-                </div>
+                      {/* Recuadro de Club Actual en Partidos */}
+                      <div className="bg-black/40 border border-zinc-800 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-zinc-400 font-semibold">Club registrado en partidos:</span>
+                          {isExactOfficialScorer ? (
+                            <span className="text-emerald-400 font-bold flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px]">
+                              <Check className="w-3 h-3" /> Oficial UCL
+                            </span>
+                          ) : (
+                            <span className="text-amber-400 font-bold flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full text-[10px]">
+                              <AlertTriangle className="w-3 h-3" /> No oficial
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="text-zinc-200 font-mono text-xs bg-zinc-900 p-2.5 rounded-lg border border-zinc-700/60 font-bold flex items-center justify-between">
+                          <span className="truncate">{currentScorerTeam ? `"${currentScorerTeam}"` : <span className="text-zinc-500 italic font-normal">Sin club asignado</span>}</span>
+                          <span className="text-[10px] text-zinc-500 shrink-0">Valor en BD</span>
+                        </div>
+
+                        {detectedScorerUcl && detectedScorerUcl.name !== selectedTargetTeam && (
+                          <div className="bg-blue-950/40 border border-blue-500/40 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                            <span className="text-[11px] text-blue-200">
+                              💡 Sugerido: <strong>{detectedScorerUcl.name}</strong>
+                            </span>
+                            <button
+                              type="button"
+                              onClick={() => setSelectedTargetTeam(detectedScorerUcl.name)}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black rounded shadow cursor-pointer shrink-0"
+                            >
+                              Usar sugerido
+                            </button>
+                          </div>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-zinc-300 block mb-1 font-semibold">Nuevo Club Oficial (Champions League):</label>
+                        <select
+                          value={selectedTargetTeam}
+                          onChange={(e) => setSelectedTargetTeam(e.target.value)}
+                          className="w-full bg-zinc-900 border border-blue-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-blue-400 font-medium"
+                        >
+                          {currentScorerTeam && !isExactOfficialScorer && (
+                            <option value={currentScorerTeam} className="text-amber-400 bg-zinc-950 font-bold">
+                              ⚠️ Actual en BD: "{currentScorerTeam}" (No estándar)
+                            </option>
+                          )}
+                          <optgroup label="Clubes Oficiales Champions League (36)">
+                            {UCL_36_TEAMS.map(t => (
+                              <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
+                            ))}
+                          </optgroup>
+                        </select>
+                        <p className="text-[10px] text-zinc-500 mt-1">
+                          ℹ️ Se actualizará este club en todos los partidos donde anotó este jugador y en la tabla de goleadores.
+                        </p>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
                   <button
@@ -3031,55 +3306,118 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   </button>
                 </div>
 
-                <div className="space-y-3 text-xs">
-                  <div>
-                    <label className="text-zinc-300 block mb-1 font-semibold">Nombre:</label>
-                    <input
-                      type="text"
-                      value={editingCatalogPlayer.name}
-                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, name: e.target.value })}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
-                    />
-                  </div>
+                {(() => {
+                  const currentDbTeam = editingCatalogPlayer.team?.trim() || '';
+                  const detectedUcl = findUclTeam(currentDbTeam);
+                  const isExactOfficial = UCL_36_TEAMS.some(t => t.name === currentDbTeam);
 
-                  <div>
-                    <label className="text-zinc-300 block mb-1 font-semibold">Club Oficial (UCL):</label>
-                    <select
-                      value={editingCatalogPlayer.team || ''}
-                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: e.target.value })}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
-                    >
-                      <option value="">Sin Club</option>
-                      {UCL_36_TEAMS.map(t => (
-                        <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
-                      ))}
-                    </select>
-                  </div>
+                  return (
+                    <div className="space-y-3 text-xs">
+                      {/* Recuadro Destacado: Club Registrado en Base de Datos */}
+                      <div className="bg-black/40 border border-zinc-800 rounded-xl p-3 space-y-2">
+                        <div className="flex items-center justify-between text-[11px]">
+                          <span className="text-zinc-400 font-semibold">Club registrado en base de datos:</span>
+                          {isExactOfficial ? (
+                            <span className="text-emerald-400 font-bold flex items-center gap-1 bg-emerald-500/10 border border-emerald-500/30 px-2 py-0.5 rounded-full text-[10px]">
+                              <Check className="w-3 h-3" /> Oficial UCL
+                            </span>
+                          ) : (
+                            <span className="text-amber-400 font-bold flex items-center gap-1 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full text-[10px]">
+                              <AlertTriangle className="w-3 h-3" /> No oficial UCL
+                            </span>
+                          )}
+                        </div>
 
-                  <div>
-                    <label className="text-zinc-300 block mb-1 font-semibold">Posición:</label>
-                    <select
-                      value={editingCatalogPlayer.position || ''}
-                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, position: e.target.value })}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
-                    >
-                      <option value="Delantero">Delantero</option>
-                      <option value="Centrocampista">Centrocampista</option>
-                      <option value="Defensa">Defensa</option>
-                      <option value="Portero">Portero</option>
-                    </select>
-                  </div>
+                        <div className="bg-zinc-900 border border-zinc-700/60 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                          <div className="font-mono text-xs text-white font-bold truncate">
+                            {currentDbTeam ? `"${currentDbTeam}"` : <span className="text-zinc-500 italic font-normal">Sin club asignado (vacío en BD)</span>}
+                          </div>
+                          {currentDbTeam && (
+                            <span className="text-[10px] text-zinc-500 shrink-0">Valor en BD</span>
+                          )}
+                        </div>
 
-                  <div>
-                    <label className="text-zinc-300 block mb-1 font-semibold">Nacionalidad:</label>
-                    <input
-                      type="text"
-                      value={editingCatalogPlayer.nationality || ''}
-                      onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, nationality: e.target.value })}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
-                    />
-                  </div>
-                </div>
+                        {/* Sugerencia inteligente de coincidencia por alias */}
+                        {detectedUcl && detectedUcl.name !== currentDbTeam && (
+                          <div className="bg-blue-950/40 border border-blue-500/40 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                            <div className="text-[11px] text-blue-200">
+                              💡 Sugerencia: Se detectó como <strong>{detectedUcl.name}</strong> ({detectedUcl.country})
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: detectedUcl.name })}
+                              className="px-2.5 py-1 bg-blue-600 hover:bg-blue-500 text-white text-[10px] font-black rounded-lg shadow transition-all shrink-0 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Sparkles className="w-3 h-3 text-amber-300" />
+                              Vincular a {detectedUcl.short || detectedUcl.name}
+                            </button>
+                          </div>
+                        )}
+
+                        {!isExactOfficial && !detectedUcl && currentDbTeam && (
+                          <p className="text-[11px] text-amber-300/90 leading-tight">
+                            ⚠️ "{currentDbTeam}" no coincide con ninguno de los 36 clubes de esta Champions. Búscalo en la lista desplegable abajo para vincularlo al club oficial correspondiente.
+                          </p>
+                        )}
+                      </div>
+
+                      <div>
+                        <label className="text-zinc-300 block mb-1 font-semibold">Nombre:</label>
+                        <input
+                          type="text"
+                          value={editingCatalogPlayer.name}
+                          onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, name: e.target.value })}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="text-zinc-300 block mb-1 font-semibold">Club Oficial (UCL):</label>
+                        <select
+                          value={editingCatalogPlayer.team || ''}
+                          onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: e.target.value })}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500 font-medium"
+                        >
+                          <option value="">-- Sin Club --</option>
+                          {currentDbTeam && !isExactOfficial && (
+                            <option value={currentDbTeam} className="text-amber-400 bg-zinc-950 font-bold">
+                              ⚠️ Actual en BD: "{currentDbTeam}" (No estándar)
+                            </option>
+                          )}
+                          <optgroup label="Clubes Oficiales Champions League (36)">
+                            {UCL_36_TEAMS.map(t => (
+                              <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
+                            ))}
+                          </optgroup>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-zinc-300 block mb-1 font-semibold">Posición:</label>
+                        <select
+                          value={editingCatalogPlayer.position || ''}
+                          onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, position: e.target.value })}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                        >
+                          <option value="Delantero">Delantero</option>
+                          <option value="Centrocampista">Centrocampista</option>
+                          <option value="Defensa">Defensa</option>
+                          <option value="Portero">Portero</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label className="text-zinc-300 block mb-1 font-semibold">Nacionalidad:</label>
+                        <input
+                          type="text"
+                          value={editingCatalogPlayer.nationality || ''}
+                          onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, nationality: e.target.value })}
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
+                        />
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 <div className="flex justify-end gap-2 pt-2 border-t border-zinc-800">
                   <button
