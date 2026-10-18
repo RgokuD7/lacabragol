@@ -411,8 +411,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }>();
 
     matches.forEach(m => {
-      if (!Array.isArray(m.goalscorers) || m.goalscorers.length === 0) return;
-      m.goalscorers.forEach((g: any, idx: number) => {
+      const rawGoles = Array.isArray((m as any).goles) ? (m as any).goles : (Array.isArray(m.goalscorers) ? m.goalscorers : []);
+      if (rawGoles.length === 0) return;
+      rawGoles.forEach((g: any, idx: number) => {
         if (!g) return;
         const pName = typeof g === 'object' ? (g.jugador || g.player || '') : (String(g).replace(/\d+.*$/, '') || String(g));
         const cleanPlayer = String(pName).trim();
@@ -1712,6 +1713,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   const handleSavePlayers = async (updatedList: PlayerItem[], message: string) => {
     setIsSavingPlayers(true);
+    // Actualización optimista inmediata en memoria para que la interfaz reaccione al instante
+    setPodiumPlayers(updatedList);
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
       const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
@@ -1724,9 +1727,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         updatedBy: user?.email || 'admin'
       });
       setFeedback({ type: 'success', text: message });
+      vibrateSuccess();
     } catch (e: any) {
-      console.error(e);
+      console.error("Error al guardar jugadores en Firestore:", e);
       setFeedback({ type: 'error', text: `Error al guardar jugadores: ${e?.message || 'Error desconocido'}` });
+      vibrateError();
     } finally {
       setIsSavingPlayers(false);
     }
@@ -1763,6 +1768,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     const keyToDelete = normalizePlayerKey(player.name);
     const updated = podiumPlayers.filter(p => normalizePlayerKey(p.name) !== keyToDelete);
     setIsSavingPlayers(true);
+    setPodiumPlayers(updated);
     try {
       const snap = await getDoc(doc(db, 'system', 'players'));
       const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
@@ -1774,9 +1780,11 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         updatedBy: user?.email || 'admin'
       });
       setFeedback({ type: 'success', text: `Jugador "${player.name}" eliminado definitivamente del catálogo.` });
+      vibrateSuccess();
     } catch (e: any) {
       console.error(e);
       setFeedback({ type: 'error', text: `Error al eliminar jugador: ${e?.message || 'Error desconocido'}` });
+      vibrateError();
     } finally {
       setIsSavingPlayers(false);
     }
@@ -1793,6 +1801,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         position: p.type === 'Asistidor' ? 'Centrocampista' : 'Delantero'
       }));
       const { merged, addedCount } = deduplicatePlayers(podiumPlayers, newItems);
+      setPodiumPlayers(merged);
       await handleSavePlayers(merged, `¡Listo! Se unificaron ${addedCount} jugadores de partidos al Catálogo Oficial.`);
     } catch (err: any) {
       setFeedback({ type: 'error', text: `Error al unificar jugadores: ${err?.message || 'Error desconocido'}` });
@@ -1812,6 +1821,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         id: Math.floor(100000 + Math.random() * 900000)
       };
       const { merged } = deduplicatePlayers(podiumPlayers, [incoming]);
+      setPodiumPlayers(merged);
       await handleSavePlayers(merged, `Jugador "${name}" agregado al Catálogo Oficial.`);
     } catch (err: any) {
       setFeedback({ type: 'error', text: `Error al agregar jugador: ${err?.message || 'Error desconocido'}` });
@@ -2940,6 +2950,33 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           {/* SUBTAB 1: CATÁLOGO OFICIAL */}
           {playersSubTab === 'catalog' && (
             <div className="space-y-6">
+              {/* Feedback en pestaña de Catálogo */}
+              {feedback && (
+                <div className={`p-3 rounded-xl border flex items-start gap-3 transition-all animate-in fade-in ${
+                  feedback.type === 'success' 
+                    ? 'bg-emerald-950/50 border-emerald-600/70 text-emerald-300' 
+                    : feedback.type === 'error'
+                    ? 'bg-rose-950/50 border-rose-600/70 text-rose-300'
+                    : feedback.type === 'warning'
+                    ? 'bg-amber-950/50 border-amber-600/70 text-amber-300'
+                    : 'bg-blue-950/50 border-blue-600/70 text-blue-300'
+                }`}>
+                  {feedback.type === 'success' && <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-400 mt-0.5" />}
+                  {feedback.type === 'error' && <AlertCircle className="w-5 h-5 shrink-0 text-rose-400 mt-0.5" />}
+                  {feedback.type === 'warning' && <AlertTriangle className="w-5 h-5 shrink-0 text-amber-400 mt-0.5" />}
+                  {feedback.type === 'info' && <ShieldCheck className="w-5 h-5 shrink-0 text-blue-400 mt-0.5" />}
+                  <div className="flex-1 text-xs leading-relaxed font-semibold">
+                    {feedback.text}
+                  </div>
+                  <button 
+                    onClick={() => setFeedback(null)} 
+                    className="text-zinc-400 hover:text-white p-1 cursor-pointer"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {/* Action Bar */}
               <div className="bg-[#121215] border border-zinc-800 rounded-xl p-4 space-y-4">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-zinc-800/80 pb-4">
@@ -3167,22 +3204,42 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
               {/* Banner de Unificación de Jugadores de Partidos no Catalogados */}
               {matchPlayersNotInCatalog.length > 0 && (
-                <div className="bg-blue-950/30 border border-blue-500/40 rounded-xl p-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <Sparkles className="w-4 h-4 text-amber-300 shrink-0" />
-                    <div className="text-xs text-blue-200">
-                      Hay <strong>{matchPlayersNotInCatalog.length}</strong> {matchPlayersNotInCatalog.length === 1 ? 'jugador registrado' : 'jugadores registrados'} en partidos (goles/asistencias) que aún no están en el Catálogo Oficial.
+                <div className="bg-gradient-to-r from-blue-950/60 to-indigo-950/60 border border-blue-500/40 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-md">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-blue-500/20 border border-blue-500/30 flex items-center justify-center shrink-0">
+                      <Sparkles className="w-4 h-4 text-amber-300" />
+                    </div>
+                    <div>
+                      <div className="text-xs text-blue-200 font-medium">
+                        Hay <strong className="text-white font-bold">{matchPlayersNotInCatalog.length}</strong> {matchPlayersNotInCatalog.length === 1 ? 'jugador registrado' : 'jugadores registrados'} en partidos que aún no están en el Catálogo Oficial.
+                      </div>
+                      <div className="text-[11px] text-zinc-400 mt-0.5">
+                        Puedes revisarlos antes de sincronizar o agregarlos directamente sin crear duplicados.
+                      </div>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={handleImportAllMatchPlayersToCatalog}
-                    disabled={isSavingPlayers}
-                    className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shrink-0 shadow transition-all cursor-pointer"
-                  >
-                    {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
-                    Unificar Todos al Catálogo ({matchPlayersNotInCatalog.length})
-                  </button>
+                  <div className="flex items-center gap-2 self-end sm:self-center shrink-0">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUpdateJsonFeedback(null);
+                        setUpdateJsonModalOpen(true);
+                      }}
+                      className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 hover:text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer border border-zinc-700"
+                    >
+                      <Search className="w-3.5 h-3.5 text-blue-400" />
+                      Revisar Match
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleImportAllMatchPlayersToCatalog}
+                      disabled={isSavingPlayers}
+                      className="px-3.5 py-1.5 bg-blue-600 hover:bg-blue-500 active:scale-95 disabled:opacity-50 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 shadow-md shadow-blue-600/30 transition-all cursor-pointer"
+                    >
+                      {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5 text-amber-300" />}
+                      Unificar Todos ({matchPlayersNotInCatalog.length})
+                    </button>
+                  </div>
                 </div>
               )}
 
