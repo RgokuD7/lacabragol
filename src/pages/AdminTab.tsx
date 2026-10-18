@@ -6,7 +6,7 @@ import { collection, doc, query, where, onSnapshot, getDocs, getDoc, writeBatch,
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, FileJson, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
@@ -16,7 +16,7 @@ import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
 import { recalculateStandings, findUclTeam } from '../lib/standings';
 import { recalculateAllUsersFromDatabase } from '../lib/recalculation';
-import { buildPlayerMatchEvidenceMap, PlayerMatchEvidence } from '../lib/matchEventsAuditor';
+import { buildPlayerMatchEvidenceMap, PlayerMatchEvidence, extractAllMatchEvents, findMatchingCatalogPlayer } from '../lib/matchEventsAuditor';
 import { 
   fetchGeminiMatchesPreview, 
   commitGeminiMatchesToFirestore, 
@@ -206,6 +206,14 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Filtros rápidos para problemas de clubes
   const [showOnlyUnlinkedCatalog, setShowOnlyUnlinkedCatalog] = useState(false);
   const [showOnlyInconsistentScorers, setShowOnlyInconsistentScorers] = useState(false);
+
+  // Modal "Actualizar con JSON" (Smart JSON & Match Events Updater)
+  const [updateJsonModalOpen, setUpdateJsonModalOpen] = useState(false);
+  const [updateJsonTab, setUpdateJsonTab] = useState<'matches' | 'paste'>('matches');
+  const [updateJsonPastedText, setUpdateJsonPastedText] = useState('');
+  const [isApplyingJsonUpdate, setIsApplyingJsonUpdate] = useState(false);
+  const [updateJsonFilter, setUpdateJsonFilter] = useState<'all' | 'new' | 'matched' | 'clubs'>('all');
+  const [updateJsonFeedback, setUpdateJsonFeedback] = useState<string | null>(null);
 
   // Listen to stages for activeGroupId
   useEffect(() => {
@@ -593,14 +601,14 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     );
   }, [matchAssistsAudit, matchAssistSearch, showOnlyInconsistentAssisters]);
 
-  // Jugadores encontrados en partidos que aún no están en el catálogo oficial
+  // Jugadores encontrados en partidos que aún no están en el catálogo oficial (usando match inteligente)
   const matchPlayersNotInCatalog = useMemo(() => {
-    const officialKeys = new Set(podiumPlayers.map(p => normalizePlayerKey(p.name)));
     const map = new Map<string, { name: string; team: string; type: string }>();
 
     matchScorersAudit.forEach(s => {
-      const key = normalizePlayerKey(s.playerName);
-      if (!officialKeys.has(key)) {
+      const matched = findMatchingCatalogPlayer(s.playerName, podiumPlayers);
+      if (!matched) {
+        const key = normalizePlayerKey(s.playerName);
         map.set(key, {
           name: s.playerName,
           team: s.canonicalTeam || s.teamsList[0] || '',
@@ -610,13 +618,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     });
 
     matchAssistsAudit.forEach(a => {
-      const key = normalizePlayerKey(a.playerName);
-      if (!officialKeys.has(key) && !map.has(key)) {
-        map.set(key, {
-          name: a.playerName,
-          team: a.canonicalTeam || a.teamsList[0] || '',
-          type: 'Asistidor'
-        });
+      const matched = findMatchingCatalogPlayer(a.playerName, podiumPlayers);
+      if (!matched) {
+        const key = normalizePlayerKey(a.playerName);
+        if (!map.has(key)) {
+          map.set(key, {
+            name: a.playerName,
+            team: a.canonicalTeam || a.teamsList[0] || '',
+            type: 'Asistidor'
+          });
+        }
       }
     });
 
@@ -654,6 +665,144 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       return false;
     });
   }, [unlinkedCatalogPlayers, catalogPlayerMatchEvidenceMap]);
+
+  // Análisis inteligente para "Actualizar con JSON"
+  const updateJsonAnalysis = useMemo(() => {
+    // 1. Extraer lista bruta de eventos/jugadores según pestaña activa
+    const rawEvents: Array<{
+      name: string;
+      rawTeam: string;
+      detectedUclTeam: string;
+      role: 'Delantero' | 'Centrocampista' | 'Defensa' | 'Portero';
+      evidenceType: string;
+    }> = [];
+
+    if (updateJsonTab === 'matches') {
+      const allEvents = extractAllMatchEvents(matches);
+      allEvents.forEach(ev => {
+        if (!ev.playerName) return;
+        rawEvents.push({
+          name: ev.playerName,
+          rawTeam: ev.rawTeam,
+          detectedUclTeam: ev.canonicalTeam,
+          role: ev.type === 'gol' ? 'Delantero' : ev.type === 'asistencia' ? 'Centrocampista' : 'Centrocampista',
+          evidenceType: ev.typeLabel
+        });
+      });
+    } else if (updateJsonTab === 'paste' && updateJsonPastedText.trim()) {
+      try {
+        const parsed = JSON.parse(updateJsonPastedText);
+        let list: any[] = [];
+        if (Array.isArray(parsed)) {
+          list = parsed;
+        } else if (Array.isArray(parsed.players)) {
+          list = parsed.players;
+        } else if (Array.isArray(parsed.top_players)) {
+          list = parsed.top_players;
+        } else if (Array.isArray(parsed.partidos)) {
+          const fakeMatches: Match[] = parsed.partidos.map((p: any, idx: number) => ({ id: `pasted_${idx}`, ...p }));
+          const extracted = extractAllMatchEvents(fakeMatches);
+          extracted.forEach(ev => {
+            rawEvents.push({
+              name: ev.playerName,
+              rawTeam: ev.rawTeam,
+              detectedUclTeam: ev.canonicalTeam,
+              role: ev.type === 'gol' ? 'Delantero' : ev.type === 'asistencia' ? 'Centrocampista' : 'Centrocampista',
+              evidenceType: ev.typeLabel
+            });
+          });
+        }
+
+        list.forEach(item => {
+          if (!item) return;
+          const pName = String(item.name || item.jugador || item.player || '').trim();
+          if (!pName) return;
+          const pTeam = String(item.team || item.equipo || '').trim();
+          const canonTeam = findUclTeam(pTeam)?.name || getCanonicalTeamName(pTeam) || pTeam;
+          const pPos = formatPosition(item.position || item.posicion) || 'Delantero';
+          rawEvents.push({
+            name: pName,
+            rawTeam: pTeam,
+            detectedUclTeam: canonTeam,
+            role: (pPos.includes('Def') ? 'Defensa' : pPos.includes('Port') ? 'Portero' : pPos.includes('Cent') ? 'Centrocampista' : 'Delantero') as any,
+            evidenceType: 'JSON'
+          });
+        });
+      } catch (e) {
+        // En caso de JSON incompleto mientras escribe
+      }
+    }
+
+    // 2. Agrupar por nombre único del evento
+    const uniqueMap = new Map<string, {
+      name: string;
+      detectedUclTeam: string;
+      role: 'Delantero' | 'Centrocampista' | 'Defensa' | 'Portero';
+      evidenceCount: number;
+    }>();
+
+    rawEvents.forEach(ev => {
+      const key = normalizePlayerKey(ev.name);
+      if (!key) return;
+      if (!uniqueMap.has(key)) {
+        uniqueMap.set(key, {
+          name: ev.name,
+          detectedUclTeam: ev.detectedUclTeam,
+          role: ev.role,
+          evidenceCount: 1
+        });
+      } else {
+        const item = uniqueMap.get(key)!;
+        item.evidenceCount += 1;
+        if (!item.detectedUclTeam && ev.detectedUclTeam) item.detectedUclTeam = ev.detectedUclTeam;
+        if (ev.role === 'Delantero') item.role = 'Delantero';
+      }
+    });
+
+    // 3. Emparejamiento inteligente contra podiumPlayers
+    const newPlayers: Array<{ name: string; team: string; position: string; evidenceCount: number }> = [];
+    const matchedExisting: Array<{ eventName: string; catalogPlayer: PlayerItem; reason: string }> = [];
+    const clubUpdates: Array<{ eventName: string; catalogPlayer: PlayerItem; oldTeam: string; newTeam: string }> = [];
+
+    uniqueMap.forEach(item => {
+      const matched = findMatchingCatalogPlayer(item.name, podiumPlayers);
+      if (matched) {
+        const isOfficialClub = !!matched.team && UCL_36_TEAMS.some(t => t.name === matched.team);
+        const hasValidDetectedUcl = !!item.detectedUclTeam && UCL_36_TEAMS.some(t => t.name === item.detectedUclTeam);
+
+        if (!isOfficialClub && hasValidDetectedUcl && matched.team !== item.detectedUclTeam) {
+          clubUpdates.push({
+            eventName: item.name,
+            catalogPlayer: matched,
+            oldTeam: matched.team || 'Sin Club',
+            newTeam: item.detectedUclTeam
+          });
+        } else {
+          matchedExisting.push({
+            eventName: item.name,
+            catalogPlayer: matched,
+            reason: normalizePlayerKey(item.name) === normalizePlayerKey(matched.name)
+              ? 'Coincidencia exacta de nombre'
+              : `Emparejado con "${matched.name}" (no se duplicará)`
+          });
+        }
+      } else {
+        newPlayers.push({
+          name: item.name,
+          team: item.detectedUclTeam || '',
+          position: item.role,
+          evidenceCount: item.evidenceCount
+        });
+      }
+    });
+
+    return {
+      newPlayers,
+      matchedExisting,
+      clubUpdates,
+      totalScanned: uniqueMap.size
+    };
+  }, [matches, podiumPlayers, updateJsonTab, updateJsonPastedText]);
 
   // Carga y escaneo de jugadores de podio manuales
   const fetchCustomPodiums = useCallback(async () => {
@@ -1680,6 +1829,59 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       setFeedback({ type: 'error', text: `Error al agregar jugador: ${err?.message || 'Error desconocido'}` });
     } finally {
       setIsSavingPlayers(false);
+    }
+  };
+
+  const handleApplyJsonUpdate = async () => {
+    if (updateJsonAnalysis.newPlayers.length === 0 && updateJsonAnalysis.clubUpdates.length === 0) {
+      setUpdateJsonFeedback('No hay cambios nuevos para aplicar: todos los jugadores analizados ya están registrados con club oficial.');
+      return;
+    }
+    setIsApplyingJsonUpdate(true);
+    setUpdateJsonFeedback(null);
+    try {
+      // 1. Clonar catálogo actual
+      let updatedList = [...podiumPlayers];
+
+      // 2. Aplicar actualizaciones de club a jugadores existentes
+      if (updateJsonAnalysis.clubUpdates.length > 0) {
+        const updateMap = new Map(updateJsonAnalysis.clubUpdates.map(u => [
+          normalizePlayerKey(u.catalogPlayer.name),
+          u.newTeam
+        ]));
+        updatedList = updatedList.map(p => {
+          const k = normalizePlayerKey(p.name);
+          if (updateMap.has(k)) {
+            return { ...p, team: updateMap.get(k) };
+          }
+          return p;
+        });
+      }
+
+      // 3. Crear los nuevos jugadores
+      const newItems: PlayerItem[] = updateJsonAnalysis.newPlayers.map(p => ({
+        id: Math.floor(100000 + Math.random() * 900000),
+        name: p.name,
+        team: p.team || undefined,
+        position: p.position
+      }));
+
+      // 4. Fusionar sin duplicados con deduplicatePlayers
+      const { merged, addedCount } = deduplicatePlayers(updatedList, newItems);
+
+      // 5. Guardar en Firestore
+      await handleSavePlayers(
+        merged,
+        `¡Actualización con JSON exitosa! Se añadieron ${addedCount} jugadores nuevos y se actualizaron ${updateJsonAnalysis.clubUpdates.length} clubes oficiales (0 duplicados creados).`
+      );
+
+      setUpdateJsonModalOpen(false);
+      setUpdateJsonPastedText('');
+    } catch (e: any) {
+      console.error(e);
+      setUpdateJsonFeedback(`Error al aplicar actualización: ${e?.message || 'Error desconocido'}`);
+    } finally {
+      setIsApplyingJsonUpdate(false);
     }
   };
 
@@ -2767,6 +2969,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         Auto-Vincular ({autoLinkableCatalogPlayers.length})
                       </button>
                     )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setUpdateJsonFeedback(null);
+                        setUpdateJsonModalOpen(true);
+                      }}
+                      className="px-3 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-amber-600/20 cursor-pointer"
+                      title="Sincronizar y actualizar catálogo desde partidos y JSONs con match inteligente sin duplicados"
+                    >
+                      <FileJson className="w-4 h-4 text-amber-200" />
+                      Actualizar con JSON
+                    </button>
                     <button
                       onClick={() => setShowJsonInput(!showJsonInput)}
                       className="px-3 py-2 bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -4309,6 +4523,261 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     {isSavingPlayers ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
                     Guardar Cambios
                   </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* MODAL 5: ACTUALIZAR CATÁLOGO CON JSON (MATCH INTELIGENTE) */}
+          {updateJsonModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
+              <div className="bg-[#121215] border border-amber-500/40 rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col text-white">
+                {/* Header */}
+                <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 flex items-center justify-center text-amber-400 shrink-0">
+                      <Sparkles className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h3 className="font-black text-sm text-white flex items-center gap-2">
+                        Actualizar Catálogo con JSON
+                        <span className="text-[10px] bg-gradient-to-r from-amber-500/20 to-orange-500/20 border border-amber-500/40 text-amber-300 font-bold px-2 py-0.5 rounded-full">
+                          Match Inteligente
+                        </span>
+                      </h3>
+                      <p className="text-[11px] text-zinc-400">
+                        Detecta jugadores en partidos o JSON, actualiza clubes faltantes y evita duplicar variantes (ej: "L. Yamal" ➔ "Lamine Yamal").
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setUpdateJsonModalOpen(false)}
+                    className="p-1.5 text-zinc-400 hover:text-white rounded-lg hover:bg-zinc-800 cursor-pointer"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+
+                {/* Subtabs de origen: Partidos vs Pegar JSON */}
+                <div className="flex items-center gap-2 border-b border-zinc-800 pb-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUpdateJsonTab('matches');
+                      setUpdateJsonFeedback(null);
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                      updateJsonTab === 'matches'
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+                    )}
+                  >
+                    <FileJson className="w-3.5 h-3.5 text-amber-400" />
+                    Desde Partidos del Sistema ({matches.length} partidos)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setUpdateJsonTab('paste');
+                      setUpdateJsonFeedback(null);
+                    }}
+                    className={cn(
+                      "px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer",
+                      updateJsonTab === 'paste'
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/40"
+                        : "text-zinc-400 hover:text-white hover:bg-zinc-900"
+                    )}
+                  >
+                    <FileCode className="w-3.5 h-3.5 text-blue-400" />
+                    Pegar JSON Externo
+                  </button>
+                </div>
+
+                {/* Textarea si tab es 'paste' */}
+                {updateJsonTab === 'paste' && (
+                  <div className="space-y-1.5">
+                    <label className="text-[11px] text-zinc-400 font-semibold flex items-center justify-between">
+                      <span>Pega aquí JSON de jugadores o JSON de partidos:</span>
+                      <span className="text-[10px] text-zinc-500">Acepta [&#123; name, team &#125;] o &#123; partidos: [...] &#125;</span>
+                    </label>
+                    <textarea
+                      value={updateJsonPastedText}
+                      onChange={(e) => setUpdateJsonPastedText(e.target.value)}
+                      rows={4}
+                      placeholder={`[\n  { "name": "L. Yamal", "team": "FC Barcelona", "position": "Delantero" },\n  { "name": "Alejandro Grimaldo", "team": "Bayer 04 Leverkusen", "position": "Defensa" }\n]`}
+                      className="w-full bg-black/60 border border-zinc-700 rounded-lg p-2.5 text-xs font-mono text-zinc-200 placeholder:text-zinc-600 outline-none focus:border-amber-500 custom-scrollbar"
+                    />
+                  </div>
+                )}
+
+                {/* Stat pills / Summary */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl p-2.5 text-center">
+                    <div className="text-lg font-black text-emerald-400">{updateJsonAnalysis.newPlayers.length}</div>
+                    <div className="text-[10px] text-emerald-300/80 font-bold">Nuevos para Catálogo</div>
+                  </div>
+                  <div className="bg-blue-950/30 border border-blue-500/30 rounded-xl p-2.5 text-center">
+                    <div className="text-lg font-black text-blue-400">{updateJsonAnalysis.matchedExisting.length}</div>
+                    <div className="text-[10px] text-blue-300/80 font-bold">Reconocidos (0 duplicados)</div>
+                  </div>
+                  <div className="bg-amber-950/30 border border-amber-500/30 rounded-xl p-2.5 text-center">
+                    <div className="text-lg font-black text-amber-400">{updateJsonAnalysis.clubUpdates.length}</div>
+                    <div className="text-[10px] text-amber-300/80 font-bold">Clubes a Actualizar</div>
+                  </div>
+                </div>
+
+                {/* Filter buttons */}
+                <div className="flex items-center gap-1.5 flex-wrap pt-1">
+                  <span className="text-[11px] text-zinc-400 font-bold mr-1 flex items-center gap-1">
+                    <Filter className="w-3 h-3 text-zinc-400" /> Ver:
+                  </span>
+                  {(['all', 'new', 'matched', 'clubs'] as const).map((filterKey) => {
+                    const label =
+                      filterKey === 'all'
+                        ? `Todos (${updateJsonAnalysis.totalScanned})`
+                        : filterKey === 'new'
+                        ? `Nuevos (${updateJsonAnalysis.newPlayers.length})`
+                        : filterKey === 'matched'
+                        ? `Reconocidos (${updateJsonAnalysis.matchedExisting.length})`
+                        : `Clubes (${updateJsonAnalysis.clubUpdates.length})`;
+                    return (
+                      <button
+                        key={filterKey}
+                        type="button"
+                        onClick={() => setUpdateJsonFilter(filterKey)}
+                        className={cn(
+                          "px-2.5 py-0.5 rounded-full text-[11px] font-bold transition-all cursor-pointer",
+                          updateJsonFilter === filterKey
+                            ? "bg-zinc-200 text-black shadow-sm"
+                            : "bg-zinc-800 text-zinc-400 hover:text-white"
+                        )}
+                      >
+                        {label}
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {/* Scrollable list preview */}
+                <div className="flex-1 overflow-y-auto space-y-2 pr-1 custom-scrollbar min-h-[160px] max-h-[300px]">
+                  {/* Si no hay nada analizado */}
+                  {updateJsonAnalysis.totalScanned === 0 && (
+                    <div className="p-6 text-center text-xs text-zinc-500 border border-dashed border-zinc-800 rounded-xl">
+                      {updateJsonTab === 'matches'
+                        ? 'No se encontraron eventos de jugadores en los partidos actuales.'
+                        : 'Pega un JSON válido para analizar jugadores y clubes.'}
+                    </div>
+                  )}
+
+                  {/* Club Updates */}
+                  {(updateJsonFilter === 'all' || updateJsonFilter === 'clubs') && updateJsonAnalysis.clubUpdates.map((c, i) => (
+                    <div key={`club-${i}`} className="bg-amber-950/20 border border-amber-500/30 rounded-xl p-2.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span>{c.catalogPlayer.name}</span>
+                          <span className="text-[10px] text-zinc-400 font-normal">
+                            (evento: "{c.eventName}")
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-amber-300/90 mt-0.5 flex items-center gap-1.5 flex-wrap">
+                          <span className="line-through text-zinc-400">{c.oldTeam}</span>
+                          <span>➔</span>
+                          <span className="font-bold text-amber-400 flex items-center gap-1">
+                            <Check className="w-3 h-3 text-emerald-400" /> {c.newTeam} (Oficial UCL)
+                          </span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] bg-amber-500/20 text-amber-300 font-bold px-2 py-1 rounded-lg shrink-0">
+                        Actualizar Club
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* Matched (Intelligent Equivalence) */}
+                  {(updateJsonFilter === 'all' || updateJsonFilter === 'matched') && updateJsonAnalysis.matchedExisting.map((m, i) => (
+                    <div key={`matched-${i}`} className="bg-blue-950/20 border border-blue-500/20 rounded-xl p-2.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span className="text-zinc-300">"{m.eventName}"</span>
+                          <span className="text-blue-400">➔</span>
+                          <span className="text-blue-300 font-bold">{m.catalogPlayer.name}</span>
+                          {m.catalogPlayer.team && (
+                            <span className="text-[10px] text-zinc-400">({m.catalogPlayer.team})</span>
+                          )}
+                        </div>
+                        <div className="text-[11px] text-blue-200/70 mt-0.5">
+                          {m.reason}
+                        </div>
+                      </div>
+                      <span className="text-[10px] bg-blue-500/20 text-blue-300 font-bold px-2 py-1 rounded-lg shrink-0 flex items-center gap-1">
+                        <Check className="w-3 h-3 text-blue-400" />
+                        0 Duplicados
+                      </span>
+                    </div>
+                  ))}
+
+                  {/* New Players */}
+                  {(updateJsonFilter === 'all' || updateJsonFilter === 'new') && updateJsonAnalysis.newPlayers.map((p, i) => (
+                    <div key={`new-${i}`} className="bg-emerald-950/20 border border-emerald-500/30 rounded-xl p-2.5 flex items-center justify-between gap-3 text-xs">
+                      <div className="min-w-0">
+                        <div className="font-bold text-white flex items-center gap-1.5">
+                          <span className="text-emerald-300 font-bold">{p.name}</span>
+                          <span className="text-[10px] text-zinc-400 font-normal">({p.position})</span>
+                        </div>
+                        <div className="text-[11px] text-emerald-200/80 mt-0.5">
+                          Club: <strong className="text-white">{p.team || 'Sin club'}</strong> • {p.evidenceCount} evento(s)
+                        </div>
+                      </div>
+                      <span className="text-[10px] bg-emerald-500/20 text-emerald-300 font-bold px-2 py-1 rounded-lg shrink-0">
+                        + Nuevo Jugador
+                      </span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Feedback message if any */}
+                {updateJsonFeedback && (
+                  <div className="p-2.5 rounded-lg text-xs bg-amber-500/10 border border-amber-500/30 text-amber-300">
+                    {updateJsonFeedback}
+                  </div>
+                )}
+
+                {/* Footer buttons */}
+                <div className="flex items-center justify-between pt-3 border-t border-zinc-800 gap-2">
+                  <div className="text-[11px] text-zinc-400">
+                    {updateJsonAnalysis.newPlayers.length === 0 && updateJsonAnalysis.clubUpdates.length === 0
+                      ? 'Catálogo al día con los datos analizados.'
+                      : `${updateJsonAnalysis.newPlayers.length} nuevos y ${updateJsonAnalysis.clubUpdates.length} clubes a actualizar.`}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setUpdateJsonModalOpen(false)}
+                      className="px-3.5 py-2 text-xs text-zinc-400 hover:text-white cursor-pointer"
+                    >
+                      Cerrar
+                    </button>
+                    <button
+                      type="button"
+                      disabled={isApplyingJsonUpdate || (updateJsonAnalysis.newPlayers.length === 0 && updateJsonAnalysis.clubUpdates.length === 0)}
+                      onClick={handleApplyJsonUpdate}
+                      className="px-4 py-2 bg-gradient-to-r from-amber-600 to-yellow-600 hover:from-amber-500 hover:to-yellow-500 disabled:opacity-50 text-white font-bold text-xs rounded-xl shadow-lg transition-all flex items-center gap-1.5 cursor-pointer"
+                    >
+                      {isApplyingJsonUpdate ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          Aplicando cambios...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                          Confirmar y Aplicar al Catálogo
+                        </>
+                      )}
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>

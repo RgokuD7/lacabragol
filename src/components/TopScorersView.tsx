@@ -88,12 +88,34 @@ export function TopScorersView() {
                     {/* Player & Club Column */}
                     <td className="py-2 px-3">
                       <div className="flex items-center gap-2.5">
-                        <TeamBadge 
-                          src={scorer.teamLogo || ''} 
-                          teamName={scorer.team} 
-                          size="sm" 
-                          className="w-5 h-5 shrink-0" 
-                        />
+                        {/* Player Photo with Miniature Club Badge */}
+                        <div className="relative shrink-0">
+                          {scorer.playerPhoto ? (
+                            <img 
+                              src={scorer.playerPhoto} 
+                              alt={scorer.player} 
+                              className="w-8 h-8 rounded-full object-cover border border-amber-500/40 bg-zinc-800 shadow"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src = `https://ui-avatars.com/api/?name=${encodeURIComponent(scorer.player)}&background=27272a&color=fff&size=128&bold=true`;
+                              }}
+                            />
+                          ) : (
+                            <img 
+                              src={`https://ui-avatars.com/api/?name=${encodeURIComponent(scorer.player)}&background=27272a&color=fff&size=128&bold=true`}
+                              alt={scorer.player}
+                              className="w-8 h-8 rounded-full object-cover border border-zinc-700 bg-zinc-800 shadow"
+                            />
+                          )}
+                          <div className="absolute -bottom-1 -right-1 bg-zinc-950 rounded-full p-0.5 border border-zinc-700/80 shadow">
+                            <TeamBadge 
+                              src={scorer.teamLogo || ''} 
+                              teamName={scorer.team} 
+                              size="sm" 
+                              className="w-3.5 h-3.5" 
+                            />
+                          </div>
+                        </div>
+
                         <div className="min-w-0">
                           <div className="flex items-center gap-1.5">
                             <span className="font-bold text-white text-xs truncate" title={scorer.player}>

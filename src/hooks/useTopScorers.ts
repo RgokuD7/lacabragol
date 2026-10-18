@@ -3,18 +3,21 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Match } from '../types';
 import { getTeamLogoByName, getCanonicalTeamName } from '../data/fixtures';
-import { DEFAULT_PLAYERS } from '../data/players';
+import { usePlayers } from './usePlayers';
+import { findMatchingCatalogPlayer } from '../lib/matchEventsAuditor';
 
 export interface TopScorer {
   position: number;
   player: string;
   team: string;
   teamLogo?: string;
+  playerPhoto?: string;
   goals: number;
   matchesScored: number;
 }
 
 export function useTopScorers() {
+  const { players: catalogPlayers } = usePlayers();
   const [scorers, setScorers] = useState<TopScorer[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,16 +32,19 @@ export function useTopScorers() {
         player: string;
         team: string;
         teamLogo?: string;
+        playerPhoto?: string;
         goals: number;
         matchIds: Set<string>;
       }>();
 
       finishedMatches.forEach(match => {
-        if (!Array.isArray(match.goalscorers) || match.goalscorers.length === 0) {
-          return;
-        }
+        const rawGoles = Array.isArray((match as any).goles) 
+          ? (match as any).goles 
+          : (Array.isArray(match.goalscorers) ? match.goalscorers : []);
 
-        match.goalscorers.forEach(g => {
+        if (rawGoles.length === 0) return;
+
+        rawGoles.forEach((g: any) => {
           if (!g) return;
 
           let playerName = '';
@@ -56,12 +62,14 @@ export function useTopScorers() {
           if (!playerName || playerName.toLowerCase() === 'undefined') return;
           if (teamName.toLowerCase() === 'undefined') teamName = '';
 
-          // 1. Fallback to DEFAULT_PLAYERS catalog if team is missing
-          if (!teamName) {
-            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === playerName.toLowerCase());
-            if (foundPlayer && foundPlayer.team) {
-              teamName = foundPlayer.team;
-            }
+          // Match player in catalog to get official name, team and photo
+          const matchedPlayer = findMatchingCatalogPlayer(playerName, catalogPlayers);
+          const displayName = matchedPlayer?.name || playerName;
+          const playerPhoto = matchedPlayer?.imageUrl || matchedPlayer?.image;
+
+          // 1. Fallback to catalog if team is missing
+          if (!teamName && matchedPlayer?.team) {
+            teamName = matchedPlayer.team;
           }
 
           // 2. Fallback to match teams
@@ -69,10 +77,10 @@ export function useTopScorers() {
             teamName = match.homeTeam || match.awayTeam || '';
           }
 
-          // Canonicalize team name to merge variations (e.g. "FC Barcelona" -> "Barcelona")
+          // Canonicalize team name
           teamName = getCanonicalTeamName(teamName);
 
-          const mapKey = `${playerName.toLowerCase()}___${teamName.toLowerCase()}`;
+          const mapKey = `${displayName.toLowerCase()}___${teamName.toLowerCase()}`;
           const existing = scorerMap.get(mapKey);
 
           const teamLogo = getTeamLogoByName(teamName) || 
@@ -83,11 +91,13 @@ export function useTopScorers() {
             existing.goals += 1;
             existing.matchIds.add(match.id);
             if (!existing.teamLogo && teamLogo) existing.teamLogo = teamLogo;
+            if (!existing.playerPhoto && playerPhoto) existing.playerPhoto = playerPhoto;
           } else {
             scorerMap.set(mapKey, {
-              player: playerName,
+              player: displayName,
               team: teamName,
               teamLogo,
+              playerPhoto,
               goals: 1,
               matchIds: new Set([match.id])
             });
@@ -102,6 +112,7 @@ export function useTopScorers() {
           player: item.player,
           team: item.team,
           teamLogo: item.teamLogo,
+          playerPhoto: item.playerPhoto,
           goals: item.goals,
           matchesScored: item.matchIds.size
         }))
@@ -124,7 +135,7 @@ export function useTopScorers() {
     });
 
     return () => unsub();
-  }, []);
+  }, [catalogPlayers]);
 
   return { scorers, loading };
 }

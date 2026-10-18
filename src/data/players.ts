@@ -137,6 +137,144 @@ export function normalizePlayerKey(name: string): string {
     .trim();
 }
 
+export const KNOWN_FOOTBALL_ALIASES: Record<string, string[]> = {
+  'vinicius junior': ['vinicius jr', 'vinicius', 'vini jr', 'vini', 'v. junior', 'vinicius jr.', 'vinicius júnior'],
+  'lamine yamal': ['l. yamal', 'l yamal', 'yamal', 'lamine yamal nasraoui'],
+  'kylian mbappe': ['k. mbappe', 'k mbappe', 'mbappe', 'kylian mbappé', 'k. mbappé'],
+  'erling haaland': ['e. haaland', 'e haaland', 'haaland', 'erling braut haaland'],
+  'robert lewandowski': ['r. lewandowski', 'r lewandowski', 'lewandowski'],
+  'harry kane': ['h. kane', 'h kane', 'kane'],
+  'florian wirtz': ['f. wirtz', 'f wirtz', 'wirtz'],
+  'jude bellingham': ['j. bellingham', 'j bellingham', 'bellingham'],
+  'bukayo saka': ['b. saka', 'b saka', 'saka'],
+  'rodri': ['rodrigo', 'rodrigo hernandez', 'rodrigo hernández', 'rodrigo hernandez cascante'],
+  'pedri': ['pedro gonzalez', 'pedro gonzález', 'pedro gonzalez lopez'],
+  'gavi': ['pablo paez', 'pablo páez', 'pablo martin paez gavira', 'pablo gavi'],
+  'ademola lookman': ['a. lookman', 'a lookman', 'lookman'],
+  'alejandro grimaldo': ['a. grimaldo', 'a grimaldo', 'grimaldo', 'alex grimaldo'],
+  'kevin de bruyne': ['k. de bruyne', 'k de bruyne', 'de bruyne'],
+  'virgil van dijk': ['v. van dijk', 'v van dijk', 'van dijk'],
+  'raphinha': ['raphael dias belloli', 'raphael dias'],
+  'vitinha': ['vitor machado ferreira', 'vitor machado', 'vitor ferreira'],
+  'alisson': ['alisson becker'],
+  'ederson': ['ederson moraes'],
+  'marquinhos': ['marcos aoas correa'],
+  'gabriel martinelli': ['g. martinelli', 'martinelli'],
+  'gabriel magalhaes': ['g. magalhaes', 'gabriel', 'magalhaes'],
+  'gabriel jesus': ['g. jesus'],
+  'federico valverde': ['f. valverde', 'valverde'],
+  'eduardo camavinga': ['e. camavinga', 'camavinga'],
+  'aurelien tchouameni': ['a. tchouameni', 'tchouameni', 'aurélien tchouaméni'],
+  'antonio rudiger': ['a. rudiger', 'rudiger', 'antónio rüdiger', 'a. rüdiger'],
+  'dani carvajal': ['daniel carvajal', 'carvajal', 'd. carvajal'],
+  'thibaut courtois': ['t. courtois', 'courtois'],
+  'gianluigi donnarumma': ['g. donnarumma', 'donnarumma'],
+  'jan oblak': ['j. oblak', 'oblak'],
+  'lautaro martinez': ['l. martinez', 'lautaro', 'lautaro martínez'],
+  'marcus thuram': ['m. thuram', 'thuram'],
+  'nicolo barella': ['n. barella', 'barella', 'nicolò barella'],
+  'hakan calhanoglu': ['h. calhanoglu', 'calhanoglu', 'hakan çalhanoğlu'],
+  'declan rice': ['d. rice', 'rice'],
+  'kai havertz': ['k. havertz', 'havertz'],
+  'martin odegaard': ['m. odegaard', 'odegaard', 'martin ødegaard'],
+  'william saliba': ['w. saliba', 'saliba'],
+  'alessandro bastoni': ['a. bastoni', 'bastoni'],
+  'jamal musiala': ['j. musiala', 'musiala'],
+  'leroy sane': ['l. sane', 'sane', 'leroy sané'],
+  'serge gnabry': ['s. gnabry', 'gnabry'],
+  'kingsley coman': ['k. coman', 'coman'],
+  'alassane plea': ['a. plea', 'plea', 'alassane pléa'],
+  'julian alvarez': ['j. alvarez', 'alvarez', 'julián álvarez'],
+  'antoine griezmann': ['a. griezmann', 'griezmann'],
+  'alexander sorloth': ['a. sorloth', 'sorloth', 'alexander sørloth'],
+  'viktor gyokeres': ['v. gyokeres', 'gyokeres', 'viktor gyökeres'],
+  'francisco conceicao': ['f. conceicao', 'conceicao', 'francisco conceição'],
+  'dusan vlahovic': ['d. vlahovic', 'vlahovic', 'dušan vlahović'],
+  'kenan yildiz': ['k. yildiz', 'yildiz', 'kenan yıldız'],
+  'teun koopmeiners': ['t. koopmeiners', 'koopmeiners'],
+  'bremer': ['gleison bremer'],
+  'oihan sancet': ['o. sancet', 'sancet'],
+  'nico williams': ['n. williams', 'williams'],
+  'inaki williams': ['i. williams'],
+};
+
+/**
+ * Compara dos nombres de futbolistas y determina si son equivalentes,
+ * considerando apodos oficiales, iniciales de nombre ("L. Yamal" -> "Lamine Yamal"),
+ * partículas (de, van) y apellidos distintivos.
+ */
+export function arePlayerNamesEquivalent(nameA: string, nameB: string): boolean {
+  if (!nameA || !nameB) return false;
+  const keyA = normalizePlayerKey(nameA);
+  const keyB = normalizePlayerKey(nameB);
+  if (!keyA || !keyB) return false;
+  if (keyA === keyB) return true;
+
+  // 1. Diccionario de alias conocidos
+  for (const [canonical, aliases] of Object.entries(KNOWN_FOOTBALL_ALIASES)) {
+    const normCanon = normalizePlayerKey(canonical);
+    const normAliases = aliases.map(normalizePlayerKey);
+    const allSet = [normCanon, ...normAliases];
+    if (allSet.includes(keyA) && allSet.includes(keyB)) {
+      return true;
+    }
+  }
+
+  // 2. Normalización de tokens (sin acentos, minúsculas)
+  const strip = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").trim();
+  const tokensA = strip(nameA).split(/\s+/).filter(Boolean);
+  const tokensB = strip(nameB).split(/\s+/).filter(Boolean);
+  if (tokensA.length === 0 || tokensB.length === 0) return false;
+
+  // Normalizar variaciones de Jr / Junior
+  const cleanTokensA = tokensA.map(t => t === 'jr' ? 'junior' : t);
+  const cleanTokensB = tokensB.map(t => t === 'jr' ? 'junior' : t);
+
+  const lastA = cleanTokensA[cleanTokensA.length - 1];
+  const lastB = cleanTokensB[cleanTokensB.length - 1];
+
+  // Si el apellido coincide (al menos 3 caracteres)
+  if (lastA && lastB && lastA === lastB && lastA.length >= 3) {
+    if (cleanTokensA.length === 1 || cleanTokensB.length === 1) return true;
+    const firstA = cleanTokensA[0];
+    const firstB = cleanTokensB[0];
+    if (firstA && firstB) {
+      if (firstA === firstB) return true;
+      if (firstA[0] === firstB[0]) return true; // e.g. "L." vs "Lamine", "E." vs "Erling"
+      if (firstA.startsWith(firstB) || firstB.startsWith(firstA)) return true; // e.g. "Alex" vs "Alejandro"
+    }
+  }
+
+  // Contención exacta multipalabra (e.g. "Lamine Yamal" dentro de "Lamine Yamal Nasraoui Ebana")
+  if (cleanTokensA.length > 1 && cleanTokensB.length > 1) {
+    const strA = cleanTokensA.join(' ');
+    const strB = cleanTokensB.join(' ');
+    if (strA.includes(strB) || strB.includes(strA)) return true;
+  }
+
+  return false;
+}
+
+/**
+ * Busca un jugador en el catálogo oficial que coincida de forma inteligente
+ * con un nombre de jugador proveniente de un partido o JSON.
+ */
+export function findMatchingCatalogPlayer(
+  rawName: string, 
+  catalog: PlayerItem[]
+): PlayerItem | undefined {
+  if (!rawName || !rawName.trim()) return undefined;
+  const clean = rawName.trim();
+  
+  // 1. Coincidencia directa por clave
+  const rawKey = normalizePlayerKey(clean);
+  const direct = catalog.find(p => normalizePlayerKey(p.name) === rawKey);
+  if (direct) return direct;
+
+  // 2. Coincidencia inteligente (apodos, iniciales, apellidos)
+  return catalog.find(p => arePlayerNamesEquivalent(p.name, clean));
+}
+
 /**
  * Deduplicate and merge player lists without creating duplicates.
  * Automatically translates nationalities with flag emojis and positions to Spanish.
@@ -159,17 +297,7 @@ export function deduplicatePlayers(
     const existingIndex = merged.findIndex(p => {
       const pKey = normalizePlayerKey(p.name);
       if (pKey === key) return true;
-      // Also match if one is abbreviated version e.g. "K. Mbappé" and "Kylian Mbappé"
-      const pWords = p.name.toLowerCase().split(/\s+/);
-      const incWords = cleanName.toLowerCase().split(/\s+/);
-      if (pWords.length > 1 && incWords.length > 1) {
-        const pLastName = pWords[pWords.length - 1];
-        const incLastName = incWords[incWords.length - 1];
-        if (pLastName === incLastName && pWords[0][0] === incWords[0][0]) {
-          return true;
-        }
-      }
-      return false;
+      return arePlayerNamesEquivalent(p.name, cleanName);
     });
 
     if (existingIndex >= 0) {

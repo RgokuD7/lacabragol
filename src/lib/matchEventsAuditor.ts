@@ -75,46 +75,17 @@ export function resolveEventUclTeam(
   return null;
 }
 
+export { 
+  KNOWN_FOOTBALL_ALIASES, 
+  arePlayerNamesEquivalent, 
+  findMatchingCatalogPlayer 
+} from '../data/players';
+
 /**
  * Compara de forma inteligente un jugador del catálogo con el nombre que figura en un evento de partido.
- * Maneja coincidencia exacta, iniciales, apodos y apellidos coincidentes.
  */
 export function matchCatalogPlayerWithEventName(catalogName: string, eventPlayerName: string): boolean {
-  if (!catalogName || !eventPlayerName) return false;
-  const cNorm = normalizePlayerKey(catalogName);
-  const eNorm = normalizePlayerKey(eventPlayerName);
-  if (!cNorm || !eNorm) return false;
-  if (cNorm === eNorm) return true;
-
-  const strip = (s: string) => s.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9\s]/g, " ").trim();
-  const cTokens = strip(catalogName).split(/\s+/).filter(Boolean);
-  const eTokens = strip(eventPlayerName).split(/\s+/).filter(Boolean);
-
-  if (cTokens.length === 0 || eTokens.length === 0) return false;
-
-  const cLast = cTokens[cTokens.length - 1];
-  const eLast = eTokens[eTokens.length - 1];
-
-  // Si el apellido coincide y tiene al menos 4 caracteres
-  if (cLast && eLast && cLast === eLast && cLast.length >= 4) {
-    if (cTokens.length === 1 || eTokens.length === 1) return true;
-    const cFirst = cTokens[0];
-    const eFirst = eTokens[0];
-    if (cFirst && eFirst) {
-      if (cFirst === eFirst) return true;
-      if (cFirst[0] === eFirst[0]) return true; // "A." vs "Alejandro"
-      if (cFirst.startsWith(eFirst) || eFirst.startsWith(cFirst)) return true; // "Alex" vs "Alejandro"
-    }
-  }
-
-  // Contención exacta multipalabra
-  if (cTokens.length > 1 && eTokens.length > 1) {
-    const cJoined = cTokens.join(' ');
-    const eJoined = eTokens.join(' ');
-    if (cJoined.includes(eJoined) || eJoined.includes(cJoined)) return true;
-  }
-
-  return false;
+  return arePlayerNamesEquivalent(catalogName, eventPlayerName);
 }
 
 /**

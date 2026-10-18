@@ -3,18 +3,21 @@ import { collection, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { Match } from '../types';
 import { getTeamLogoByName, getCanonicalTeamName } from '../data/fixtures';
-import { DEFAULT_PLAYERS } from '../data/players';
+import { usePlayers } from './usePlayers';
+import { findMatchingCatalogPlayer } from '../lib/matchEventsAuditor';
 
 export interface TopAssister {
   position: number;
   player: string;
   team: string;
   teamLogo?: string;
+  playerPhoto?: string;
   assists: number;
   matchesAssisted: number;
 }
 
 export function useTopAssists() {
+  const { players: catalogPlayers } = usePlayers();
   const [assisters, setAssisters] = useState<TopAssister[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -29,6 +32,7 @@ export function useTopAssists() {
         player: string;
         team: string;
         teamLogo?: string;
+        playerPhoto?: string;
         assists: number;
         matchIds: Set<string>;
       }>();
@@ -64,12 +68,14 @@ export function useTopAssists() {
             return;
           }
 
-          // 1. Fallback to DEFAULT_PLAYERS catalog if team is missing
-          if (!teamName) {
-            const foundPlayer = DEFAULT_PLAYERS.find(p => p.name.toLowerCase() === assistName.toLowerCase());
-            if (foundPlayer && foundPlayer.team) {
-              teamName = foundPlayer.team;
-            }
+          // Match player in catalog to get official name, team and photo
+          const matchedPlayer = findMatchingCatalogPlayer(assistName, catalogPlayers);
+          const displayName = matchedPlayer?.name || assistName;
+          const playerPhoto = matchedPlayer?.imageUrl || matchedPlayer?.image;
+
+          // 1. Fallback to catalog if team is missing
+          if (!teamName && matchedPlayer?.team) {
+            teamName = matchedPlayer.team;
           }
 
           // 2. Fallback to match teams
@@ -80,7 +86,7 @@ export function useTopAssists() {
           // Canonicalize team name to merge variations
           teamName = getCanonicalTeamName(teamName);
 
-          const mapKey = `${assistName.toLowerCase()}___${teamName.toLowerCase()}`;
+          const mapKey = `${displayName.toLowerCase()}___${teamName.toLowerCase()}`;
           const existing = assistMap.get(mapKey);
 
           const teamLogo = getTeamLogoByName(teamName) || 
@@ -91,11 +97,13 @@ export function useTopAssists() {
             existing.assists += 1;
             existing.matchIds.add(match.id);
             if (!existing.teamLogo && teamLogo) existing.teamLogo = teamLogo;
+            if (!existing.playerPhoto && playerPhoto) existing.playerPhoto = playerPhoto;
           } else {
             assistMap.set(mapKey, {
-              player: assistName,
+              player: displayName,
               team: teamName,
               teamLogo,
+              playerPhoto,
               assists: 1,
               matchIds: new Set([match.id])
             });
@@ -110,6 +118,7 @@ export function useTopAssists() {
           player: item.player,
           team: item.team,
           teamLogo: item.teamLogo,
+          playerPhoto: item.playerPhoto,
           assists: item.assists,
           matchesAssisted: item.matchIds.size
         }))
@@ -132,7 +141,7 @@ export function useTopAssists() {
     });
 
     return () => unsub();
-  }, []);
+  }, [catalogPlayers]);
 
   return { assisters, loading };
 }
