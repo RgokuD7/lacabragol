@@ -358,13 +358,6 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     return podiumPlayers.filter(p => !p.team || !UCL_36_TEAMS.some(t => t.name === p.team));
   }, [podiumPlayers]);
 
-  // Cuántos de ellos se pueden auto-vincular inmediatamente por alias
-  const autoLinkableCatalogPlayers = useMemo(() => {
-    return unlinkedCatalogPlayers.filter(p => {
-      const match = findUclTeam(p.team);
-      return match && match.name !== p.team;
-    });
-  }, [unlinkedCatalogPlayers]);
 
   const filteredPodiumPlayers = useMemo(() => {
     let list = podiumPlayers;
@@ -471,6 +464,19 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       s.canonicalTeam.toLowerCase().includes(q)
     );
   }, [matchScorersAudit, matchScorerSearch, showOnlyInconsistentScorers]);
+
+  // Cuántos jugadores del catálogo se pueden auto-vincular inmediatamente (por alias o por haber anotado goles en partidos)
+  const autoLinkableCatalogPlayers = useMemo(() => {
+    return unlinkedCatalogPlayers.filter(p => {
+      const match = findUclTeam(p.team);
+      if (match && match.name !== p.team) return true;
+      const scorerMatch = matchScorersAudit.find(s => s.playerName.toLowerCase() === p.name.toLowerCase());
+      if (scorerMatch && scorerMatch.canonicalTeam && UCL_36_TEAMS.some(t => t.name === scorerMatch.canonicalTeam)) {
+        return true;
+      }
+      return false;
+    });
+  }, [unlinkedCatalogPlayers, matchScorersAudit]);
 
   // Carga y escaneo de jugadores de podio manuales
   const fetchCustomPodiums = useCallback(async () => {
@@ -1479,23 +1485,34 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   const [isNormalizingCatalogClubs, setIsNormalizingCatalogClubs] = useState(false);
 
-  // Auto-vincular clubes del catálogo oficial que tengan alias reconocibles (ej. "Bayern Munich" -> "FC Bayern München")
+  // Auto-vincular clubes del catálogo oficial que tengan alias reconocibles o que ya tengan goles anotados en partidos
   const handleAutoNormalizeCatalogClubs = async () => {
     setIsNormalizingCatalogClubs(true);
     try {
       let changedCount = 0;
       const updated = podiumPlayers.map(p => {
-        if (!p.team) return p;
-        const uclMatch = findUclTeam(p.team);
-        if (uclMatch && uclMatch.name !== p.team) {
-          changedCount++;
-          return { ...p, team: uclMatch.name };
+        // 1. Si coincide con un alias directo
+        if (p.team) {
+          const uclMatch = findUclTeam(p.team);
+          if (uclMatch && uclMatch.name !== p.team) {
+            changedCount++;
+            return { ...p, team: uclMatch.name };
+          }
+        }
+        // 2. Si el club no es de los 36 oficiales pero el jugador ya tiene goles registrados en partidos de Champions
+        const isOfficial = !!p.team && UCL_36_TEAMS.some(t => t.name === p.team);
+        if (!isOfficial) {
+          const scorerMatch = matchScorersAudit.find(s => s.playerName.toLowerCase() === p.name.toLowerCase());
+          if (scorerMatch && scorerMatch.canonicalTeam && UCL_36_TEAMS.some(t => t.name === scorerMatch.canonicalTeam)) {
+            changedCount++;
+            return { ...p, team: scorerMatch.canonicalTeam };
+          }
         }
         return p;
       });
 
       if (changedCount === 0) {
-        setFeedback({ type: 'info', text: 'Todos los clubes con alias reconocibles ya están vinculados.' });
+        setFeedback({ type: 'info', text: 'Todos los clubes con alias o goles en partidos ya están vinculados.' });
         return;
       }
 
@@ -3310,6 +3327,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                   const currentDbTeam = editingCatalogPlayer.team?.trim() || '';
                   const detectedUcl = findUclTeam(currentDbTeam);
                   const isExactOfficial = UCL_36_TEAMS.some(t => t.name === currentDbTeam);
+                  const matchScorerInfo = matchScorersAudit.find(s => s.playerName.toLowerCase() === editingCatalogPlayer.name.toLowerCase());
 
                   return (
                     <div className="space-y-3 text-xs">
@@ -3354,7 +3372,24 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                           </div>
                         )}
 
-                        {!isExactOfficial && !detectedUcl && currentDbTeam && (
+                        {/* Sugerencia a partir de goles anotados en partidos de Champions */}
+                        {matchScorerInfo && matchScorerInfo.canonicalTeam && matchScorerInfo.canonicalTeam !== currentDbTeam && (
+                          <div className="bg-emerald-950/40 border border-emerald-500/40 rounded-lg p-2.5 flex items-center justify-between gap-2">
+                            <div className="text-[11px] text-emerald-200">
+                              ⚽ En partidos jugados: tiene <strong>{matchScorerInfo.totalGoals} gol(es)</strong> registrados con <strong>{matchScorerInfo.canonicalTeam}</strong>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setEditingCatalogPlayer({ ...editingCatalogPlayer, team: matchScorerInfo.canonicalTeam })}
+                              className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-500 text-white text-[10px] font-black rounded-lg shadow transition-all shrink-0 flex items-center gap-1 cursor-pointer"
+                            >
+                              <Check className="w-3 h-3" />
+                              Usar {matchScorerInfo.canonicalTeam}
+                            </button>
+                          </div>
+                        )}
+
+                        {!isExactOfficial && !detectedUcl && (!matchScorerInfo || matchScorerInfo.canonicalTeam === currentDbTeam) && currentDbTeam && (
                           <p className="text-[11px] text-amber-300/90 leading-tight">
                             ⚠️ "{currentDbTeam}" no coincide con ninguno de los 36 clubes de esta Champions. Búscalo en la lista desplegable abajo para vincularlo al club oficial correspondiente.
                           </p>

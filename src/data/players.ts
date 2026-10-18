@@ -752,7 +752,7 @@ export const DEFAULT_PLAYERS: PlayerItem[] = [
   {
     id: 843952,
     name: "Ademola Lookman",
-    team: "Atalanta",
+    team: "Atlético Madrid",
     position: "Delantero",
     nationality: "Nigeria 🇳🇬"
   },
