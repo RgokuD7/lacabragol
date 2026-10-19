@@ -92,8 +92,88 @@ export const NATIONALITY_TRANSLATIONS: Record<string, string> = {
   'azerbaiyán': 'Azerbaiyán 🇦🇿',
   'slovakia': 'Eslovaquia 🇸🇰',
   'eslovaquia': 'Eslovaquia 🇸🇰',
-  'türkiye': 'Turquía 🇹🇷'
+  'türkiye': 'Turquía 🇹🇷',
+  'senegal': 'Senegal 🇸🇳',
+  'costa de marfil': 'Costa de Marfil 🇨🇮',
+  'ivory coast': 'Costa de Marfil 🇨🇮',
+  'côte d\'ivoire': 'Costa de Marfil 🇨🇮',
+  'cote d\'ivoire': 'Costa de Marfil 🇨🇮',
+  'cameroon': 'Camerún 🇨🇲',
+  'camerun': 'Camerún 🇨🇲',
+  'camerún': 'Camerún 🇨🇲',
+  'ghana': 'Ghana 🇬🇭',
+  'algeria': 'Argelia 🇩🇿',
+  'argelia': 'Argelia 🇩🇿',
+  'hungary': 'Hungría 🇭🇺',
+  'hungria': 'Hungría 🇭🇺',
+  'hungría': 'Hungría 🇭🇺',
+  'romania': 'Rumania 🇷🇴',
+  'rumania': 'Rumania 🇷🇴',
+  'albania': 'Albania 🇦🇱',
+  'bosnia': 'Bosnia y Herzegovina 🇧🇦',
+  'bosnia and herzegovina': 'Bosnia y Herzegovina 🇧🇦',
+  'bosnia y herzegovina': 'Bosnia y Herzegovina 🇧🇦',
+  'kosovo': 'Kosovo 🇽🇰',
+  'ireland': 'Irlanda 🇮🇪',
+  'irlanda': 'Irlanda 🇮🇪',
+  'northern ireland': 'Irlanda del Norte 🇬🇧',
+  'irlanda del norte': 'Irlanda del Norte 🇬🇧',
+  'israel': 'Israel 🇮🇱',
+  'iceland': 'Islandia 🇮🇸',
+  'islandia': 'Islandia 🇮🇸',
+  'finland': 'Finlandia 🇫🇮',
+  'finlandia': 'Finlandia 🇫🇮',
+  'australia': 'Australia 🇦🇺',
+  'costa rica': 'Costa Rica 🇨🇷',
+  'mali': 'Malí 🇲🇱',
+  'malí': 'Malí 🇲🇱',
+  'dr congo': 'RD Congo 🇨🇩',
+  'rd congo': 'RD Congo 🇨🇩',
+  'congo': 'RD Congo 🇨🇩',
+  'gabon': 'Gabón 🇬🇦',
+  'gabón': 'Gabón 🇬🇦',
+  'burkina faso': 'Burkina Faso 🇧🇫',
+  'iran': 'Irán 🇮🇷',
+  'irán': 'Irán 🇮🇷',
+  'jamaica': 'Jamaica 🇯🇲',
+  'suriname': 'Surinam 🇸🇷',
+  'surinam': 'Surinam 🇸🇷',
+  'tunisia': 'Túnez 🇹🇳',
+  'tunez': 'Túnez 🇹🇳',
+  'túnez': 'Túnez 🇹🇳',
+  'armenia': 'Armenia 🇦🇲',
+  'kazakhstan': 'Kazajistán 🇰🇿',
+  'kazajistan': 'Kazajistán 🇰🇿',
+  'kazajistán': 'Kazajistán 🇰🇿',
+  'montenegro': 'Montenegro 🇲🇪',
+  'north macedonia': 'Macedonia del Norte 🇲🇰',
+  'macedonia': 'Macedonia del Norte 🇲🇰',
+  'macedonia del norte': 'Macedonia del Norte 🇲🇰',
+  'cyprus': 'Chipre 🇨🇾',
+  'chipre': 'Chipre 🇨🇾',
+  'luxembourg': 'Luxemburgo 🇱🇺',
+  'luxemburgo': 'Luxemburgo 🇱🇺'
 };
+
+export const AVAILABLE_NATIONALITIES: string[] = Array.from(
+  new Set(Object.values(NATIONALITY_TRANSLATIONS))
+).sort((a, b) => a.localeCompare(b, 'es'));
+
+export function getNationalityOptions(currentValue?: string): string[] {
+  const formatted = formatNationality(currentValue);
+  if (!formatted) return AVAILABLE_NATIONALITIES;
+  if (!AVAILABLE_NATIONALITIES.includes(formatted)) {
+    return [formatted, ...AVAILABLE_NATIONALITIES];
+  }
+  return AVAILABLE_NATIONALITIES;
+}
+
+export const AVAILABLE_POSITIONS: string[] = [
+  'Delantero',
+  'Centrocampista',
+  'Defensa',
+  'Portero'
+];
 
 export const POSITION_TRANSLATIONS: Record<string, string> = {
   'forward': 'Delantero',

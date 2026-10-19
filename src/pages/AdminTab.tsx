@@ -9,7 +9,7 @@ import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../t
 import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, FileJson, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
-import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition, findMatchingCatalogPlayer, arePlayerNamesEquivalent, cleanPlayerForStorage } from '../data/players';
+import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition, findMatchingCatalogPlayer, arePlayerNamesEquivalent, cleanPlayerForStorage, AVAILABLE_NATIONALITIES, getNationalityOptions, AVAILABLE_POSITIONS } from '../data/players';
 import { cn, sanitizeForFirestore } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
@@ -3120,13 +3120,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         <option key={t.id} value={t.name}>{t.name} ({t.country})</option>
                       ))}
                     </select>
-                    <input
-                      type="text"
-                      placeholder="Posición (Ej: Delantero)"
+                    <select
                       value={newPlayerPosition}
                       onChange={(e) => setNewPlayerPosition(e.target.value)}
-                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
-                    />
+                      className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 cursor-pointer"
+                    >
+                      <option value="">Posición (opcional)...</option>
+                      {AVAILABLE_POSITIONS.map(pos => (
+                        <option key={pos} value={pos}>{pos}</option>
+                      ))}
+                    </select>
                     <input
                       type="url"
                       placeholder="URL Foto (ej. UEFA.com)"
@@ -3135,13 +3138,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       className="bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
                     />
                     <div className="flex gap-2">
-                      <input
-                        type="text"
-                        placeholder="Nac. (Francia 🇫🇷)"
+                      <select
                         value={newPlayerNationality}
                         onChange={(e) => setNewPlayerNationality(e.target.value)}
-                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white placeholder:text-zinc-500 outline-none focus:border-emerald-500"
-                      />
+                        className="flex-1 bg-zinc-900 border border-zinc-800 rounded-lg px-3 py-2 text-xs text-white outline-none focus:border-emerald-500 cursor-pointer"
+                      >
+                        <option value="">Nacionalidad (opcional)...</option>
+                        {AVAILABLE_NATIONALITIES.map(nat => (
+                          <option key={nat} value={nat}>{nat}</option>
+                        ))}
+                      </select>
                       <button
                         type="submit"
                         disabled={isSavingPlayers || !newPlayerName.trim()}
@@ -4241,13 +4247,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
                   <div>
                     <label className="text-zinc-300 block mb-1 font-semibold">Nacionalidad:</label>
-                    <input
-                      type="text"
-                      placeholder="Ej: Suecia 🇸🇪 o Francia"
-                      value={addingCustomPlayer.nationality}
+                    <select
+                      value={formatNationality(addingCustomPlayer.nationality) || ''}
                       onChange={(e) => setAddingCustomPlayer({ ...addingCustomPlayer, nationality: e.target.value })}
-                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500"
-                    />
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-emerald-500 cursor-pointer text-xs"
+                    >
+                      <option value="">Seleccionar Nacionalidad (opcional)...</option>
+                      {getNationalityOptions(addingCustomPlayer.nationality).map(nat => (
+                        <option key={nat} value={nat}>{nat}</option>
+                      ))}
+                    </select>
                   </div>
 
                   <div>
@@ -4527,12 +4536,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
                       <div>
                         <label className="text-zinc-300 block mb-1 font-semibold">Nacionalidad:</label>
-                        <input
-                          type="text"
-                          value={editingCatalogPlayer.nationality || ''}
+                        <select
+                          value={formatNationality(editingCatalogPlayer.nationality) || ''}
                           onChange={(e) => setEditingCatalogPlayer({ ...editingCatalogPlayer, nationality: e.target.value })}
-                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500"
-                        />
+                          className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white outline-none focus:border-amber-500 cursor-pointer text-xs"
+                        >
+                          <option value="">Seleccionar Nacionalidad (opcional)...</option>
+                          {getNationalityOptions(editingCatalogPlayer.nationality).map(nat => (
+                            <option key={nat} value={nat}>{nat}</option>
+                          ))}
+                        </select>
                       </div>
 
                       <div>
