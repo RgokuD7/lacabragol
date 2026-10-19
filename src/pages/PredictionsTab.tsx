@@ -1,4 +1,4 @@
-import { vibrateSuccess, vibrateError, vibrateJackpot, vibratePop } from '../lib/haptics';
+import { vibrateSuccess, vibrateError, vibrateJackpot, vibratePop, vibrateTap } from '../lib/haptics';
 import React, { useEffect, useState, useMemo } from 'react';
 import { collection, query, where, onSnapshot, doc, writeBatch, getDocs, updateDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
@@ -15,6 +15,7 @@ import { MultiGroupPredictionModal } from '../components/MultiGroupPredictionMod
 import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { MatchEventsModal } from '../components/MatchEventsModal';
 import { MatchJsonModal } from '../components/MatchJsonModal';
+import { TeamMatchesModal } from '../components/TeamMatchesModal';
 import { isCabraSuprema } from '../lib/utils';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
@@ -102,6 +103,11 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   const [jsonModalMatch, setJsonModalMatch] = useState<Match | null>(null);
   const [jsonModalMode, setJsonModalMode] = useState<'manual' | 'ai' | 'json'>('manual');
   const [activeKebabMatchId, setActiveKebabMatchId] = useState<string | null>(null);
+  const [selectedTeamForModal, setSelectedTeamForModal] = useState<{
+    name: string;
+    logo?: string;
+  } | null>(null);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // Verificación de rol de administrador
   const isAdmin = Boolean(
@@ -980,16 +986,26 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
               <div className="flex items-center justify-between gap-1 sm:gap-3 py-0.5">
                 
                 {/* Home Team */}
-                <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    vibrateTap();
+                    setSelectedTeamForModal({ name: match.homeTeam, logo: match.homeFlag });
+                    setIsTeamModalOpen(true);
+                  }}
+                  className="flex-1 flex items-center gap-1.5 min-w-0 text-left group cursor-pointer hover:opacity-85 active:scale-95 transition-all"
+                  title={`Toca para ver partidos de ${match.homeTeam}`}
+                >
                   <TeamBadge 
                     src={match.homeFlag} 
                     teamName={match.homeTeam} 
-                    className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-sm" 
+                    className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-sm group-hover:scale-105 transition-transform" 
                   />
-                  <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 whitespace-normal break-words" title={match.homeTeam}>
+                  <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 whitespace-normal break-words group-hover:text-blue-400 transition-colors" title={match.homeTeam}>
                     {match.homeTeam}
                   </span>
-                </div>
+                </button>
 
                 {/* Center Score & Betting Controls */}
                 <div className="shrink-0 flex flex-col items-center justify-center gap-1 px-1">
@@ -1112,16 +1128,26 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 </div>
 
                 {/* Away Team */}
-                <div className="flex-1 flex items-center justify-end gap-1.5 min-w-0 text-right">
-                  <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 whitespace-normal break-words" title={match.awayTeam}>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    vibrateTap();
+                    setSelectedTeamForModal({ name: match.awayTeam, logo: match.awayFlag });
+                    setIsTeamModalOpen(true);
+                  }}
+                  className="flex-1 flex items-center justify-end gap-1.5 min-w-0 text-right group cursor-pointer hover:opacity-85 active:scale-95 transition-all"
+                  title={`Toca para ver partidos de ${match.awayTeam}`}
+                >
+                  <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 whitespace-normal break-words group-hover:text-blue-400 transition-colors" title={match.awayTeam}>
                     {match.awayTeam}
                   </span>
                   <TeamBadge 
                     src={match.awayFlag} 
                     teamName={match.awayTeam} 
-                    className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-sm" 
+                    className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-sm group-hover:scale-105 transition-transform" 
                   />
-                </div>
+                </button>
 
               </div>
 
@@ -1201,6 +1227,14 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         match={jsonModalMatch}
         settings={settings}
         initialMode={jsonModalMode}
+      />
+
+      {/* Modal de Partidos del Club */}
+      <TeamMatchesModal
+        isOpen={isTeamModalOpen}
+        onClose={() => setIsTeamModalOpen(false)}
+        teamName={selectedTeamForModal?.name || null}
+        teamLogo={selectedTeamForModal?.logo}
       />
     </div>
   );

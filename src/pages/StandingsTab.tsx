@@ -19,8 +19,9 @@ import { vibrateTap } from '../lib/haptics';
 import { cn } from '../lib/utils';
 import { TopScorersView } from '../components/TopScorersView';
 import { TopAssistsView } from '../components/TopAssistsView';
+import { TeamMatchesModal } from '../components/TeamMatchesModal';
 
-interface StandingTeam {
+export interface StandingTeam {
   id?: number;
   name: string;
   shortName: string;
@@ -29,7 +30,7 @@ interface StandingTeam {
   country?: string;
 }
 
-interface StandingRow {
+export interface StandingRow {
   position: number;
   team: StandingTeam;
   matches: number;
@@ -302,6 +303,12 @@ export function StandingsTab() {
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'brackets'>('table');
   const [activeSection, setActiveSection] = useState<'standings' | 'scorers' | 'assists'>('standings');
+  const [selectedTeamForModal, setSelectedTeamForModal] = useState<{
+    name: string;
+    logo?: string;
+    row?: StandingRow;
+  } | null>(null);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
 
   // Apple Sports Scrubber Stage Range State
   const [startRoundIdx, setStartRoundIdx] = useState<number>(0);
@@ -602,6 +609,12 @@ export function StandingsTab() {
             className="w-full bg-[#121215] border border-zinc-800 rounded-lg pl-8 pr-3 py-1.5 text-xs text-white placeholder:text-zinc-600 outline-none focus:border-blue-500 transition-colors"
           />
         </div>
+        <div className="flex items-center justify-between pb-1.5 px-1 text-[10px] text-zinc-400">
+          <span className="flex items-center gap-1 text-zinc-400">
+            <span>💡</span>
+            <span>Toca cualquier club para ver sus partidos jugados y por jugar</span>
+          </span>
+        </div>
 
         {/* Table Container: flex: 1; overflow-y: auto; SOLO ESTE CONTENEDOR HACE SCROLL */}
         <div 
@@ -644,7 +657,17 @@ export function StandingsTab() {
                 return (
                   <tr 
                     key={row.position} 
-                    className={`hover:bg-zinc-800/40 transition-colors ${rowBg}`}
+                    onClick={() => {
+                      vibrateTap();
+                      setSelectedTeamForModal({
+                        name: row.team.name,
+                        logo: row.team.logo,
+                        row: row
+                      });
+                      setIsTeamModalOpen(true);
+                    }}
+                    className={`hover:bg-zinc-800/80 active:bg-zinc-800 transition-colors cursor-pointer group select-none ${rowBg}`}
+                    title={`Toca para ver partidos jugados y pendientes de ${row.team.name}`}
                   >
                     {/* Sticky Position column */}
                     <td className={`py-1.5 px-1 text-center sticky left-0 z-10 w-7 min-w-[28px] max-w-[28px] ${stickyBg} border-r border-zinc-800/60`}>
@@ -656,8 +679,8 @@ export function StandingsTab() {
                     {/* Sticky Club column */}
                     <td className={`py-1.5 px-2.5 font-bold text-white sticky left-[28px] z-10 w-[130px] min-w-[130px] max-w-[130px] ${stickyBg} border-r border-zinc-800`}>
                       <div className="flex items-center gap-2">
-                        <TeamBadge src={row.team.logo} teamName={row.team.name} size="sm" className="w-5 h-5 shrink-0" />
-                        <span className="truncate text-xs" title={row.team.name}>
+                        <TeamBadge src={row.team.logo} teamName={row.team.name} size="sm" className="w-5 h-5 shrink-0 group-hover:scale-110 transition-transform" />
+                        <span className="truncate text-xs group-hover:text-blue-400 transition-colors" title={row.team.name}>
                           {row.team.name}
                         </span>
                       </div>
@@ -711,6 +734,15 @@ export function StandingsTab() {
           </div>
         </div>
       </div>
+
+      {/* Modal de Partidos del Club */}
+      <TeamMatchesModal
+        isOpen={isTeamModalOpen}
+        onClose={() => setIsTeamModalOpen(false)}
+        teamName={selectedTeamForModal?.name || null}
+        teamLogo={selectedTeamForModal?.logo}
+        standingRow={selectedTeamForModal?.row}
+      />
     </div>
   );
 };
