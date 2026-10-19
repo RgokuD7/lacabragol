@@ -60,17 +60,20 @@ interface PredictionsTabProps {
   isTutorialActive?: boolean;
 }
 
+let cachedMatches: Match[] | null = null;
+let cachedGroups: string[] | null = null;
+
 export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps = {}) {
   const { user, profile } = useAuth();
   const { settings } = useSettings();
   const { groups: userCommunityGroups, activeGroupId } = useGroups();
-  const [matches, setMatches] = useState<Match[]>([]);
+  const [matches, setMatches] = useState<Match[]>(() => cachedMatches || []);
   const [predictions, setPredictions] = useState<Record<string, Prediction>>({});
-  const [groups, setGroups] = useState<string[]>([]);
+  const [groups, setGroups] = useState<string[]>(() => cachedGroups || []);
   const [selectedGroup, setSelectedGroup] = useState<string>('All');
   const [statusFilter, setStatusFilter] = useState<StatusFilterType>('all');
   const [savingId, setSavingId] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !cachedMatches);
   const [localScores, setLocalScores] = useState<Record<string, {home: string, away: string}>>({});
   const [isRestoring, setIsRestoring] = useState(false);
   const [crossGroupModal, setCrossGroupModal] = useState<{
@@ -179,43 +182,43 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
   };
 
   useEffect(() => {
-    if (!user) return;
+    // Matches are public and should load immediately without waiting for user auth
     const unsubMatches = onSnapshot(collection(db, 'matches'), async (snap) => {
       const rawMatches = snap.docs.map(d => ({ id: d.id, ...d.data() } as Match));
-      const hasCorrupt = rawMatches.some(isCorruptMatch);
-      const isAdminUser = profile?.isAdmin || user.email === 'richarddiaz0107@gmail.com';
-
-      
+      const isAdminUser = Boolean(profile?.isAdmin || profile?.role === 'admin' || user?.email === 'richarddiaz0107@gmail.com');
 
       // Filter out any corrupted test matches so they NEVER appear in UI
       let cleanMatches = rawMatches.filter(m => !isCorruptMatch(m))
                                    .sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
 
-      // Self-healing: clear any stuck is_updating flags older than 45 seconds in Firestore
-      const stuckMatches = rawMatches.filter(m => m.is_updating && (!m.is_updating_at || (Date.now() - m.is_updating_at > 45000)));
-      if (stuckMatches.length > 0) {
-        stuckMatches.forEach(async (sm) => {
-          try {
-            await updateDoc(doc(db, 'matches', sm.id), {
-              is_updating: false,
-              is_updating_at: null
-            });
-          } catch (e) {
-            console.warn("Could not auto-clear stuck match", sm.id, e);
-          }
-        });
+      // Self-healing: clear any stuck is_updating flags older than 45 seconds in Firestore (admin only)
+      if (isAdminUser) {
+        const stuckMatches = rawMatches.filter(m => m.is_updating && (!m.is_updating_at || (Date.now() - m.is_updating_at > 45000)));
+        if (stuckMatches.length > 0) {
+          stuckMatches.forEach(async (sm) => {
+            try {
+              await updateDoc(doc(db, 'matches', sm.id), {
+                is_updating: false,
+                is_updating_at: null
+              });
+            } catch (e) {
+              console.warn("Could not auto-clear stuck match", sm.id, e);
+            }
+          });
+        }
       }
 
-      
-
       const uniqueGroups = Array.from(new Set(cleanMatches.map(m => m.group || 'Fase Regular'))).sort();
-      setGroups(['All', ...uniqueGroups]);
+      const allGroups = ['All', ...uniqueGroups];
+      cachedMatches = cleanMatches;
+      cachedGroups = allGroups;
+      setGroups(allGroups);
       setMatches(cleanMatches);
       setLoading(false);
     }, (error) => handleFirestoreError(error, OperationType.GET, 'matches'));
 
     return () => unsubMatches();
-  }, [user, profile]);
+  }, [profile?.isAdmin, profile?.role, user?.email]);
 
   useEffect(() => {
     if (!user) return;

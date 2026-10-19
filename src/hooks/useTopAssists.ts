@@ -16,10 +16,12 @@ export interface TopAssister {
   matchesAssisted: number;
 }
 
+let cachedAssisters: TopAssister[] | null = null;
+
 export function useTopAssists() {
   const { players: catalogPlayers } = usePlayers();
-  const [assisters, setAssisters] = useState<TopAssister[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [assisters, setAssisters] = useState<TopAssister[]>(() => cachedAssisters || []);
+  const [loading, setLoading] = useState(() => !cachedAssisters);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'matches'), (snap) => {
@@ -133,6 +135,7 @@ export function useTopAssists() {
         list[i].position = currentPos;
       }
 
+      cachedAssisters = list;
       setAssisters(list);
       setLoading(false);
     }, (err) => {

@@ -16,10 +16,12 @@ export interface TopScorer {
   matchesScored: number;
 }
 
+let cachedScorers: TopScorer[] | null = null;
+
 export function useTopScorers() {
   const { players: catalogPlayers } = usePlayers();
-  const [scorers, setScorers] = useState<TopScorer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [scorers, setScorers] = useState<TopScorer[]>(() => cachedScorers || []);
+  const [loading, setLoading] = useState(() => !cachedScorers);
 
   useEffect(() => {
     const unsub = onSnapshot(collection(db, 'matches'), (snap) => {
@@ -127,6 +129,7 @@ export function useTopScorers() {
         list[i].position = currentPos;
       }
 
+      cachedScorers = list;
       setScorers(list);
       setLoading(false);
     }, (err) => {

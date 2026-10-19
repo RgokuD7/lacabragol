@@ -3737,7 +3737,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     <div className="space-y-1">
                       <p className="font-bold text-amber-300">⚠️ Aviso sobre la Lista de Asistencias de Partidos</p>
                       <p className="text-zinc-300 text-[11px] leading-relaxed">
-                        Esta lista está basada en los datos recuperados de partidos en vivo y archivos JSON importados; puede que contenga discrepancias o esté incompleta. Utilízala para verificar asistidores, corregir clubes o integrarlos al catálogo oficial.
+                        Esta lista está basada en datos recopilados manualmente, por lo que puede contener discrepancias. Utilízala para verificar asistidores, corregir clubes o integrarlos al catálogo oficial.
                       </p>
                     </div>
                   </div>

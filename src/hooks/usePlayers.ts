@@ -3,9 +3,11 @@ import { doc, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 import { DEFAULT_PLAYERS, PlayerItem, normalizePlayerKey, formatNationality, formatPosition } from '../data/players';
 
+let cachedPlayers: PlayerItem[] | null = null;
+
 export function usePlayers() {
-  const [players, setPlayers] = useState<PlayerItem[]>(DEFAULT_PLAYERS);
-  const [loading, setLoading] = useState(true);
+  const [players, setPlayers] = useState<PlayerItem[]>(() => cachedPlayers || DEFAULT_PLAYERS);
+  const [loading, setLoading] = useState(() => !cachedPlayers);
 
   useEffect(() => {
     const unsub = onSnapshot(doc(db, 'system', 'players'), (snap) => {
@@ -20,6 +22,7 @@ export function usePlayers() {
               nationality: formatNationality(p.nationality),
               position: formatPosition(p.position)
             }));
+          cachedPlayers = firestoreFormatted;
           setPlayers(firestoreFormatted);
           setLoading(false);
           return;

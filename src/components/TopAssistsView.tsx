@@ -27,7 +27,7 @@ export function TopAssistsView() {
       <div className="bg-purple-950/20 border border-purple-500/30 rounded-xl p-2.5 flex items-start gap-2.5 shrink-0 text-purple-200/90 text-xs shadow-sm">
         <Info className="w-4 h-4 text-purple-400 shrink-0 mt-0.5" />
         <p className="text-[11px] leading-relaxed">
-          <strong>Aviso:</strong> Esta lista está basada en los datos recuperados de partidos en vivo y archivos JSON importados; puede que contenga discrepancias o esté incompleta.
+          <strong>Aviso:</strong> Esta lista está basada en datos recopilados manualmente, por lo que puede contener discrepancias.
         </p>
       </div>
 

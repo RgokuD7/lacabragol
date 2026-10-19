@@ -49,7 +49,12 @@ import { checkAndAutoSyncFinishedMatches } from '../lib/serpapiSync';
 import { vibratePop } from '../lib/haptics';
 
 export function Layout() {
-  const [activeTab, setActiveTab] = useState('predictions');
+  const [activeTab, setActiveTab] = useState<'predictions' | 'standings' | 'ranking' | 'settings' | 'profile' | 'admin'>('predictions');
+  const [visitedTabs, setVisitedTabs] = useState<Record<string, boolean>>({ predictions: true });
+
+  useEffect(() => {
+    setVisitedTabs(prev => prev[activeTab] ? prev : { ...prev, [activeTab]: true });
+  }, [activeTab]);
   const [isShareModalOpen, setIsShareModalOpen] = useState(false);
   const [isJoinModalOpen, setIsJoinModalOpen] = useState(false);
   const [isChatOpen, setIsChatOpen] = useState(false);
@@ -488,9 +493,21 @@ export function Layout() {
       <main className={`flex-1 min-h-0 w-full flex flex-col ${activeTab === 'standings' ? 'overflow-hidden pb-[calc(56px+env(safe-area-inset-bottom,0px))]' : 'pb-28 sm:pb-32'}`}>
         <div className={`w-full max-w-4xl mx-auto relative ${activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'min-h-full pb-8'}`}>
           <ErrorBoundary fallbackTitle="Ocurrió un error al cargar la pestaña">
-            {activeTab === 'predictions' && <PredictionsTab isTutorialActive={isTutorialActive} />}
-            {activeTab === 'standings' && <StandingsTab />}
-            {activeTab === 'ranking' && <RankingTab />}
+            {visitedTabs['predictions'] && (
+              <div className={activeTab === 'predictions' ? 'w-full' : 'hidden'}>
+                <PredictionsTab isTutorialActive={isTutorialActive} />
+              </div>
+            )}
+            {visitedTabs['standings'] && (
+              <div className={activeTab === 'standings' ? 'flex-1 flex flex-col min-h-0 overflow-hidden h-full' : 'hidden'}>
+                <StandingsTab />
+              </div>
+            )}
+            {visitedTabs['ranking'] && (
+              <div className={activeTab === 'ranking' ? 'w-full' : 'hidden'}>
+                <RankingTab />
+              </div>
+            )}
             {activeTab === 'settings' && <SettingsTab onNavigateToAdmin={() => setActiveTab('admin')} />}
             {activeTab === 'profile' && <ProfileTab />}
             {activeTab === 'admin' && <AdminTab onBack={() => setActiveTab('predictions')} />}
