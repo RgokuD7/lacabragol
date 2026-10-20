@@ -6,10 +6,12 @@ import { collection, doc, query, where, onSnapshot, getDocs, getDoc, writeBatch,
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { Match, Prediction, User, Setting, Stage, StageStandingItem } from '../types';
-import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, FileJson, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter } from 'lucide-react';
+import { ShieldAlert, RefreshCw, Sparkles, PlayCircle, Search, ShieldCheck, Check, X, AlertCircle, AlertTriangle, Trash2, Loader2, CheckCircle2, UserPlus, FileCode, FileJson, RotateCcw, Users, Plus, Table2, Edit3, Save, Key, Trophy, Flame, Layers, Flag, Calendar, Clock, Crown, Medal, Target, CheckSquare, Square, ChevronRight, Link2, Shield, Filter, Bot, Copy, Globe } from 'lucide-react';
 import { TeamBadge } from '../components/TeamBadge';
 import { UCL_LEAGUE_PHASE_MATCHES, UCL_36_TEAMS, getCanonicalTeamName, getTeamLogoByName } from '../data/fixtures';
 import { PlayerItem, DEFAULT_PLAYERS, deduplicatePlayers, normalizePlayerKey, formatNationality, formatPosition, findMatchingCatalogPlayer, arePlayerNamesEquivalent, cleanPlayerForStorage, AVAILABLE_NATIONALITIES, getNationalityOptions, AVAILABLE_POSITIONS } from '../data/players';
+import { copyTextToClipboard } from '../lib/clipboard';
+import { AiPlayersModal } from '../components/AiPlayersModal';
 import { cn, sanitizeForFirestore } from '../lib/utils';
 import { useSettings } from '../components/SettingsProvider';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
@@ -204,9 +206,14 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Modal para editar jugador oficial del catálogo
   const [editingCatalogPlayer, setEditingCatalogPlayer] = useState<PlayerItem | null>(null);
 
-  // Filtros rápidos para problemas de clubes
+  // Filtros rápidos para problemas de clubes y nacionalidades
   const [showOnlyUnlinkedCatalog, setShowOnlyUnlinkedCatalog] = useState(false);
+  const [showOnlyWithoutNat, setShowOnlyWithoutNat] = useState(false);
   const [showOnlyInconsistentScorers, setShowOnlyInconsistentScorers] = useState(false);
+
+  // Asistente IA para jugadores
+  const [isAiAssistantModalOpen, setIsAiAssistantModalOpen] = useState(false);
+  const [copiedQuickJson, setCopiedQuickJson] = useState(false);
 
   // Modal "Actualizar con JSON" (Smart JSON & Match Events Updater)
   const [updateJsonModalOpen, setUpdateJsonModalOpen] = useState(false);
@@ -381,11 +388,18 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     return podiumPlayers.filter(p => !p.team || !UCL_36_TEAMS.some(t => t.name === p.team));
   }, [podiumPlayers]);
 
+  // Jugadores del catálogo oficial que NO tienen nacionalidad asignada
+  const playersWithoutNationality = useMemo(() => {
+    return podiumPlayers.filter(p => !p.nationality || !p.nationality.trim());
+  }, [podiumPlayers]);
 
   const filteredPodiumPlayers = useMemo(() => {
     let list = podiumPlayers;
     if (showOnlyUnlinkedCatalog) {
       list = list.filter(p => !p.team || !UCL_36_TEAMS.some(t => t.name === p.team));
+    }
+    if (showOnlyWithoutNat) {
+      list = list.filter(p => !p.nationality || !p.nationality.trim());
     }
     const q = playerSearch.toLowerCase().trim();
     if (!q) return list;
@@ -395,7 +409,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
       (p.position && p.position.toLowerCase().includes(q)) ||
       (p.nationality && p.nationality.toLowerCase().includes(q))
     );
-  }, [podiumPlayers, playerSearch, showOnlyUnlinkedCatalog]);
+  }, [podiumPlayers, playerSearch, showOnlyUnlinkedCatalog, showOnlyWithoutNat]);
 
   // Auditoría en tiempo real de goleadores registrados en partidos
   const matchScorersAudit = useMemo(() => {
@@ -1903,10 +1917,64 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }
   };
 
+  // Copia rápida al portapapeles de todo el catálogo para entregar a una IA
+  const handleQuickCopyPlayersJson = async () => {
+    vibrateTap();
+    try {
+      const exportData = podiumPlayers.map(p => {
+        const cleanNat = p.nationality
+          ? p.nationality.replace(/[\u{1F1E6}-\u{1F1FF}]{2}/gu, '').trim()
+          : '';
+        const item: Record<string, any> = {
+          name: p.name,
+          team: p.team || '',
+          position: p.position || '',
+          nationality: cleanNat
+        };
+        const photo = p.imageUrl || p.image || p.photo;
+        if (photo && photo.trim()) item.photo = photo.trim();
+        return item;
+      });
+
+      const jsonStr = JSON.stringify(exportData, null, 2);
+      const ok = await copyTextToClipboard(jsonStr);
+
+      if (ok) {
+        vibrateSuccess();
+        setCopiedQuickJson(true);
+        setTimeout(() => setCopiedQuickJson(false), 2500);
+        setFeedback({
+          type: 'success',
+          text: `¡Listo! Se copió al portapapeles el JSON de ${podiumPlayers.length} jugadores. Ya puedes pegarlo en ChatGPT, Claude o Gemini.`
+        });
+      } else {
+        vibrateError();
+        setFeedback({
+          type: 'error',
+          text: 'No se pudo acceder automáticamente al portapapeles. Abre el "Asistente IA" para copiarlo manualmente.'
+        });
+      }
+    } catch (err: any) {
+      console.error("[handleQuickCopyPlayersJson] Error:", err);
+      vibrateError();
+      setFeedback({
+        type: 'error',
+        text: `Error al copiar JSON: ${err?.message || 'Error desconocido'}`
+      });
+    }
+  };
+
   const handleImportJson = async () => {
     if (!jsonInput.trim()) return;
     try {
-      const parsed = JSON.parse(jsonInput);
+      // Limpiar posibles bloques markdown de código ```json ... ```
+      let cleaned = jsonInput.trim();
+      cleaned = cleaned.replace(/^```json\s*/i, '');
+      cleaned = cleaned.replace(/^```\s*/i, '');
+      cleaned = cleaned.replace(/\s*```$/i, '');
+      cleaned = cleaned.trim();
+
+      const parsed = JSON.parse(cleaned);
       let incomingList: PlayerItem[] = [];
       if (Array.isArray(parsed)) {
         incomingList = parsed;
@@ -3040,6 +3108,29 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     )}
                     <button
                       type="button"
+                      onClick={handleQuickCopyPlayersJson}
+                      className={cn(
+                        "px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer shadow-sm border",
+                        copiedQuickJson
+                          ? "bg-emerald-600 border-emerald-500 text-white"
+                          : "bg-zinc-900 hover:bg-zinc-800 text-zinc-300 border-zinc-700 hover:text-white"
+                      )}
+                      title="Copiar directamente todo el catálogo en formato JSON al portapapeles para entregárselo a una IA"
+                    >
+                      {copiedQuickJson ? <Check className="w-4 h-4 text-white" /> : <Copy className="w-4 h-4 text-amber-400" />}
+                      <span>{copiedQuickJson ? '¡JSON Copiado!' : `Copiar JSON (${podiumPlayers.length})`}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setIsAiAssistantModalOpen(true)}
+                      className="px-3.5 py-2 bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all shadow-md shadow-purple-900/30 cursor-pointer hover:scale-[1.02]"
+                      title="Asistente para exportar a IA, copiar prompts listos y pegar respuestas actualizadas"
+                    >
+                      <Bot className="w-4 h-4 text-purple-200" />
+                      <span>Asistente IA</span>
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => {
                         setUpdateJsonFeedback(null);
                         setUpdateJsonModalOpen(true);
@@ -3308,6 +3399,21 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       >
                         <Filter className="w-3 h-3" />
                         {showOnlyUnlinkedCatalog ? 'Ver todos' : `Solo sin club (${unlinkedCatalogPlayers.length})`}
+                      </button>
+                    )}
+                    {playersWithoutNationality.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowOnlyWithoutNat(!showOnlyWithoutNat)}
+                        className={cn(
+                          "px-2.5 py-1 rounded-lg text-[11px] font-bold transition-all flex items-center gap-1 cursor-pointer",
+                          showOnlyWithoutNat
+                            ? "bg-purple-600 text-white font-black"
+                            : "bg-zinc-800 hover:bg-zinc-700 text-purple-300 border border-purple-500/30"
+                        )}
+                      >
+                        <Globe className="w-3 h-3" />
+                        {showOnlyWithoutNat ? 'Ver todos' : `Sin nacionalidad (${playersWithoutNationality.length})`}
                       </button>
                     )}
                     <span className="text-xs text-zinc-500 whitespace-nowrap">
@@ -4903,6 +5009,15 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
               </div>
             </div>
           )}
+
+          {/* MODAL 6: ASISTENTE IA PARA JUGADORES */}
+          <AiPlayersModal
+            isOpen={isAiAssistantModalOpen}
+            onClose={() => setIsAiAssistantModalOpen(false)}
+            players={podiumPlayers}
+            onSavePlayers={handleSavePlayers}
+            isSaving={isSavingPlayers}
+          />
         </div>
       )}
 

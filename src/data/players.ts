@@ -6,6 +6,7 @@ export interface PlayerItem {
   nationality?: string;
   imageUrl?: string;
   image?: string;
+  photo?: string;
 }
 
 export const NATIONALITY_TRANSLATIONS: Record<string, string> = {
@@ -387,11 +388,12 @@ export function deduplicatePlayers(
     if (existingIndex >= 0) {
       const existing = merged[existingIndex];
       const preferredName = cleanName.length >= existing.name.length ? cleanName : existing.name;
-      const photo = inc.imageUrl || inc.image || existing.imageUrl || existing.image;
+      const incPhoto = inc.imageUrl || inc.image || inc.photo;
+      const photo = incPhoto || existing.imageUrl || existing.image || existing.photo;
       const updatedItem: PlayerItem = {
         ...existing,
         name: preferredName,
-        team: inc.team || existing.team || '',
+        team: inc.team?.trim() || existing.team || '',
         position: formattedPos || existing.position || '',
         nationality: formattedNat || existing.nationality || '',
         id: existing.id || inc.id || Math.floor(100000 + Math.random() * 900000)
@@ -399,24 +401,27 @@ export function deduplicatePlayers(
       if (photo && photo.trim()) {
         updatedItem.imageUrl = photo.trim();
         updatedItem.image = photo.trim();
+        updatedItem.photo = photo.trim();
       } else {
         delete updatedItem.imageUrl;
         delete updatedItem.image;
+        delete updatedItem.photo;
       }
       merged[existingIndex] = updatedItem;
       updatedCount++;
     } else {
-      const photo = inc.imageUrl || inc.image;
+      const photo = inc.imageUrl || inc.image || inc.photo;
       const newItem: PlayerItem = {
         id: inc.id || Math.floor(100000 + Math.random() * 900000),
         name: cleanName,
-        team: inc.team || '',
+        team: inc.team?.trim() || '',
         position: formattedPos || '',
         nationality: formattedNat || ''
       };
       if (photo && photo.trim()) {
         newItem.imageUrl = photo.trim();
         newItem.image = photo.trim();
+        newItem.photo = photo.trim();
       }
       merged.push(newItem);
       addedCount++;
@@ -440,10 +445,11 @@ export function cleanPlayerForStorage(p: PlayerItem): PlayerItem {
   if (p.team && p.team.trim()) clean.team = p.team.trim();
   if (p.position && p.position.trim()) clean.position = p.position.trim();
   if (p.nationality && p.nationality.trim()) clean.nationality = p.nationality.trim();
-  const photo = p.imageUrl || p.image;
+  const photo = p.imageUrl || p.image || p.photo;
   if (photo && photo.trim()) {
     clean.imageUrl = photo.trim();
     clean.image = photo.trim();
+    clean.photo = photo.trim();
   }
   return clean;
 }
