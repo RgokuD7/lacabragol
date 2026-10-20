@@ -630,8 +630,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   // Evidencia detallada de jugadores según eventos de partidos (goles, asistencias, cambios/sustituciones, tarjetas, lesiones)
   const catalogPlayerMatchEvidenceMap = useMemo(() => {
+    if (adminTab !== 'players') return new Map<string, PlayerMatchEvidence>();
     return buildPlayerMatchEvidenceMap(matches, podiumPlayers);
-  }, [matches, podiumPlayers]);
+  }, [adminTab, matches, podiumPlayers]);
 
   // Jugadores del catálogo sin club oficial que fueron detectados en partidos con un club de Champions
   const matchEventDetectedPlayers = useMemo(() => {
@@ -1727,8 +1728,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     // Actualización optimista inmediata en memoria para que la interfaz reaccione al instante
     setPodiumPlayers(cleanedList);
     try {
-      const snap = await getDoc(doc(db, 'system', 'players'));
-      const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
+      // Usar deletedPlayerKeys sincronizado en tiempo real (evita un getDoc innecesario a Firestore)
+      const existingDeleted = Array.from(deletedPlayerKeys);
       const updatedKeys = new Set(cleanedList.map(p => normalizePlayerKey(p.name)));
       const filteredDeleted = existingDeleted.filter(k => !updatedKeys.has(k));
       const payload = sanitizeForFirestore({
@@ -1789,8 +1790,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setPodiumPlayers(updated);
     setDeletedPlayerKeys(prev => new Set([...prev, keyToDelete]));
     try {
-      const snap = await getDoc(doc(db, 'system', 'players'));
-      const existingDeleted: string[] = snap.exists() ? (snap.data()?.deletedKeys || []) : [];
+      const existingDeleted = Array.from(deletedPlayerKeys);
       const newDeleted = Array.from(new Set([...existingDeleted, keyToDelete]));
       const payload = sanitizeForFirestore({
         players: updated,
@@ -2177,24 +2177,38 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Guardar jugador manual en el catálogo oficial
   const handleSaveCustomPlayerToCatalog = async () => {
     if (!addingCustomPlayer || !addingCustomPlayer.name.trim()) return;
-    setIsSavingPlayers(true);
-    setModalCustomError(null);
-    try {
-      const incomingName = addingCustomPlayer.name.trim();
-      const incoming: PlayerItem = {
-        name: incomingName,
-        team: addingCustomPlayer.team.trim() || undefined,
-        position: formatPosition(addingCustomPlayer.position.trim()) || undefined,
-        nationality: formatNationality(addingCustomPlayer.nationality.trim()) || undefined,
-        imageUrl: addingCustomPlayer.imageUrl?.trim() || undefined,
-        image: addingCustomPlayer.imageUrl?.trim() || undefined,
-        id: Math.floor(100000 + Math.random() * 900000)
-      };
+    const customPlayerCopy = { ...addingCustomPlayer };
+    const incomingName = customPlayerCopy.name.trim();
+    const incoming: PlayerItem = {
+      name: incomingName,
+      team: customPlayerCopy.team.trim() || undefined,
+      position: formatPosition(customPlayerCopy.position.trim()) || undefined,
+      nationality: formatNationality(customPlayerCopy.nationality.trim()) || undefined,
+      imageUrl: customPlayerCopy.imageUrl?.trim() || undefined,
+      image: customPlayerCopy.imageUrl?.trim() || undefined,
+      id: Math.floor(100000 + Math.random() * 900000)
+    };
 
-      // 1. Si los podios tienen un nombre ligeramente distinto o corregido, actualizar los podios en Firestore
+    // 1. Cierre inmediato del modal y actualización optimista instantánea
+    setAddingCustomPlayer(null);
+    setModalCustomError(null);
+
+    const customKey = normalizePlayerKey(customPlayerCopy.customName);
+    const incomingKey = normalizePlayerKey(incomingName);
+    setCustomPodiumList(prev => prev.filter(p => {
+      const k = normalizePlayerKey(p.playerName);
+      return k !== customKey && k !== incomingKey;
+    }));
+
+    const { merged } = deduplicatePlayers(podiumPlayers, [incoming]);
+    setPodiumPlayers(merged);
+
+    // 2. Persistir en Firestore en segundo plano (en paralelo)
+    setIsSavingPlayers(true);
+    try {
       let podiumsUpdated = 0;
-      if (addingCustomPlayer.occurrences && addingCustomPlayer.occurrences.length > 0) {
-        for (const occ of addingCustomPlayer.occurrences) {
+      if (customPlayerCopy.occurrences && customPlayerCopy.occurrences.length > 0) {
+        await Promise.all(customPlayerCopy.occurrences.map(async (occ) => {
           try {
             await updateDoc(doc(db, 'podiums', occ.podiumId), {
               [occ.role]: incomingName,
@@ -2204,29 +2218,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
           } catch (podErr) {
             console.warn(`Podium update failed for ${occ.podiumId}:`, podErr);
           }
-        }
+        }));
       }
 
-      // 2. Agregar al catálogo oficial
-      const { merged } = deduplicatePlayers(podiumPlayers, [incoming]);
       await handleSavePlayers(
         merged,
         `Jugador "${incoming.name}" agregado al catálogo oficial con club ${incoming.team || 'Sin Club'}.${podiumsUpdated > 0 ? ` Actualizados ${podiumsUpdated} podios.` : ''}`
       );
-
-      // 3. Remover inmediatamente de la lista local de podios manuales pendientes
-      const customKey = normalizePlayerKey(addingCustomPlayer.customName);
-      const incomingKey = normalizePlayerKey(incomingName);
-      setCustomPodiumList(prev => prev.filter(p => {
-        const k = normalizePlayerKey(p.playerName);
-        return k !== customKey && k !== incomingKey;
-      }));
-
-      setAddingCustomPlayer(null);
       fetchCustomPodiums();
     } catch (e: any) {
       console.error(e);
-      setModalCustomError(`Error: ${e?.message || 'Error desconocido al guardar'}`);
       setFeedback({ type: 'error', text: `Error al guardar jugador: ${e?.message || 'Error desconocido'}` });
     } finally {
       setIsSavingPlayers(false);
@@ -2240,31 +2241,32 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     const confirmMsg = `¿Confirmas vincular "${linkingCustomPlayer.customName}" al jugador oficial "${linkingCustomPlayer.targetOfficialName}"? Se actualizarán ${linkingCustomPlayer.occurrences.length} podio(s).`;
     if (!window.confirm(confirmMsg)) return;
 
-    setIsSavingPodiumLink(true);
+    const linkCopy = { ...linkingCustomPlayer };
+    // Cierre inmediato del modal y actualización optimista
+    setLinkingCustomPlayer(null);
     setModalLinkError(null);
+
+    const linkedKey = normalizePlayerKey(linkCopy.customName);
+    setCustomPodiumList(prev => prev.filter(p => normalizePlayerKey(p.playerName) !== linkedKey));
+
+    setIsSavingPodiumLink(true);
     try {
       let count = 0;
-      for (const occ of linkingCustomPlayer.occurrences) {
+      await Promise.all(linkCopy.occurrences.map(async (occ) => {
         await updateDoc(doc(db, 'podiums', occ.podiumId), {
-          [occ.role]: linkingCustomPlayer.targetOfficialName,
+          [occ.role]: linkCopy.targetOfficialName,
           updatedAt: Date.now()
         });
         count++;
-      }
-
-      // Remover inmediatamente de la lista local de podios manuales pendientes
-      const linkedKey = normalizePlayerKey(linkingCustomPlayer.customName);
-      setCustomPodiumList(prev => prev.filter(p => normalizePlayerKey(p.playerName) !== linkedKey));
+      }));
 
       setFeedback({
         type: 'success',
-        text: `¡Vinculación exitosa! Se actualizaron ${count} podio(s): "${linkingCustomPlayer.customName}" ahora apunta a "${linkingCustomPlayer.targetOfficialName}".`
+        text: `¡Vinculación exitosa! Se actualizaron ${count} podio(s): "${linkCopy.customName}" ahora apunta a "${linkCopy.targetOfficialName}".`
       });
-      setLinkingCustomPlayer(null);
       fetchCustomPodiums();
     } catch (e: any) {
       console.error(e);
-      setModalLinkError(`Error: ${e?.message || 'Error desconocido al vincular'}`);
       setFeedback({ type: 'error', text: `Error al vincular jugador en podios: ${e?.message || 'Error desconocido'}` });
     } finally {
       setIsSavingPodiumLink(false);
@@ -2284,8 +2286,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         ? playerToSave
         : p
     );
-    await handleSavePlayers(updated, `Jugador "${playerToSave.name}" actualizado con éxito.`);
+
+    // Cierre INMEDIATO del modal y actualización reactiva sin demora
     setEditingCatalogPlayer(null);
+    setPodiumPlayers(updated);
+
+    // Guardado en segundo plano
+    handleSavePlayers(updated, `Jugador "${playerToSave.name}" actualizado con éxito.`);
   };
 
   if (!profile?.isAdmin) {

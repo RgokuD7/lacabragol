@@ -307,17 +307,49 @@ export function buildPlayerMatchEvidenceMap(
   matches: Match[],
   catalogPlayers: PlayerItem[]
 ): Map<string, PlayerMatchEvidence> {
-  const allEvents = extractAllMatchEvents(matches || []);
   const map = new Map<string, PlayerMatchEvidence>();
+  if (!Array.isArray(catalogPlayers) || catalogPlayers.length === 0) return map;
 
-  if (!Array.isArray(catalogPlayers)) return map;
+  const allEvents = extractAllMatchEvents(matches || []);
+  if (allEvents.length === 0) return map;
 
-  catalogPlayers.forEach(p => {
-    if (!p || !p.name) return;
+  // 1. Pre-agrupar eventos por nombre normalizado (reduce cientos de eventos a solo los nombres únicos)
+  const eventsByNormalizedName = new Map<string, RawMatchEvent[]>();
+  for (const ev of allEvents) {
+    if (!ev || !ev.playerName) continue;
+    const k = normalizePlayerKey(ev.playerName);
+    if (!k) continue;
+    if (!eventsByNormalizedName.has(k)) {
+      eventsByNormalizedName.set(k, []);
+    }
+    eventsByNormalizedName.get(k)!.push(ev);
+  }
+
+  const distinctEventNames = Array.from(eventsByNormalizedName.keys());
+
+  // 2. Asociar eventos a cada jugador del catálogo con búsqueda directa y fuzzy optimizada
+  for (const p of catalogPlayers) {
+    if (!p || !p.name) continue;
     const key = p.id ? String(p.id) : normalizePlayerKey(p.name);
-    if (!key) return;
-    const matchedEvents = allEvents.filter(ev => ev && ev.playerName && matchCatalogPlayerWithEventName(p.name, ev.playerName));
-    if (matchedEvents.length === 0) return;
+    if (!key) continue;
+
+    const matchedEvents: RawMatchEvent[] = [];
+    const pNorm = normalizePlayerKey(p.name);
+
+    // Verificación exacta directa O(1)
+    if (eventsByNormalizedName.has(pNorm)) {
+      matchedEvents.push(...eventsByNormalizedName.get(pNorm)!);
+    }
+
+    // Para coincidencias por alias o variantes, buscar en los nombres únicos restantes
+    for (const evNameKey of distinctEventNames) {
+      if (evNameKey === pNorm) continue;
+      if (arePlayerNamesEquivalent(p.name, evNameKey)) {
+        matchedEvents.push(...(eventsByNormalizedName.get(evNameKey) || []));
+      }
+    }
+
+    if (matchedEvents.length === 0) continue;
 
     // Agrupar eventos por club canónico
     const byTeam = new Map<string, RawMatchEvent[]>();
@@ -378,7 +410,7 @@ export function buildPlayerMatchEvidenceMap(
       sampleEvents: topEvents,
       summaryText
     });
-  });
+  }
 
   return map;
 }
