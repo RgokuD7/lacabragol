@@ -10,7 +10,7 @@ import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { vibrateTap } from '../lib/haptics';
 import { cn } from '../lib/utils';
-import { Calendar, Trophy, Shield, CheckCircle2, Clock, AlertCircle } from 'lucide-react';
+import { Calendar, Trophy, Shield, CheckCircle2, Clock, AlertCircle, Sparkles } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
 
@@ -184,9 +184,9 @@ export function TeamMatchesModal({
       const isHome = checkIsHome(m);
       const teamScore = isHome ? (m.homeScore ?? 0) : (m.awayScore ?? 0);
       const oppScore = isHome ? (m.awayScore ?? 0) : (m.homeScore ?? 0);
-      if (teamScore > oppScore) return { result: 'W', label: 'Victoria', color: 'bg-emerald-500 text-white' };
-      if (teamScore === oppScore) return { result: 'D', label: 'Empate', color: 'bg-amber-500 text-white' };
-      return { result: 'L', label: 'Derrota', color: 'bg-rose-500 text-white' };
+      if (teamScore > oppScore) return { result: 'V', label: 'Victoria', color: 'bg-emerald-500 text-white' };
+      if (teamScore === oppScore) return { result: 'E', label: 'Empate', color: 'bg-amber-500 text-white' };
+      return { result: 'D', label: 'Derrota', color: 'bg-rose-500 text-white' };
     });
   }, [playedMatches, teamName]);
 
@@ -216,103 +216,112 @@ export function TeamMatchesModal({
       isOpen={isOpen}
       onClose={onClose}
       title="Partidos del Club"
-      contentClassName="pb-16"
+      contentClassName="px-3 sm:px-6 py-3 sm:py-5 pb-24 sm:pb-12"
     >
-      <div className="space-y-4">
+      <div className="space-y-4 sm:space-y-5">
         {/* TEAM HERO SUMMARY BANNER */}
-        <div className="bg-[#18181c] border border-zinc-800 rounded-2xl p-3.5 sm:p-4 shadow-lg flex flex-col sm:flex-row items-center justify-between gap-3 sm:gap-4 relative overflow-hidden">
-          {/* Subtle Glow behind logo */}
-          <div className="absolute -top-10 -left-10 w-32 h-32 bg-blue-600/10 rounded-full blur-2xl pointer-events-none" />
+        <div className="bg-gradient-to-b from-[#191922] to-[#121217] border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
+          {/* Ambient Glow */}
+          <div className="absolute -top-12 -right-12 w-44 h-44 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
 
-          {/* Left: Badge + Team Name + Country */}
-          <div className="flex items-center gap-3 sm:gap-4 w-full sm:w-auto">
+          {/* Top row: Crest + Team Info */}
+          <div className="flex items-center gap-3.5 sm:gap-4 relative z-10">
             <div className="relative shrink-0">
               <TeamBadge 
                 src={resolvedLogo} 
                 teamName={teamName} 
-                size="md" 
-                className="w-14 h-14 sm:w-16 sm:h-16 ring-2 ring-zinc-700/60 shadow-md p-1 bg-[#121215] rounded-2xl" 
+                size="lg" 
+                className="w-14 h-14 sm:w-16 sm:h-16 ring-2 ring-zinc-700/80 p-1.5 bg-[#0e0e12] rounded-2xl shadow-lg object-contain" 
               />
             </div>
             <div className="min-w-0 flex-1">
               <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="text-base sm:text-lg font-black text-white tracking-tight truncate">
+                <h3 className="text-lg sm:text-2xl font-black text-white tracking-tight truncate">
                   {officialTeam?.name || teamName}
                 </h3>
                 {officialTeam?.country && (
-                  <span className="text-[11px] text-zinc-400 font-medium bg-zinc-800/80 px-2 py-0.5 rounded-md border border-zinc-700/50">
+                  <span className="text-[11px] sm:text-xs text-zinc-300 font-semibold bg-zinc-800/90 px-2.5 py-0.5 rounded-lg border border-zinc-700/60 shrink-0">
                     {officialTeam.country}
                   </span>
                 )}
               </div>
 
-              {/* Standing Position Badge */}
               {activeStandingRow && (
-                <div className="flex items-center gap-2 mt-1 flex-wrap">
+                <div className="flex items-center gap-2.5 mt-1.5 flex-wrap">
                   <span className={cn(
-                    "text-[10px] font-black uppercase px-2 py-0.5 rounded-full border shadow-sm",
+                    "text-[10px] sm:text-[11px] font-black uppercase px-2.5 py-0.5 rounded-full border shadow-sm",
                     getPositionBadge(activeStandingRow.position).bg
                   )}>
                     Posición #{activeStandingRow.position} · {getPositionBadge(activeStandingRow.position).label}
                   </span>
-                  <span className="text-xs font-mono font-black text-white">
-                    {activeStandingRow.points} <span className="text-[10px] text-zinc-400 font-normal">pts</span>
+                  <span className="text-xs sm:text-sm font-mono font-black text-white">
+                    {activeStandingRow.points} <span className="text-[11px] text-zinc-400 font-normal">pts</span>
                   </span>
                 </div>
               )}
             </div>
           </div>
 
-          {/* Right: Quick Stats & Form Streak */}
-          <div className="flex flex-col sm:items-end w-full sm:w-auto border-t sm:border-t-0 border-zinc-800/80 pt-2.5 sm:pt-0 gap-1.5">
-            {activeStandingRow && (
-              <div className="flex items-center gap-3 text-[11px] font-mono text-zinc-300 justify-between sm:justify-end">
-                <div>
-                  <span className="text-zinc-500 text-[10px] uppercase block sm:text-right">PJ</span>
-                  <span className="font-bold">{activeStandingRow.matches}</span>
+          {/* Bottom row: Stats Grid + Form Streak */}
+          {activeStandingRow && (
+            <div className="mt-4 pt-3.5 border-t border-zinc-800/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 relative z-10">
+              {/* 4 Stat Boxes Grid */}
+              <div className="grid grid-cols-4 gap-2 flex-1 max-w-md">
+                <div className="bg-[#0e0e12]/80 border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+                  <span className="text-[9px] sm:text-[10px] uppercase font-bold text-zinc-500 block">PJ</span>
+                  <span className="font-mono font-black text-xs sm:text-sm text-white">{activeStandingRow.matches}</span>
                 </div>
-                <div>
-                  <span className="text-zinc-500 text-[10px] uppercase block sm:text-right">G-E-P</span>
-                  <span className="font-bold text-zinc-200">
+                <div className="bg-[#0e0e12]/80 border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+                  <span className="text-[9px] sm:text-[10px] uppercase font-bold text-zinc-500 block">G - E - P</span>
+                  <span className="font-mono font-black text-xs sm:text-sm text-zinc-200">
                     {activeStandingRow.wins}-{activeStandingRow.draws}-{activeStandingRow.losses}
                   </span>
                 </div>
-                <div>
-                  <span className="text-zinc-500 text-[10px] uppercase block sm:text-right">GF:GC</span>
-                  <span className="font-bold">{activeStandingRow.scoresFor}:{activeStandingRow.scoresAgainst}</span>
+                <div className="bg-[#0e0e12]/80 border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+                  <span className="text-[9px] sm:text-[10px] uppercase font-bold text-zinc-500 block">Goles</span>
+                  <span className="font-mono font-black text-xs sm:text-sm text-zinc-200">
+                    {activeStandingRow.scoresFor}:{activeStandingRow.scoresAgainst}
+                  </span>
                 </div>
-                <div>
-                  <span className="text-zinc-500 text-[10px] uppercase block sm:text-right">DG</span>
-                  <span className={cn("font-bold", activeStandingRow.scoreDiff > 0 ? "text-emerald-400" : activeStandingRow.scoreDiff < 0 ? "text-rose-400" : "text-zinc-400")}>
+                <div className="bg-[#0e0e12]/80 border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+                  <span className="text-[9px] sm:text-[10px] uppercase font-bold text-zinc-500 block">Dif</span>
+                  <span className={cn(
+                    "font-mono font-black text-xs sm:text-sm",
+                    activeStandingRow.scoreDiff > 0 ? "text-emerald-400" : activeStandingRow.scoreDiff < 0 ? "text-rose-400" : "text-zinc-400"
+                  )}>
                     {activeStandingRow.scoreDiff > 0 ? `+${activeStandingRow.scoreDiff}` : activeStandingRow.scoreDiff}
                   </span>
                 </div>
               </div>
-            )}
 
-            {/* Form Streak Pills */}
-            {formStreak.length > 0 && (
-              <div className="flex items-center gap-1 mt-1 sm:mt-0 justify-start sm:justify-end">
-                <span className="text-[10px] text-zinc-500 mr-1 font-semibold uppercase">Racha:</span>
-                {formStreak.slice(-5).map((item, idx) => (
-                  <span
-                    key={idx}
-                    title={item.label}
-                    className={cn(
-                      "w-5 h-5 rounded-md flex items-center justify-center text-[10px] font-black shadow-sm",
-                      item.color
-                    )}
-                  >
-                    {item.result}
+              {/* Form Streak */}
+              {formStreak.length > 0 && (
+                <div className="flex items-center sm:flex-col sm:items-end justify-between sm:justify-center gap-1.5 shrink-0">
+                  <span className="text-[10px] sm:text-[11px] text-zinc-400 uppercase font-bold tracking-wider">
+                    Racha reciente
                   </span>
-                ))}
-              </div>
-            )}
-          </div>
+                  <div className="flex items-center gap-1.5">
+                    {formStreak.slice(-5).map((item, idx) => (
+                      <span
+                        key={idx}
+                        title={item.label}
+                        className={cn(
+                          "w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-black shadow-sm",
+                          item.color
+                        )}
+                      >
+                        {item.result}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* FILTER TABS (Todos / Jugados / Por Jugar) */}
-        <div className="flex bg-[#141418] p-1 rounded-xl border border-zinc-800 gap-1">
+        <div className="flex bg-[#121217] p-1.5 rounded-2xl border border-zinc-800 gap-1.5 shadow-sm">
           <button
             type="button"
             onClick={() => {
@@ -320,14 +329,14 @@ export function TeamMatchesModal({
               setFilter('all');
             }}
             className={cn(
-              "flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              "flex-1 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer select-none",
               filter === 'all'
-                ? "bg-blue-600 text-white shadow-sm font-black"
-                : "text-zinc-400 hover:text-white"
+                ? "bg-blue-600 text-white shadow-md font-black"
+                : "text-zinc-400 hover:text-white hover:bg-zinc-800/40"
             )}
           >
             <span>Todos</span>
-            <span className="text-[10px] bg-black/40 px-1.5 py-0.2 rounded-full font-mono">
+            <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded-full font-mono font-bold">
               {teamMatches.length}
             </span>
           </button>
@@ -339,15 +348,15 @@ export function TeamMatchesModal({
               setFilter('played');
             }}
             className={cn(
-              "flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              "flex-1 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer select-none",
               filter === 'played'
-                ? "bg-emerald-600 text-white shadow-sm font-black"
-                : "text-zinc-400 hover:text-white"
+                ? "bg-emerald-600 text-white shadow-md font-black"
+                : "text-zinc-400 hover:text-white hover:bg-zinc-800/40"
             )}
           >
-            <CheckCircle2 className="w-3 h-3 text-white/90" />
+            <CheckCircle2 className="w-3.5 h-3.5 text-white/90 shrink-0" />
             <span>Jugados</span>
-            <span className="text-[10px] bg-black/40 px-1.5 py-0.2 rounded-full font-mono">
+            <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded-full font-mono font-bold">
               {playedMatches.length}
             </span>
           </button>
@@ -359,26 +368,26 @@ export function TeamMatchesModal({
               setFilter('pending');
             }}
             className={cn(
-              "flex-1 py-1.5 px-2 sm:px-3 rounded-lg text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer",
+              "flex-1 py-2 sm:py-2.5 px-2.5 sm:px-4 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer select-none",
               filter === 'pending'
-                ? "bg-amber-600 text-white shadow-sm font-black"
-                : "text-zinc-400 hover:text-white"
+                ? "bg-amber-600 text-white shadow-md font-black"
+                : "text-zinc-400 hover:text-white hover:bg-zinc-800/40"
             )}
           >
-            <Clock className="w-3 h-3 text-white/90" />
+            <Clock className="w-3.5 h-3.5 text-white/90 shrink-0" />
             <span>Por Jugar</span>
-            <span className="text-[10px] bg-black/40 px-1.5 py-0.2 rounded-full font-mono">
+            <span className="text-[10px] bg-black/40 px-2 py-0.5 rounded-full font-mono font-bold">
               {pendingMatches.length}
             </span>
           </button>
         </div>
 
         {/* MATCHES LIST */}
-        <div className="space-y-2.5">
+        <div className="space-y-3">
           {displayedMatches.length === 0 ? (
-            <div className="py-12 flex flex-col items-center justify-center text-zinc-500 space-y-2 bg-[#121215] rounded-xl border border-zinc-800">
-              <Clock className="w-8 h-8 text-zinc-600" />
-              <p className="text-xs font-medium">
+            <div className="py-12 flex flex-col items-center justify-center text-zinc-500 space-y-2 bg-[#141419] rounded-2xl border border-zinc-800">
+              <Clock className="w-9 h-9 text-zinc-600" />
+              <p className="text-xs sm:text-sm font-medium">
                 {filter === 'played' 
                   ? 'No hay partidos jugados todavía para este club.'
                   : filter === 'pending'
@@ -405,60 +414,64 @@ export function TeamMatchesModal({
                 ? parseMatchEvents(m).filter(e => e.type === 'goal')
                 : [];
 
+              const homeGoals = goalEvents.filter(e => e.isHomeTeam);
+              const awayGoals = goalEvents.filter(e => !e.isHomeTeam);
+
               return (
                 <div
                   key={m.id}
                   className={cn(
-                    "bg-[#141418] border rounded-xl p-3 transition-all relative overflow-hidden",
-                    isWin && "border-emerald-500/30 bg-[#0d1712]",
-                    isLoss && "border-rose-500/30 bg-[#170d10]",
-                    isTie && "border-amber-500/30 bg-[#16130d]",
-                    isLive && "border-orange-500/60 bg-[#1a0f0a] shadow-[0_0_15px_rgba(249,115,22,0.15)]",
-                    !isPlayed && "border-zinc-800/80 hover:border-zinc-700"
+                    "bg-[#131317] border rounded-2xl p-3.5 sm:p-4.5 transition-all relative overflow-hidden shadow-sm",
+                    isWin && "border-emerald-500/40 bg-gradient-to-b from-[#0e1713] to-[#111613]",
+                    isLoss && "border-rose-500/40 bg-gradient-to-b from-[#190e11] to-[#131112]",
+                    isTie && "border-amber-500/40 bg-gradient-to-b from-[#18150e] to-[#131211]",
+                    isLive && "border-orange-500/60 bg-gradient-to-b from-[#1d120a] to-[#14110e] shadow-[0_0_20px_rgba(249,115,22,0.18)]",
+                    !isPlayed && "border-zinc-800/80 hover:border-zinc-700 bg-[#121216]"
                   )}
                 >
-                  {/* Top Header: Round + Date + Home/Away Badge + Result Pill */}
-                  <div className="flex items-center justify-between text-[10px] pb-2 border-b border-zinc-800/60 mb-2">
-                    <div className="flex items-center gap-2">
-                      <span className="font-bold text-zinc-300 bg-zinc-800/80 px-2 py-0.5 rounded border border-zinc-700/60 uppercase">
+                  {/* Match Header: Round + Date + Home/Away Badge + Result Pill */}
+                  <div className="flex items-center justify-between text-[11px] pb-2.5 border-b border-zinc-800/70 mb-3 gap-2 flex-wrap sm:flex-nowrap">
+                    <div className="flex items-center gap-2 min-w-0">
+                      <span className="font-black text-zinc-300 bg-zinc-800/90 px-2.5 py-0.5 rounded-lg border border-zinc-700/60 uppercase text-[10px] tracking-wider shrink-0">
                         {m.group || 'Fase de Liga'}
                       </span>
-                      <span className="text-zinc-400 font-mono flex items-center gap-1 capitalize">
-                        <Calendar className="w-3 h-3 text-zinc-500" />
-                        {formatMatchDate(m.date)}
+                      <span className="text-zinc-400 font-medium flex items-center gap-1.5 capitalize truncate">
+                        <Calendar className="w-3.5 h-3.5 text-zinc-500 shrink-0" />
+                        <span>{formatMatchDate(m.date)}</span>
                       </span>
                     </div>
 
-                    <div className="flex items-center gap-1.5">
+                    <div className="flex items-center gap-2 shrink-0">
                       {/* Venue badge */}
                       <span className={cn(
-                        "px-1.5 py-0.5 rounded text-[9px] font-bold uppercase",
+                        "px-2 py-0.5 rounded-lg text-[10px] font-bold uppercase tracking-wider",
                         isHome 
-                          ? "bg-blue-500/10 text-blue-300 border border-blue-500/30" 
-                          : "bg-zinc-800 text-zinc-400 border border-zinc-700"
+                          ? "bg-blue-500/15 text-blue-300 border border-blue-500/30" 
+                          : "bg-zinc-800/80 text-zinc-400 border border-zinc-700/80"
                       )}>
                         {isHome ? 'Local 🏠' : 'Visita ✈️'}
                       </span>
 
                       {/* Result / Status badge */}
                       {isLive ? (
-                        <span className="bg-orange-500/20 text-orange-300 border border-orange-500/50 px-2 py-0.5 rounded-full font-black text-[9px] uppercase animate-pulse">
-                          🔴 En Vivo {m.estado ? `· ${m.estado}` : ''}
+                        <span className="bg-orange-500/20 text-orange-300 border border-orange-500/50 px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase animate-pulse flex items-center gap-1 shadow-sm">
+                          <span className="w-1.5 h-1.5 rounded-full bg-orange-400 animate-ping" />
+                          <span>En Vivo {m.estado ? `· ${m.estado}` : ''}</span>
                         </span>
                       ) : isWin ? (
-                        <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2 py-0.5 rounded-full font-black text-[9px] uppercase">
+                        <span className="bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase shadow-sm">
                           Victoria
                         </span>
                       ) : isTie ? (
-                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2 py-0.5 rounded-full font-black text-[9px] uppercase">
+                        <span className="bg-amber-500/20 text-amber-300 border border-amber-500/40 px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase shadow-sm">
                           Empate
                         </span>
                       ) : isLoss ? (
-                        <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2 py-0.5 rounded-full font-black text-[9px] uppercase">
+                        <span className="bg-rose-500/20 text-rose-300 border border-rose-500/40 px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase shadow-sm">
                           Derrota
                         </span>
                       ) : (
-                        <span className="bg-zinc-800 text-zinc-400 border border-zinc-700/80 px-2 py-0.5 rounded-full font-black text-[9px] uppercase">
+                        <span className="bg-zinc-800 text-zinc-400 border border-zinc-700/80 px-2.5 py-0.5 rounded-full font-black text-[10px] uppercase">
                           Por Jugar
                         </span>
                       )}
@@ -466,33 +479,48 @@ export function TeamMatchesModal({
                   </div>
 
                   {/* Matchup row */}
-                  <div className="flex items-center justify-between gap-2 py-1">
+                  <div className="flex items-center justify-between gap-2 sm:gap-4 py-1">
                     {/* Home Team */}
                     <div className={cn(
-                      "flex-1 flex items-center gap-2 min-w-0",
+                      "flex-1 flex items-center gap-2 sm:gap-3 min-w-0",
                       isHome ? "font-black text-white" : "text-zinc-400 font-medium"
                     )}>
-                      <TeamBadge 
-                        src={m.homeFlag} 
-                        teamName={m.homeTeam} 
-                        size="sm" 
-                        className={cn("w-6 h-6 shrink-0", isHome && "ring-1 ring-blue-500/50 rounded-full")} 
-                      />
-                      <span className="truncate text-xs" title={m.homeTeam}>
-                        {m.homeTeam}
-                      </span>
+                      <div className="relative shrink-0">
+                        <TeamBadge 
+                          src={m.homeFlag} 
+                          teamName={m.homeTeam} 
+                          size="md" 
+                          className={cn(
+                            "w-8 h-8 sm:w-10 sm:h-10 shrink-0 p-0.5 rounded-xl transition-all",
+                            isHome && "ring-2 ring-blue-500/70 shadow-md bg-blue-500/10"
+                          )} 
+                        />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <span className={cn(
+                          "text-xs sm:text-sm leading-snug line-clamp-2 break-words block",
+                          isHome ? "text-white font-black" : "text-zinc-400"
+                        )} title={m.homeTeam}>
+                          {m.homeTeam}
+                        </span>
+                        {isHome && (
+                          <span className="text-[9px] text-blue-400 font-bold uppercase tracking-wider block">
+                            (Tu equipo)
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {/* Center Score / VS */}
-                    <div className="shrink-0 px-2">
+                    <div className="shrink-0 px-1 sm:px-3 flex flex-col items-center justify-center">
                       {isPlayed ? (
-                        <div className="inline-flex items-center gap-1.5 bg-zinc-900 border border-zinc-700/80 px-2.5 py-1 rounded-lg font-mono text-sm font-black text-white shadow-sm">
-                          <span className={cn(isHome && "text-blue-400")}>{m.homeScore ?? 0}</span>
-                          <span className="text-zinc-600 text-xs">-</span>
-                          <span className={cn(!isHome && "text-blue-400")}>{m.awayScore ?? 0}</span>
+                        <div className="inline-flex items-center gap-2 bg-[#09090b] border border-zinc-700 px-3 sm:px-4 py-1.5 rounded-xl font-mono text-base sm:text-lg font-black text-white shadow-inner">
+                          <span className={cn(isHome ? "text-blue-400 font-black" : "text-zinc-300")}>{m.homeScore ?? 0}</span>
+                          <span className="text-zinc-600 text-sm font-normal">:</span>
+                          <span className={cn(!isHome ? "text-blue-400 font-black" : "text-zinc-300")}>{m.awayScore ?? 0}</span>
                         </div>
                       ) : (
-                        <span className="text-[10px] font-black text-zinc-500 bg-zinc-900 px-2 py-1 rounded-lg border border-zinc-800">
+                        <span className="text-[11px] font-black text-zinc-400 bg-zinc-900 border border-zinc-800 px-3 py-1 rounded-xl shadow-sm">
                           VS
                         </span>
                       )}
@@ -500,37 +528,91 @@ export function TeamMatchesModal({
 
                     {/* Away Team */}
                     <div className={cn(
-                      "flex-1 flex items-center justify-end gap-2 min-w-0 text-right",
+                      "flex-1 flex items-center justify-end gap-2 sm:gap-3 min-w-0 text-right",
                       !isHome ? "font-black text-white" : "text-zinc-400 font-medium"
                     )}>
-                      <span className="truncate text-xs" title={m.awayTeam}>
-                        {m.awayTeam}
-                      </span>
-                      <TeamBadge 
-                        src={m.awayFlag} 
-                        teamName={m.awayTeam} 
-                        size="sm" 
-                        className={cn("w-6 h-6 shrink-0", !isHome && "ring-1 ring-blue-500/50 rounded-full")} 
-                      />
+                      <div className="min-w-0 flex-1">
+                        <span className={cn(
+                          "text-xs sm:text-sm leading-snug line-clamp-2 break-words block",
+                          !isHome ? "text-white font-black" : "text-zinc-400"
+                        )} title={m.awayTeam}>
+                          {m.awayTeam}
+                        </span>
+                        {!isHome && (
+                          <span className="text-[9px] text-blue-400 font-bold uppercase tracking-wider block">
+                            (Tu equipo)
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative shrink-0">
+                        <TeamBadge 
+                          src={m.awayFlag} 
+                          teamName={m.awayTeam} 
+                          size="md" 
+                          className={cn(
+                            "w-8 h-8 sm:w-10 sm:h-10 shrink-0 p-0.5 rounded-xl transition-all",
+                            !isHome && "ring-2 ring-blue-500/70 shadow-md bg-blue-500/10"
+                          )} 
+                        />
+                      </div>
                     </div>
                   </div>
 
-                  {/* Goalscorers preview (if any) */}
+                  {/* Goalscorers breakdown organized by team (Left = Home, Right = Away) */}
                   {goalEvents.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-zinc-800/50 text-[10px] text-zinc-400 flex flex-wrap gap-x-3 gap-y-1 items-center">
-                      <span className="text-zinc-500 font-bold shrink-0">⚽ Goles:</span>
-                      {goalEvents.map((g, idx) => (
-                        <span key={idx} className="flex items-center gap-1">
-                          <strong className={cn(
-                            (isHome && g.isHomeTeam) || (!isHome && !g.isHomeTeam) 
-                              ? "text-zinc-200" 
-                              : "text-zinc-500"
-                          )}>
-                            {g.playerName}
-                          </strong>
-                          <span className="text-zinc-500 font-mono text-[9px]">{g.minute}'</span>
+                    <div className="mt-3 pt-2.5 border-t border-zinc-800/70">
+                      <div className="flex items-center justify-between text-[10px] font-bold text-zinc-500 uppercase tracking-wider mb-1 px-0.5">
+                        <span className="flex items-center gap-1">
+                          <span>⚽</span>
+                          <span>Goles {m.homeTeam}</span>
                         </span>
-                      ))}
+                        <span className="flex items-center gap-1">
+                          <span>Goles {m.awayTeam}</span>
+                          <span>⚽</span>
+                        </span>
+                      </div>
+
+                      <div className="grid grid-cols-2 gap-3 text-xs">
+                        {/* Home Team Goals */}
+                        <div className="space-y-1">
+                          {homeGoals.length > 0 ? (
+                            homeGoals.map((g, idx) => (
+                              <div key={idx} className="flex items-center gap-1.5 text-zinc-300 min-w-0">
+                                <span className="text-[10px] shrink-0 text-emerald-400 font-bold">●</span>
+                                <span className={cn(
+                                  "text-[11px] truncate",
+                                  isHome ? "font-bold text-white" : "text-zinc-300"
+                                )}>
+                                  {g.playerName}
+                                </span>
+                                <span className="text-[10px] font-mono text-zinc-500 shrink-0">{g.minute}'</span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-zinc-600 italic block pl-3">Sin goles</span>
+                          )}
+                        </div>
+
+                        {/* Away Team Goals */}
+                        <div className="space-y-1 text-right">
+                          {awayGoals.length > 0 ? (
+                            awayGoals.map((g, idx) => (
+                              <div key={idx} className="flex items-center justify-end gap-1.5 text-zinc-300 min-w-0">
+                                <span className="text-[10px] font-mono text-zinc-500 shrink-0">{g.minute}'</span>
+                                <span className={cn(
+                                  "text-[11px] truncate",
+                                  !isHome ? "font-bold text-white" : "text-zinc-300"
+                                )}>
+                                  {g.playerName}
+                                </span>
+                                <span className="text-[10px] shrink-0 text-emerald-400 font-bold">●</span>
+                              </div>
+                            ))
+                          ) : (
+                            <span className="text-[10px] text-zinc-600 italic block pr-3">Sin goles</span>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>
