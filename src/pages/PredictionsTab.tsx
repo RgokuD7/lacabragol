@@ -16,6 +16,9 @@ import { ScoreNumpadModal } from '../components/ScoreNumpadModal';
 import { MatchEventsModal } from '../components/MatchEventsModal';
 import { MatchJsonModal } from '../components/MatchJsonModal';
 import { TeamMatchesModal } from '../components/TeamMatchesModal';
+import { MatchVsSummaryModal } from '../components/MatchVsSummaryModal';
+import { useStandings } from '../hooks/useStandings';
+import { getTeamSummary } from '../lib/teamSummary';
 import { isCabraSuprema } from '../lib/utils';
 import { UCL_LEAGUE_PHASE_MATCHES } from '../data/fixtures';
 import { evaluatePrediction } from '../lib/scoring';
@@ -35,7 +38,8 @@ import {
   MoreVertical,
   FileCode,
   Sliders,
-  Clock
+  Clock,
+  TrendingUp
 } from 'lucide-react';
 
 // UID de administrador personalizable (reemplazar por tu UID de Firebase si se desea)
@@ -108,6 +112,32 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
     logo?: string;
   } | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState(false);
+  const [vsSummaryModalMatch, setVsSummaryModalMatch] = useState<Match | null>(null);
+
+  const { standings } = useStandings();
+
+  // Cache instantáneo de posiciones y rachas para tarjetas de partidos
+  const teamSummariesMap = useMemo(() => {
+    const map = new Map<string, { position?: number; points?: number; form: ('V' | 'E' | 'D')[] }>();
+    if (!matches || matches.length === 0) return map;
+
+    const teamNames = new Set<string>();
+    matches.forEach(m => {
+      if (m.homeTeam) teamNames.add(m.homeTeam);
+      if (m.awayTeam) teamNames.add(m.awayTeam);
+    });
+
+    teamNames.forEach(tName => {
+      const summary = getTeamSummary(tName, matches, standings);
+      map.set(tName, {
+        position: summary.standing?.position,
+        points: summary.standing?.points ?? (summary.stats.wins * 3 + summary.stats.draws),
+        form: summary.formStreak.map(f => f.result).slice(-3)
+      });
+    });
+
+    return map;
+  }, [matches, standings]);
 
   // Verificación de rol de administrador
   const isAdmin = Boolean(
@@ -1002,9 +1032,32 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                     teamName={match.homeTeam} 
                     className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow-sm group-hover:scale-105 transition-transform" 
                   />
-                  <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 whitespace-normal break-words group-hover:text-blue-400 transition-colors" title={match.homeTeam}>
-                    {match.homeTeam}
-                  </span>
+                  <div className="flex flex-col min-w-0">
+                    <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-1 whitespace-normal break-words group-hover:text-blue-400 transition-colors" title={match.homeTeam}>
+                      {match.homeTeam}
+                    </span>
+                    {teamSummariesMap.get(match.homeTeam) && (
+                      <div className="flex items-center gap-1 mt-0.5">
+                        {teamSummariesMap.get(match.homeTeam)?.position && (
+                          <span className="text-[8.5px] font-bold text-zinc-400 font-mono bg-zinc-900/90 px-1 py-0.2 rounded border border-zinc-800">
+                            #{teamSummariesMap.get(match.homeTeam)?.position} · {teamSummariesMap.get(match.homeTeam)?.points}p
+                          </span>
+                        )}
+                        {teamSummariesMap.get(match.homeTeam)?.form && teamSummariesMap.get(match.homeTeam)!.form.length > 0 && (
+                          <div className="flex items-center gap-0.5" title="Racha reciente">
+                            {teamSummariesMap.get(match.homeTeam)!.form.map((f, i) => (
+                              <span 
+                                key={i} 
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  f === 'V' ? 'bg-emerald-400' : f === 'E' ? 'bg-amber-400' : 'bg-rose-400'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </button>
 
                 {/* Center Score & Betting Controls */}
@@ -1139,9 +1192,32 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                   className="flex-1 flex items-center justify-end gap-1.5 min-w-0 text-right group cursor-pointer hover:opacity-85 active:scale-95 transition-all"
                   title={`Toca para ver partidos de ${match.awayTeam}`}
                 >
-                  <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-2 whitespace-normal break-words group-hover:text-blue-400 transition-colors" title={match.awayTeam}>
-                    {match.awayTeam}
-                  </span>
+                  <div className="flex flex-col min-w-0 items-end">
+                    <span className="text-[11px] sm:text-xs font-bold text-white leading-tight line-clamp-1 whitespace-normal break-words group-hover:text-emerald-400 transition-colors" title={match.awayTeam}>
+                      {match.awayTeam}
+                    </span>
+                    {teamSummariesMap.get(match.awayTeam) && (
+                      <div className="flex items-center justify-end gap-1 mt-0.5">
+                        {teamSummariesMap.get(match.awayTeam)?.form && teamSummariesMap.get(match.awayTeam)!.form.length > 0 && (
+                          <div className="flex items-center gap-0.5" title="Racha reciente">
+                            {teamSummariesMap.get(match.awayTeam)!.form.map((f, i) => (
+                              <span 
+                                key={i} 
+                                className={`w-1.5 h-1.5 rounded-full ${
+                                  f === 'V' ? 'bg-emerald-400' : f === 'E' ? 'bg-amber-400' : 'bg-rose-400'
+                                }`}
+                              />
+                            ))}
+                          </div>
+                        )}
+                        {teamSummariesMap.get(match.awayTeam)?.position && (
+                          <span className="text-[8.5px] font-bold text-zinc-400 font-mono bg-zinc-900/90 px-1 py-0.2 rounded border border-zinc-800">
+                            {teamSummariesMap.get(match.awayTeam)?.points}p · #{teamSummariesMap.get(match.awayTeam)?.position}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
                   <TeamBadge 
                     src={match.awayFlag} 
                     teamName={match.awayTeam} 
@@ -1151,7 +1227,7 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
 
               </div>
 
-              {/* Fila Inferior: Pronósticos de Grupo + Botón Ver Detalles */}
+              {/* Fila Inferior: Pronósticos de Grupo + Botón Historial + Botón Ver Detalles */}
               <MatchPredictions 
                 matchId={match.id} 
                 locked={locked || isFinished} 
@@ -1164,19 +1240,35 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
                 isTutorialActive={isTutorialItem}
                 pointsNode={null}
                 extraRightNode={
-                  (isFinished || isInProgress || ((match.goalscorers?.length || 0) + (match.cards?.length || 0) > 0)) ? (
+                  <div className="flex items-center gap-1.5">
                     <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         vibratePop();
-                        setEventsModalMatch(match);
+                        setVsSummaryModalMatch(match);
                       }}
-                      className="flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors py-0.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 cursor-pointer select-none active:scale-95"
+                      className="flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-blue-400 transition-colors py-0.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 cursor-pointer select-none active:scale-95"
+                      title="Ver Historial y Comparativa de ambos equipos"
                     >
-                      <span>Ver Detalles</span>
+                      <TrendingUp className="w-3 h-3 text-blue-400" />
+                      <span>Historial</span>
                     </button>
-                  ) : null
+
+                    {(isFinished || isInProgress || ((match.goalscorers?.length || 0) + (match.cards?.length || 0) > 0)) && (
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          vibratePop();
+                          setEventsModalMatch(match);
+                        }}
+                        className="flex items-center gap-1 text-[10px] font-bold text-zinc-400 hover:text-white transition-colors py-0.5 px-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 cursor-pointer select-none active:scale-95"
+                      >
+                        <span>Ver Detalles</span>
+                      </button>
+                    )}
+                  </div>
                 }
               />
             </div>
@@ -1235,6 +1327,20 @@ export function PredictionsTab({ isTutorialActive = false }: PredictionsTabProps
         onClose={() => setIsTeamModalOpen(false)}
         teamName={selectedTeamForModal?.name || null}
         teamLogo={selectedTeamForModal?.logo}
+      />
+
+      {/* Modal de Historial y Comparativa de Ambos Equipos */}
+      <MatchVsSummaryModal
+        isOpen={!!vsSummaryModalMatch}
+        onClose={() => setVsSummaryModalMatch(null)}
+        match={vsSummaryModalMatch}
+        onPredictClick={(m) => {
+          openScoreModal(m, 'home');
+        }}
+        onViewTeamMatches={(teamName, logo) => {
+          setSelectedTeamForModal({ name: teamName, logo });
+          setIsTeamModalOpen(true);
+        }}
       />
     </div>
   );

@@ -3,6 +3,7 @@ import { BaseBottomSheet } from './BaseBottomSheet';
 import { TeamBadge } from './TeamBadge';
 import { Match } from '../types';
 import { useMatches } from '../hooks/useMatches';
+import { useStandings } from '../hooks/useStandings';
 import { findUclTeam, normalizeTeamStr } from '../lib/standings';
 import { UCL_36_TEAMS, UCL_LEAGUE_PHASE_MATCHES, getTeamLogoByName } from '../data/fixtures';
 import { parseMatchEvents } from './MatchEventsTimeline';
@@ -41,8 +42,8 @@ export function TeamMatchesModal({
   standingRow
 }: TeamMatchesModalProps) {
   const { matches: firestoreMatches } = useMatches();
+  const { standings } = useStandings();
   const [filter, setFilter] = useState<'all' | 'played' | 'pending'>('all');
-  const [fetchedStandingRow, setFetchedStandingRow] = useState<any>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -58,37 +59,16 @@ export function TeamMatchesModal({
     ) || null;
   }, [teamName]);
 
-  // Auto-fetch standing data if not passed in props
-  useEffect(() => {
-    if (standingRow || !teamName || !isOpen) return;
-
-    let isMounted = true;
-    const fetchStandings = async () => {
-      try {
-        const snap = await getDoc(doc(db, 'system', 'standings'));
-        if (snap.exists() && isMounted) {
-          const data = snap.data();
-          if (Array.isArray(data.standings)) {
-            const found = data.standings.find((s: any) => {
-              const ucl = findUclTeam(s.team?.name);
-              if (officialTeam && ucl && ucl.id === officialTeam.id) return true;
-              return normalizeTeamStr(s.team?.name) === normalizeTeamStr(teamName);
-            });
-            if (found) {
-              setFetchedStandingRow(found);
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("Could not fetch standings for team modal", e);
-      }
-    };
-    fetchStandings();
-
-    return () => { isMounted = false; };
-  }, [standingRow, teamName, isOpen, officialTeam]);
-
-  const activeStandingRow = standingRow || fetchedStandingRow;
+  // Resolved standing data from props or centralized hook
+  const activeStandingRow = useMemo(() => {
+    if (standingRow) return standingRow;
+    if (!teamName || standings.length === 0) return null;
+    return standings.find((s: any) => {
+      const ucl = findUclTeam(s.team?.name);
+      if (officialTeam && ucl && ucl.id === officialTeam.id) return true;
+      return normalizeTeamStr(s.team?.name) === normalizeTeamStr(teamName);
+    }) || null;
+  }, [standingRow, teamName, standings, officialTeam]);
 
   const resolvedLogo = useMemo(() => {
     if (teamLogo) return teamLogo;

@@ -4,7 +4,7 @@ import { TeamBadge } from '../components/TeamBadge';
 import { AppleSportsRangeScrubber, StageInfo } from '../components/AppleSportsRangeScrubber';
 import { AppleSportsBracketTree } from '../components/AppleSportsBracketTree';
 import { db } from '../lib/firebase';
-import { doc, getDoc, onSnapshot } from 'firebase/firestore';
+import { useStandings } from '../hooks/useStandings';
 import { 
   Trophy, 
   Search, 
@@ -286,19 +286,8 @@ const DEFAULT_UCL_ROUNDS: IRoundProps[] = [
   }
 ];
 
-interface StandingsDataCache {
-  standings?: StandingRow[];
-  cupTrees?: CupTree[];
-  season?: { id: number; name: string } | null;
-}
-
-let cachedStandingsData: StandingsDataCache | null = null;
-
 export function StandingsTab() {
-  const [standings, setStandings] = useState<StandingRow[]>(() => cachedStandingsData?.standings || []);
-  const [cupTrees, setCupTrees] = useState<CupTree[]>(() => cachedStandingsData?.cupTrees || []);
-  const [seasonInfo, setSeasonInfo] = useState<{ id: number; name: string } | null>(() => cachedStandingsData?.season || null);
-  const [loading, setLoading] = useState<boolean>(() => !cachedStandingsData);
+  const { standings, seasonInfo, cupTrees, loading } = useStandings();
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'brackets'>('table');
@@ -314,33 +303,6 @@ export function StandingsTab() {
   const [startRoundIdx, setStartRoundIdx] = useState<number>(0);
   const [endRoundIdx, setEndRoundIdx] = useState<number>(4);
   const [activePreset, setActivePreset] = useState<string>('all');
-
-  useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'system', 'standings'), (docSnap) => {
-      if (docSnap.exists()) {
-        const data = docSnap.data();
-        cachedStandingsData = {
-          standings: data.standings && Array.isArray(data.standings) ? data.standings : [],
-          cupTrees: data.cupTrees && Array.isArray(data.cupTrees) ? data.cupTrees : [],
-          season: data.season || null,
-        };
-        if (data.standings && Array.isArray(data.standings)) {
-          setStandings(data.standings);
-        }
-        if (data.season) {
-          setSeasonInfo(data.season);
-        }
-        if (data.cupTrees && Array.isArray(data.cupTrees)) {
-          setCupTrees(data.cupTrees);
-        }
-      }
-      setLoading(false);
-    }, (err) => {
-      console.error("Failed to load standings from DB:", err);
-      setLoading(false);
-    });
-    return () => unsub();
-  }, []);
 
   const filteredStandings = useMemo(() => {
     if (!searchQuery.trim()) return standings;
