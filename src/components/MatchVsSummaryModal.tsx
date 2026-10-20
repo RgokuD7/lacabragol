@@ -115,8 +115,7 @@ export function MatchVsSummaryModal({
             key={m.matchId}
             className="flex items-center justify-between p-2 rounded-xl bg-[#0e0e13] border border-zinc-800/80 hover:border-zinc-700 text-xs transition-colors"
           >
-            <div className="flex items-center gap-2 min-w-0">
-              {renderResultBadge(m.result)}
+            <div className="flex items-center gap-2 min-w-0 flex-1 mr-2">
               <TeamBadge 
                 src={m.opponentLogo} 
                 teamName={m.opponentName} 
@@ -133,14 +132,10 @@ export function MatchVsSummaryModal({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
-              <span className={cn(
-                "font-mono font-black text-xs px-2 py-0.5 rounded-lg border",
-                m.result === 'V' ? "bg-emerald-500/10 text-emerald-400 border-emerald-500/30" :
-                m.result === 'E' ? "bg-amber-500/10 text-amber-400 border-amber-500/30" :
-                "bg-rose-500/10 text-rose-400 border-rose-500/30"
-              )}>
+              <span className="font-mono font-black text-xs px-2 py-0.5 rounded-lg border bg-zinc-900 border-zinc-700/80 text-white">
                 {m.teamScore} - {m.oppScore}
               </span>
+              {renderResultBadge(m.result)}
             </div>
           </div>
         ))}

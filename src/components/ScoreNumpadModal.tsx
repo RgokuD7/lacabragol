@@ -173,9 +173,9 @@ export function ScoreNumpadModal({
           </div>
 
           {/* 1. Header (Marcador Global - Estilo TV con Resumen y Racha) */}
-          <div className="mx-4 mb-2 bg-[#0c0c0f] border border-zinc-800/90 rounded-2xl p-2.5 shadow-inner">
-            <div className="flex items-center justify-between gap-2">
-              {/* Home Team (TV Left) */}
+          <div className="mx-4 mb-2 bg-[#0c0c0f] border border-zinc-800/90 rounded-2xl p-2 sm:p-2.5 shadow-inner">
+            <div className="grid grid-cols-12 items-center gap-1.5 sm:gap-2">
+              {/* Home Team (Cols 1-5) */}
               <div 
                 onClick={() => {
                   vibratePop();
@@ -183,45 +183,41 @@ export function ScoreNumpadModal({
                 }}
                 onTouchStart={() => vibratePop()}
                 className={cn(
-                  "flex-1 flex items-center gap-2 p-1.5 rounded-xl cursor-pointer transition-all min-w-0",
+                  "col-span-5 flex items-center gap-2 p-2 rounded-xl cursor-pointer transition-all min-w-0 overflow-hidden",
                   activeTeam === 'home' 
-                    ? "bg-blue-500/15 border border-blue-500/40" 
-                    : "hover:bg-zinc-800/40 border border-transparent"
+                    ? "bg-blue-600/20 border-2 border-blue-500 shadow-[0_0_14px_rgba(59,130,246,0.3)]" 
+                    : "bg-zinc-900/40 border border-zinc-800/60 hover:border-zinc-700"
                 )}
               >
                 <TeamBadge 
                   src={match.homeFlag} 
                   teamName={match.homeTeam} 
-                  className="w-7 h-7 shrink-0 drop-shadow" 
+                  className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow" 
                 />
-                <div className="flex flex-col min-w-0">
+                <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-[8.5px] font-bold uppercase tracking-wider text-zinc-500">Local</span>
                   <span className={cn(
                     "text-xs font-bold truncate leading-tight",
-                    activeTeam === 'home' ? "text-blue-400" : "text-zinc-300"
+                    activeTeam === 'home' ? "text-blue-400" : "text-zinc-200"
                   )}>
                     {match.homeTeam}
                   </span>
                   
-                  {/* Standing Pos & Form Dots */}
-                  <div className="flex items-center gap-1 mt-0.5">
-                    {homeSummary?.standing?.position && (
-                      <span className="text-[8.5px] font-bold text-zinc-400 bg-zinc-800/90 px-1 py-0.2 rounded font-mono">
+                  {/* Standing Pos & Form Dots (Always fits, no overflow) */}
+                  <div className="flex items-center gap-1.5 mt-1 shrink-0">
+                    {homeSummary?.standing?.position ? (
+                      <span className="text-[8.5px] font-mono font-bold text-zinc-300 bg-zinc-800 px-1.5 py-0.2 rounded border border-zinc-700/60 shrink-0">
                         #{homeSummary.standing.position}
                       </span>
-                    )}
-                    {homeSummary?.standing?.points !== undefined && (
-                      <span className="text-[8.5px] font-mono text-zinc-400 font-bold">
-                        {homeSummary.standing.points}p
-                      </span>
-                    )}
+                    ) : null}
+
                     {homeSummary?.formStreak && homeSummary.formStreak.length > 0 && (
-                      <div className="flex items-center gap-0.5 ml-0.5" title="Racha reciente">
+                      <div className="flex items-center gap-0.5 shrink-0" title="Racha reciente">
                         {homeSummary.formStreak.slice(-3).map((f, i) => (
                           <span 
                             key={i} 
                             className={cn(
-                              "w-1.5 h-1.5 rounded-full",
+                              "w-1.5 h-1.5 rounded-full shrink-0",
                               f.result === 'V' ? 'bg-emerald-400' : f.result === 'E' ? 'bg-amber-400' : 'bg-rose-400'
                             )}
                           />
@@ -232,8 +228,8 @@ export function ScoreNumpadModal({
                 </div>
               </div>
 
-              {/* Center Scoreboard Display (Clickable for free navigation) */}
-              <div className="flex items-center gap-1 shrink-0 px-1">
+              {/* Center Scoreboard Display (Cols 6-7, 2 cols) */}
+              <div className="col-span-2 flex items-center justify-center gap-1 shrink-0">
                 <button
                   type="button"
                   onTouchStart={() => vibratePop()}
@@ -242,9 +238,9 @@ export function ScoreNumpadModal({
                     setActiveTeam('home');
                   }}
                   className={cn(
-                    "w-9 h-9 rounded-xl font-mono text-base font-black flex items-center justify-center transition-all cursor-pointer",
+                    "w-9 h-9 sm:w-10 sm:h-10 rounded-xl font-mono text-base sm:text-lg font-black flex items-center justify-center transition-all cursor-pointer",
                     activeTeam === 'home'
-                      ? "bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.5)] border-2 border-blue-400 scale-105"
+                      ? "bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.6)] border-2 border-blue-400 scale-105"
                       : "bg-zinc-800/90 text-zinc-300 border border-zinc-700 hover:border-zinc-500"
                   )}
                   title="Editar goles Local"
@@ -262,9 +258,9 @@ export function ScoreNumpadModal({
                     setActiveTeam('away');
                   }}
                   className={cn(
-                    "w-9 h-9 rounded-xl font-mono text-base font-black flex items-center justify-center transition-all cursor-pointer",
+                    "w-9 h-9 sm:w-10 sm:h-10 rounded-xl font-mono text-base sm:text-lg font-black flex items-center justify-center transition-all cursor-pointer",
                     activeTeam === 'away'
-                      ? "bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.5)] border-2 border-blue-400 scale-105"
+                      ? "bg-blue-600 text-white shadow-[0_0_12px_rgba(37,99,235,0.6)] border-2 border-blue-400 scale-105"
                       : "bg-zinc-800/90 text-zinc-300 border border-zinc-700 hover:border-zinc-500"
                   )}
                   title="Editar goles Visitante"
@@ -273,7 +269,7 @@ export function ScoreNumpadModal({
                 </button>
               </div>
 
-              {/* Away Team (TV Right) */}
+              {/* Away Team (Cols 8-12, 5 cols) */}
               <div 
                 onClick={() => {
                   vibratePop();
@@ -281,52 +277,48 @@ export function ScoreNumpadModal({
                 }}
                 onTouchStart={() => vibratePop()}
                 className={cn(
-                  "flex-1 flex items-center justify-end gap-2 p-1.5 rounded-xl cursor-pointer transition-all min-w-0 text-right",
+                  "col-span-5 flex items-center justify-end gap-2 p-2 rounded-xl cursor-pointer transition-all min-w-0 text-right overflow-hidden",
                   activeTeam === 'away' 
-                    ? "bg-blue-500/15 border border-blue-500/40" 
-                    : "hover:bg-zinc-800/40 border border-transparent"
+                    ? "bg-blue-600/20 border-2 border-blue-500 shadow-[0_0_14px_rgba(59,130,246,0.3)]" 
+                    : "bg-zinc-900/40 border border-zinc-800/60 hover:border-zinc-700"
                 )}
               >
-                <div className="flex flex-col min-w-0 text-right items-end">
+                <div className="flex flex-col min-w-0 flex-1 items-end text-right">
                   <span className="text-[8.5px] font-bold uppercase tracking-wider text-zinc-500">Visitante</span>
                   <span className={cn(
-                    "text-xs font-bold truncate leading-tight",
-                    activeTeam === 'away' ? "text-blue-400" : "text-zinc-300"
+                    "text-xs font-bold truncate leading-tight max-w-full",
+                    activeTeam === 'away' ? "text-blue-400" : "text-zinc-200"
                   )}>
                     {match.awayTeam}
                   </span>
 
-                  {/* Standing Pos & Form Dots */}
-                  <div className="flex items-center justify-end gap-1 mt-0.5">
+                  {/* Standing Pos & Form Dots (Always fits, no overflow) */}
+                  <div className="flex items-center justify-end gap-1.5 mt-1 shrink-0">
                     {awaySummary?.formStreak && awaySummary.formStreak.length > 0 && (
-                      <div className="flex items-center gap-0.5 mr-0.5" title="Racha reciente">
+                      <div className="flex items-center gap-0.5 shrink-0" title="Racha reciente">
                         {awaySummary.formStreak.slice(-3).map((f, i) => (
                           <span 
                             key={i} 
                             className={cn(
-                              "w-1.5 h-1.5 rounded-full",
+                              "w-1.5 h-1.5 rounded-full shrink-0",
                               f.result === 'V' ? 'bg-emerald-400' : f.result === 'E' ? 'bg-amber-400' : 'bg-rose-400'
                             )}
                           />
                         ))}
                       </div>
                     )}
-                    {awaySummary?.standing?.points !== undefined && (
-                      <span className="text-[8.5px] font-mono text-zinc-400 font-bold">
-                        {awaySummary.standing.points}p
-                      </span>
-                    )}
-                    {awaySummary?.standing?.position && (
-                      <span className="text-[8.5px] font-bold text-zinc-400 bg-zinc-800/90 px-1 py-0.2 rounded font-mono">
+
+                    {awaySummary?.standing?.position ? (
+                      <span className="text-[8.5px] font-mono font-bold text-zinc-300 bg-zinc-800 px-1.5 py-0.2 rounded border border-zinc-700/60 shrink-0">
                         #{awaySummary.standing.position}
                       </span>
-                    )}
+                    ) : null}
                   </div>
                 </div>
                 <TeamBadge 
                   src={match.awayFlag} 
                   teamName={match.awayTeam} 
-                  className="w-7 h-7 shrink-0 drop-shadow" 
+                  className="w-7 h-7 sm:w-8 sm:h-8 shrink-0 drop-shadow" 
                 />
               </div>
             </div>
@@ -422,13 +414,13 @@ export function ScoreNumpadModal({
                   </div>
                 )}
 
-                {/* Últimos Partidos Side-by-Side (2 mini columnas) */}
-                <div className="grid grid-cols-2 gap-2 pt-1 border-t border-zinc-800/80">
+                {/* Últimos Partidos Side-by-Side con logos de rivales y formato: [Logo] [Nombre] [Goles] [V/E/D] */}
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-zinc-800/80">
                   {/* Home Team Recent */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between px-0.5">
                       <span className="text-[10px] font-bold text-blue-400 truncate">
-                        Últimos {match.homeTeam}
+                        {match.homeTeam}
                       </span>
                       <button
                         type="button"
@@ -443,30 +435,42 @@ export function ScoreNumpadModal({
                     </div>
 
                     {homeSummary?.recentMatches.slice(0, 3).map((m) => (
-                      <div key={m.matchId} className="flex items-center justify-between p-1 rounded-lg bg-zinc-900/60 border border-zinc-800/60 text-[9px]">
-                        <div className="flex items-center gap-1 min-w-0">
+                      <div 
+                        key={m.matchId} 
+                        className="flex items-center justify-between p-1.5 rounded-xl bg-zinc-900/80 border border-zinc-800/70 text-[9.5px]"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
+                          <TeamBadge 
+                            src={m.opponentLogo} 
+                            teamName={m.opponentName} 
+                            className="w-4 h-4 shrink-0 object-contain" 
+                          />
+                          <span className="text-zinc-200 font-medium truncate">
+                            {m.opponentName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                          <span className="text-white font-bold">
+                            {m.teamScore}-{m.oppScore}
+                          </span>
                           <span className={cn(
-                            "w-3.5 h-3.5 rounded text-[8px] font-black flex items-center justify-center shrink-0",
-                            m.result === 'V' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                            m.result === 'E' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                            'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            "w-4 h-4 rounded text-[8.5px] font-black flex items-center justify-center shrink-0",
+                            m.result === 'V' ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40' :
+                            m.result === 'E' ? 'bg-amber-500/25 text-amber-400 border border-amber-500/40' :
+                            'bg-rose-500/25 text-rose-400 border border-rose-500/40'
                           )}>
                             {m.result}
                           </span>
-                          <span className="text-zinc-300 truncate max-w-[65px] font-medium">{m.opponentName}</span>
                         </div>
-                        <span className="font-mono font-bold text-white shrink-0">
-                          {m.teamScore}-{m.oppScore}
-                        </span>
                       </div>
                     ))}
                   </div>
 
                   {/* Away Team Recent */}
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between">
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between px-0.5">
                       <span className="text-[10px] font-bold text-emerald-400 truncate">
-                        Últimos {match.awayTeam}
+                        {match.awayTeam}
                       </span>
                       <button
                         type="button"
@@ -481,21 +485,33 @@ export function ScoreNumpadModal({
                     </div>
 
                     {awaySummary?.recentMatches.slice(0, 3).map((m) => (
-                      <div key={m.matchId} className="flex items-center justify-between p-1 rounded-lg bg-zinc-900/60 border border-zinc-800/60 text-[9px]">
-                        <div className="flex items-center gap-1 min-w-0">
+                      <div 
+                        key={m.matchId} 
+                        className="flex items-center justify-between p-1.5 rounded-xl bg-zinc-900/80 border border-zinc-800/70 text-[9.5px]"
+                      >
+                        <div className="flex items-center gap-1.5 min-w-0 flex-1 mr-1">
+                          <TeamBadge 
+                            src={m.opponentLogo} 
+                            teamName={m.opponentName} 
+                            className="w-4 h-4 shrink-0 object-contain" 
+                          />
+                          <span className="text-zinc-200 font-medium truncate">
+                            {m.opponentName}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0 font-mono">
+                          <span className="text-white font-bold">
+                            {m.teamScore}-{m.oppScore}
+                          </span>
                           <span className={cn(
-                            "w-3.5 h-3.5 rounded text-[8px] font-black flex items-center justify-center shrink-0",
-                            m.result === 'V' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' :
-                            m.result === 'E' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
-                            'bg-rose-500/20 text-rose-400 border border-rose-500/30'
+                            "w-4 h-4 rounded text-[8.5px] font-black flex items-center justify-center shrink-0",
+                            m.result === 'V' ? 'bg-emerald-500/25 text-emerald-400 border border-emerald-500/40' :
+                            m.result === 'E' ? 'bg-amber-500/25 text-amber-400 border border-amber-500/40' :
+                            'bg-rose-500/25 text-rose-400 border border-rose-500/40'
                           )}>
                             {m.result}
                           </span>
-                          <span className="text-zinc-300 truncate max-w-[65px] font-medium">{m.opponentName}</span>
                         </div>
-                        <span className="font-mono font-bold text-white shrink-0">
-                          {m.teamScore}-{m.oppScore}
-                        </span>
                       </div>
                     ))}
                   </div>
@@ -504,46 +520,31 @@ export function ScoreNumpadModal({
             )}
           </div>
 
-          {/* 2. Sección Central (Foco de Edición) */}
-          <div className="flex flex-col items-center justify-center py-1 px-4">
-            {/* Logo del equipo en edición */}
-            <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-full bg-zinc-900/90 border-2 border-zinc-700/60 p-1 flex items-center justify-center shadow-[0_0_24px_rgba(59,130,246,0.15)] shrink-0">
-              <TeamBadge 
-                src={activeTeamFlag} 
-                teamName={activeTeamName} 
-                className="w-10 h-10 sm:w-12 sm:h-12 object-contain" 
-              />
-            </div>
-
-            {/* Etiqueta del equipo separada con margen adecuado (no superpuesta al logo) */}
-            <div className="mt-2 mb-0.5">
+          {/* 2. Barra de Edición de Goles (Limpia y Compacta, sin logo redundante) */}
+          <div className="mx-4 mb-2 flex items-center justify-between px-3.5 py-2 rounded-xl bg-[#0e0e13] border border-zinc-800/90 shadow-sm">
+            <div className="flex items-center gap-2 min-w-0">
               <span className={cn(
-                "px-3 py-0.5 rounded-full text-[10px] font-black uppercase tracking-wider border shadow-md inline-flex items-center gap-1",
+                "px-2 py-0.5 rounded-md text-[9.5px] font-black uppercase tracking-wider border",
                 isHome 
-                  ? "bg-blue-500/15 text-blue-400 border-blue-500/40" 
-                  : "bg-emerald-500/15 text-emerald-400 border-emerald-500/40"
+                  ? "bg-blue-500/20 text-blue-400 border-blue-500/40" 
+                  : "bg-emerald-500/20 text-emerald-400 border-emerald-500/40"
               )}>
                 {isHome ? 'Equipo Local' : 'Equipo Visitante'}
               </span>
+              <span className="text-xs sm:text-sm font-bold text-white truncate">
+                {activeTeamName}
+              </span>
             </div>
 
-            <h3 className="text-sm sm:text-base font-black text-white text-center line-clamp-1">
-              {activeTeamName}
-            </h3>
-
-            <p className="text-[11px] font-semibold text-zinc-400 mt-0.5">
-              ¿Cuántos goles?
-            </p>
-
-            {/* Large Focused Score Indicator */}
-            <div className="mt-1 mb-1">
-              <div className="min-w-[76px] h-12 bg-zinc-900/90 border border-zinc-700/70 rounded-2xl flex items-center justify-center px-4 shadow-inner">
-                <span className={cn(
-                  "font-mono text-3xl sm:text-4xl font-black tracking-wider",
-                  currentScore !== '' ? "text-white" : "text-zinc-600"
-                )}>
-                  {currentScore !== '' ? currentScore : '0'}
-                </span>
+            <div className="flex items-center gap-2 shrink-0">
+              <span className="text-[11px] font-bold text-zinc-400">Goles:</span>
+              <div className={cn(
+                "min-w-[46px] h-9 px-2.5 rounded-lg border-2 flex items-center justify-center shadow-inner font-mono font-black text-xl transition-all",
+                isHome 
+                  ? "bg-blue-950/40 border-blue-500 text-blue-300 shadow-[0_0_10px_rgba(59,130,246,0.3)]" 
+                  : "bg-emerald-950/40 border-emerald-500 text-emerald-300 shadow-[0_0_10px_rgba(16,185,129,0.3)]"
+              )}>
+                {currentScore !== '' ? currentScore : '0'}
               </div>
             </div>
           </div>
