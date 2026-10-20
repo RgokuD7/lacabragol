@@ -800,6 +800,10 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
   // Carga y escaneo de jugadores de podio manuales
   const fetchCustomPodiums = useCallback(async () => {
+    if (podiumPlayers.length === 0) {
+      setIsLoadingCustomPodiums(false);
+      return;
+    }
     setIsLoadingCustomPodiums(true);
     try {
       const snap = await getDocs(collection(db, 'podiums'));
@@ -2232,6 +2236,10 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   // Vincular jugador manual a jugador oficial existente en los podios
   const handleLinkCustomPlayerToOfficial = async () => {
     if (!linkingCustomPlayer || !linkingCustomPlayer.targetOfficialName) return;
+
+    const confirmMsg = `¿Confirmas vincular "${linkingCustomPlayer.customName}" al jugador oficial "${linkingCustomPlayer.targetOfficialName}"? Se actualizarán ${linkingCustomPlayer.occurrences.length} podio(s).`;
+    if (!window.confirm(confirmMsg)) return;
+
     setIsSavingPodiumLink(true);
     setModalLinkError(null);
     try {
@@ -4050,7 +4058,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                             setLinkingCustomPlayer({
                               customName: item.playerName,
                               occurrences: item.occurrences,
-                              targetOfficialName: podiumPlayers[0]?.name || ''
+                              targetOfficialName: ''
                             });
                           }}
                           className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-200 border border-zinc-700 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer"
@@ -4335,7 +4343,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                     </div>
 
                     <label className="text-zinc-300 block mb-1 font-semibold">
-                      Seleccionar de la Lista ({filteredOfficialForLinking.length} disponibles):
+                      Seleccionar Jugador Oficial ({filteredOfficialForLinking.length} disponibles):
                     </label>
                     <select
                       value={linkingCustomPlayer.targetOfficialName}
@@ -4343,6 +4351,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                       className="w-full bg-zinc-900 border border-amber-500/50 rounded-lg p-2.5 text-white text-xs outline-none focus:border-amber-400 max-h-40"
                       size={filteredOfficialForLinking.length > 5 ? 5 : undefined}
                     >
+                      <option value="" disabled>-- Selecciona un jugador oficial del catálogo --</option>
                       {filteredOfficialForLinking.map(p => (
                         <option key={p.id || p.name} value={p.name} className="py-1">
                           {p.name} {p.team ? `(${p.team})` : ''}
@@ -4354,9 +4363,27 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
                         No se encontraron jugadores oficiales con "{officialPlayerSearch}".
                       </p>
                     )}
-                    <p className="text-[10px] text-zinc-500 mt-1">
-                      ℹ️ Se actualizarán los {linkingCustomPlayer.occurrences.length} podios de los usuarios para que usen este nombre oficial.
-                    </p>
+
+                    {!linkingCustomPlayer.targetOfficialName && (
+                      <p className="text-[11px] text-amber-400/90 font-medium mt-2 bg-amber-500/10 border border-amber-500/20 p-2 rounded-lg">
+                        ⚠️ Debes hacer clic y seleccionar a qué jugador oficial corresponde antes de poder vincular.
+                      </p>
+                    )}
+
+                    <div className="mt-3 bg-zinc-900/80 border border-zinc-800 rounded-lg p-2.5 max-h-36 overflow-y-auto space-y-1">
+                      <span className="text-[10px] font-bold text-zinc-400 block mb-1">
+                        Podios y usuarios que se actualizarán ({linkingCustomPlayer.occurrences.length}):
+                      </span>
+                      {linkingCustomPlayer.occurrences.map((occ, idx) => {
+                        const roleLabel = occ.role === 'topScorer' ? 'Goleador' : occ.role === 'mostAssists' ? 'Asistidor' : 'MVP';
+                        return (
+                          <div key={idx} className="flex items-center justify-between text-[11px] text-zinc-300 py-1 border-b border-zinc-800/50 last:border-0">
+                            <span className="font-semibold text-white truncate max-w-[180px]">{occ.userName}</span>
+                            <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] text-amber-400 font-bold shrink-0">{roleLabel}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
                   </div>
                 </div>
 
