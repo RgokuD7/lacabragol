@@ -9,6 +9,7 @@ import { User, Podium } from '../types';
 import { getGroupPodium } from '../lib/podium';
 import { AchievementBadge } from './AchievementBadge';
 import { TrophyRoomModal } from './TrophyRoomModal';
+import { UserPredictionsHistory } from './UserPredictionsHistory';
 import { ACHIEVEMENTS, isAchievementUnlocked } from '../data/achievements';
 
 interface UserProfileModalProps {
@@ -140,6 +141,13 @@ export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfile
             </div>
           )}
         </div>
+
+        {/* Historial de Pronósticos del Jugador */}
+        <UserPredictionsHistory
+          userId={user.uid}
+          groupId={groupId}
+          userName={user.nickname || user.displayName}
+        />
       </div>
 
       {/* Sala de Trofeos Modal */}

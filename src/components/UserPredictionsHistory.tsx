@@ -1,0 +1,379 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { db } from '../lib/firebase';
+import { Prediction, Match } from '../types';
+import { useMatches } from '../hooks/useMatches';
+import { TeamBadge } from './TeamBadge';
+import { format } from 'date-fns';
+import { es } from 'date-fns/locale';
+import { vibrateTap } from '../lib/haptics';
+import { cn } from '../lib/utils';
+import { 
+  Trophy, 
+  Target, 
+  Calendar, 
+  Clock, 
+  CheckCircle2, 
+  XCircle, 
+  Sparkles, 
+  Filter, 
+  Flame,
+  Award
+} from 'lucide-react';
+
+interface UserPredictionsHistoryProps {
+  userId: string;
+  groupId?: string | null;
+  userName?: string;
+}
+
+interface EvaluatedPrediction {
+  id: string;
+  matchId: string;
+  match: Match;
+  predHome: number;
+  predAway: number;
+  matchHome: number | null;
+  matchAway: number | null;
+  status: 'finished' | 'in_progress' | 'locked';
+  type: 'exact' | 'outcome' | 'miss' | 'live';
+  points: number;
+  date: string;
+  group?: string;
+}
+
+export function UserPredictionsHistory({
+  userId,
+  groupId,
+  userName = 'este usuario'
+}: UserPredictionsHistoryProps) {
+  const { matches } = useMatches();
+  const [predictions, setPredictions] = useState<Prediction[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [filter, setFilter] = useState<'all' | 'exact' | 'outcome' | 'miss'>('all');
+
+  useEffect(() => {
+    if (!userId) return;
+    setLoading(true);
+
+    const predsRef = collection(db, 'predictions');
+    const q = groupId
+      ? query(predsRef, where('userId', '==', userId), where('groupId', '==', groupId))
+      : query(predsRef, where('userId', '==', userId));
+
+    const unsub = onSnapshot(q, (snap) => {
+      const preds = snap.docs.map(d => ({ id: d.id, ...d.data() } as Prediction));
+      setPredictions(preds);
+      setLoading(false);
+    }, (err) => {
+      console.warn("Could not fetch user predictions history:", err);
+      setLoading(false);
+    });
+
+    return () => unsub();
+  }, [userId, groupId]);
+
+  // Combine predictions with matches and evaluate outcomes
+  const evaluatedItems = useMemo<EvaluatedPrediction[]>(() => {
+    if (predictions.length === 0 || matches.length === 0) return [];
+
+    const now = Date.now();
+    const list: EvaluatedPrediction[] = [];
+
+    predictions.forEach(p => {
+      const m = matches.find(match => match.id === p.matchId);
+      if (!m) return;
+
+      const matchTime = new Date(m.date).getTime();
+      const isLocked = !isNaN(matchTime) && now >= (matchTime - 15 * 60 * 1000);
+      const isLive = m.status === 'in_progress';
+      const isFinished = m.status === 'finished';
+
+      // Security check: Only show predictions if match has kicked off or is finished
+      if (!isFinished && !isLive && !isLocked) {
+        return;
+      }
+
+      const mHome = m.homeScore ?? (isFinished ? 0 : null);
+      const mAway = m.awayScore ?? (isFinished ? 0 : null);
+
+      let type: 'exact' | 'outcome' | 'miss' | 'live' = 'miss';
+      let points = p.pointsEarned ?? 0;
+
+      if (isLive) {
+        type = 'live';
+      } else if (isFinished && mHome !== null && mAway !== null) {
+        const isExact = p.homeScore === mHome && p.awayScore === mAway;
+        const actualDiff = mHome - mAway;
+        const predDiff = p.homeScore - p.awayScore;
+        const isOutcome = (actualDiff > 0 && predDiff > 0) ||
+                          (actualDiff < 0 && predDiff < 0) ||
+                          (actualDiff === 0 && predDiff === 0);
+
+        if (isExact) {
+          type = 'exact';
+          if (!points) points = 6;
+        } else if (isOutcome) {
+          type = 'outcome';
+          if (!points) points = 3;
+        } else {
+          type = 'miss';
+          points = 0;
+        }
+      }
+
+      list.push({
+        id: p.id,
+        matchId: m.id,
+        match: m,
+        predHome: p.homeScore,
+        predAway: p.awayScore,
+        matchHome: mHome,
+        matchAway: mAway,
+        status: isFinished ? 'finished' : (isLive ? 'in_progress' : 'locked'),
+        type,
+        points,
+        date: m.date,
+        group: m.group
+      });
+    });
+
+    // Sort by date descending (most recent first)
+    return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [predictions, matches]);
+
+  // Statistics calculation
+  const stats = useMemo(() => {
+    const total = evaluatedItems.length;
+    const exact = evaluatedItems.filter(i => i.type === 'exact').length;
+    const outcome = evaluatedItems.filter(i => i.type === 'outcome').length;
+    const miss = evaluatedItems.filter(i => i.type === 'miss').length;
+    const totalPoints = evaluatedItems.reduce((acc, curr) => acc + (curr.points || 0), 0);
+    const efficiency = total > 0 ? Math.round(((exact + outcome) / total) * 100) : 0;
+
+    return { total, exact, outcome, miss, totalPoints, efficiency };
+  }, [evaluatedItems]);
+
+  // Filtered items
+  const filteredItems = useMemo(() => {
+    if (filter === 'exact') return evaluatedItems.filter(i => i.type === 'exact');
+    if (filter === 'outcome') return evaluatedItems.filter(i => i.type === 'outcome');
+    if (filter === 'miss') return evaluatedItems.filter(i => i.type === 'miss');
+    return evaluatedItems;
+  }, [evaluatedItems, filter]);
+
+  const formatMatchDate = (dateStr: string) => {
+    try {
+      const d = new Date(dateStr);
+      return format(d, "EEE d MMM · HH:mm", { locale: es });
+    } catch {
+      return dateStr;
+    }
+  };
+
+  return (
+    <div className="space-y-3.5">
+      {/* SECTION HEADER */}
+      <div className="flex items-center justify-between px-1 border-b border-zinc-800 pb-2">
+        <h4 className="text-[11px] font-black uppercase text-zinc-400 tracking-widest flex items-center gap-1.5">
+          <Target className="w-3.5 h-3.5 text-blue-400" />
+          <span>Historial de Pronósticos</span>
+        </h4>
+        <span className="text-[10px] font-mono text-zinc-500 font-bold">
+          {stats.total} {stats.total === 1 ? 'partido' : 'partidos'}
+        </span>
+      </div>
+
+      {loading ? (
+        <div className="py-6 text-center text-xs text-zinc-500 space-y-1">
+          <Clock className="w-5 h-5 mx-auto text-zinc-600 animate-spin" />
+          <p>Cargando historial de apuestas...</p>
+        </div>
+      ) : evaluatedItems.length === 0 ? (
+        <div className="bg-zinc-900/30 rounded-2xl p-6 text-center border border-zinc-800/40 border-dashed space-y-1.5">
+          <Clock className="w-6 h-6 mx-auto text-zinc-600" />
+          <p className="text-xs font-bold text-zinc-400">Sin pronósticos evaluados todavía</p>
+          <p className="text-[11px] text-zinc-600">
+            Los resultados aparecerán aquí una vez que comiencen o finalicen los partidos.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* STATS PERFORMANCE GRID */}
+          <div className="grid grid-cols-4 gap-2">
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
+              <span className="text-[9px] uppercase font-bold text-zinc-500 block">Jugados</span>
+              <span className="font-mono font-black text-sm text-white">{stats.total}</span>
+            </div>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
+              <span className="text-[9px] uppercase font-bold text-emerald-500 block">🎯 Plenos</span>
+              <span className="font-mono font-black text-sm text-emerald-400">{stats.exact}</span>
+            </div>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
+              <span className="text-[9px] uppercase font-bold text-sky-500 block">⚽ Aciertos</span>
+              <span className="font-mono font-black text-sm text-sky-400">{stats.outcome}</span>
+            </div>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
+              <span className="text-[9px] uppercase font-bold text-amber-500 block">Efectividad</span>
+              <span className="font-mono font-black text-sm text-amber-400">{stats.efficiency}%</span>
+            </div>
+          </div>
+
+          {/* FILTER PILLS */}
+          <div className="flex bg-[#121217] p-1 rounded-xl border border-zinc-800 gap-1 text-[10px] font-bold">
+            <button
+              type="button"
+              onClick={() => {
+                vibrateTap();
+                setFilter('all');
+              }}
+              className={cn(
+                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                filter === 'all' ? "bg-zinc-700 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              Todos ({stats.total})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                vibrateTap();
+                setFilter('exact');
+              }}
+              className={cn(
+                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                filter === 'exact' ? "bg-emerald-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              🎯 Plenos ({stats.exact})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                vibrateTap();
+                setFilter('outcome');
+              }}
+              className={cn(
+                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                filter === 'outcome' ? "bg-sky-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              ⚽ Aciertos ({stats.outcome})
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                vibrateTap();
+                setFilter('miss');
+              }}
+              className={cn(
+                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                filter === 'miss' ? "bg-rose-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+              )}
+            >
+              ❌ Fallos ({stats.miss})
+            </button>
+          </div>
+
+          {/* PREDICTIONS LIST */}
+          <div className="space-y-2">
+            {filteredItems.length === 0 ? (
+              <div className="py-6 text-center text-xs text-zinc-500 bg-[#121217] rounded-xl border border-zinc-800">
+                No hay pronósticos en esta categoría.
+              </div>
+            ) : (
+              filteredItems.map(item => (
+                <div
+                  key={item.id}
+                  className={cn(
+                    "p-3 rounded-2xl border transition-all text-xs space-y-2 relative overflow-hidden",
+                    item.type === 'exact' && "border-emerald-500/40 bg-gradient-to-b from-[#0b1712] to-[#0f1412] shadow-[0_0_15px_rgba(16,185,129,0.1)]",
+                    item.type === 'outcome' && "border-sky-500/40 bg-gradient-to-b from-[#0a1726] to-[#0e1218] shadow-[0_0_15px_rgba(56,189,248,0.1)]",
+                    item.type === 'miss' && "border-rose-500/30 bg-gradient-to-b from-[#180e11] to-[#121113]",
+                    item.type === 'live' && "border-orange-500/50 bg-gradient-to-b from-[#1d120a] to-[#14110e] shadow-[0_0_15px_rgba(249,115,22,0.15)]"
+                  )}
+                >
+                  {/* Header: Date + Round + Points Pill */}
+                  <div className="flex items-center justify-between text-[10px] pb-1.5 border-b border-zinc-800/60">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-bold text-zinc-400 bg-zinc-800/80 px-2 py-0.2 rounded-md uppercase text-[9px] tracking-wider shrink-0">
+                        {item.group || 'Fase de Liga'}
+                      </span>
+                      <span className="text-zinc-500 truncate flex items-center gap-1">
+                        <Calendar className="w-3 h-3 text-zinc-600 shrink-0" />
+                        <span>{formatMatchDate(item.date)}</span>
+                      </span>
+                    </div>
+
+                    {/* Points Badge */}
+                    <div className="shrink-0">
+                      {item.type === 'exact' ? (
+                        <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/20 border border-emerald-500/40 px-2 py-0.5 rounded-full shadow-sm">
+                          🎯 +{item.points} Pts (Pleno)
+                        </span>
+                      ) : item.type === 'outcome' ? (
+                        <span className="text-[10px] font-black text-sky-300 bg-sky-500/20 border border-sky-500/40 px-2 py-0.5 rounded-full shadow-sm">
+                          ⚽ +{item.points} Pts (Ganador)
+                        </span>
+                      ) : item.type === 'live' ? (
+                        <span className="text-[10px] font-black text-orange-300 bg-orange-500/20 border border-orange-500/40 px-2 py-0.5 rounded-full animate-pulse">
+                          ⚡ En Juego
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-black text-rose-300 bg-rose-500/20 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                          ❌ 0 Pts (Fallo)
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Matchup & Score Row */}
+                  <div className="flex items-center justify-between gap-2">
+                    {/* Home Team */}
+                    <div className="flex-1 flex items-center gap-1.5 min-w-0">
+                      <TeamBadge 
+                        src={item.match.homeFlag} 
+                        teamName={item.match.homeTeam} 
+                        className="w-6 h-6 shrink-0 object-contain drop-shadow" 
+                      />
+                      <span className="font-bold text-white text-[11px] truncate leading-tight">
+                        {item.match.homeTeam}
+                      </span>
+                    </div>
+
+                    {/* Center Scores */}
+                    <div className="flex flex-col items-center justify-center shrink-0 px-2">
+                      {/* Marcador Real */}
+                      <div className="font-mono font-black text-sm text-white bg-black/50 px-2.5 py-0.5 rounded-lg border border-zinc-700/80 shadow-inner">
+                        <span>{item.matchHome ?? '-'}</span>
+                        <span className="text-zinc-500 px-1">-</span>
+                        <span>{item.matchAway ?? '-'}</span>
+                      </div>
+
+                      {/* Apuesta del Usuario */}
+                      <span className="text-[9.5px] font-mono text-zinc-400 mt-1">
+                        Apuesta: <strong className="text-zinc-200">{item.predHome}-{item.predAway}</strong>
+                      </span>
+                    </div>
+
+                    {/* Away Team */}
+                    <div className="flex-1 flex items-center justify-end gap-1.5 min-w-0 text-right">
+                      <span className="font-bold text-white text-[11px] truncate leading-tight">
+                        {item.match.awayTeam}
+                      </span>
+                      <TeamBadge 
+                        src={item.match.awayFlag} 
+                        teamName={item.match.awayTeam} 
+                        className="w-6 h-6 shrink-0 object-contain drop-shadow" 
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}

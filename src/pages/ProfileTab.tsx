@@ -6,7 +6,7 @@ import { useGroupScores } from '../hooks/useGroupScores';
 import { getPodiumDocId, saveGroupPodium } from '../lib/podium';
 import { UserAvatar } from '../components/UserAvatar';
 import { PodiumDisplay } from '../components/PodiumDisplay';
-import { User as UserIcon, LogOut, Award, Hash, Mail, Check, AlertCircle, Trophy, Flame, HelpCircle } from 'lucide-react';
+import { User as UserIcon, LogOut, Award, Hash, Mail, Check, AlertCircle, Trophy, Flame, HelpCircle, Sparkles } from 'lucide-react';
 import { db } from '../lib/firebase';
 import { doc, updateDoc, setDoc, onSnapshot, getDoc } from 'firebase/firestore';
 import { Podium } from '../types';
@@ -257,6 +257,17 @@ export function ProfileTab() {
           </div>
         )}
       </div>
+
+      {/* Botón Novedades de la App */}
+      <button 
+        type="button"
+        onClick={() => {
+          window.dispatchEvent(new CustomEvent('show-new-features'));
+        }}
+        className="w-full flex items-center justify-center gap-2 py-3.5 bg-gradient-to-r from-blue-500/15 via-indigo-500/15 to-purple-500/15 hover:from-blue-500/25 hover:to-purple-500/25 text-blue-300 rounded-2xl font-black uppercase tracking-widest text-xs transition-colors border border-blue-500/30 shadow-sm cursor-pointer"
+      >
+        <Sparkles className="w-4 h-4 text-blue-400 animate-pulse" /> Ver Nuevas Funcionalidades
+      </button>
 
       {/* Tutorial Interactivo Button */}
       <button 

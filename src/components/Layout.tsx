@@ -40,6 +40,7 @@ import { db } from '../lib/firebase';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { GroupChat } from './GroupChat';
 import { PushNotificationPromptModal } from './PushNotificationPromptModal';
+import { NewFeaturesModal } from './NewFeaturesModal';
 import { startInteractiveTutorial, destroyActiveTutorial, startPlayersUpdateTutorial } from '../lib/driver';
 import { getGroupPodium, findAnyUserPodium } from '../lib/podium';
 import { hasUserCustomPlayer } from '../data/players';
@@ -649,6 +650,14 @@ export function Layout() {
 
       {/* Proactive Push Notification Prompt Modal */}
       <PushNotificationPromptModal isTutorialActive={isTutorialActive} />
+
+      {/* Modal de Nuevas Funcionalidades */}
+      <NewFeaturesModal 
+        disabled={isTutorialActive}
+        onNavigateTab={(tab) => {
+          setActiveTab(tab);
+        }}
+      />
     </div>
   );
 }
