@@ -36,7 +36,7 @@ interface EvaluatedPrediction {
   matchHome: number | null;
   matchAway: number | null;
   status: 'finished' | 'in_progress' | 'locked';
-  type: 'exact' | 'outcome' | 'miss' | 'live';
+  type: 'exact' | 'outcome' | 'miss' | 'live' | 'locked';
   points: number;
   date: string;
   group?: string;
@@ -50,7 +50,7 @@ export function UserPredictionsHistory({
   const { matches } = useMatches();
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
-  const [filter, setFilter] = useState<'all' | 'exact' | 'outcome' | 'miss'>('all');
+  const [filter, setFilter] = useState<'all' | 'exact' | 'outcome' | 'miss' | 'live' | 'locked'>('all');
 
   useEffect(() => {
     if (!userId) return;
@@ -86,23 +86,33 @@ export function UserPredictionsHistory({
 
       const matchTime = new Date(m.date).getTime();
       const isLocked = !isNaN(matchTime) && now >= (matchTime - 15 * 60 * 1000);
-      const isLive = m.status === 'in_progress';
-      const isFinished = m.status === 'finished';
+      
+      const estadoLower = (m.estado || '').toLowerCase();
+      const isLive = m.status === 'in_progress' || 
+                     estadoLower.includes('vivo') || 
+                     estadoLower.includes('live') || 
+                     estadoLower.includes('curso') || 
+                     estadoLower.includes('descanso') || 
+                     estadoLower.includes('ht') || 
+                     /\d+['’]/.test(estadoLower);
+      const isFinished = m.status === 'finished' || 
+                         estadoLower.includes('finaliz') || 
+                         estadoLower.includes('ft') || 
+                         estadoLower.includes('termin');
 
-      // Security check: Only show predictions if match has kicked off or is finished
+      // Security check: Only show predictions if match has kicked off, is live, is finished, or is locked
       if (!isFinished && !isLive && !isLocked) {
         return;
       }
 
-      const mHome = m.homeScore ?? (isFinished ? 0 : null);
-      const mAway = m.awayScore ?? (isFinished ? 0 : null);
+      const hasScores = m.homeScore !== null && m.homeScore !== undefined && m.awayScore !== null && m.awayScore !== undefined;
+      const mHome = hasScores ? m.homeScore! : (isFinished ? 0 : null);
+      const mAway = hasScores ? m.awayScore! : (isFinished ? 0 : null);
 
-      let type: 'exact' | 'outcome' | 'miss' | 'live' = 'miss';
+      let type: 'exact' | 'outcome' | 'miss' | 'live' | 'locked' = 'locked';
       let points = p.pointsEarned ?? 0;
 
-      if (isLive) {
-        type = 'live';
-      } else if (isFinished && mHome !== null && mAway !== null) {
+      if (isFinished && mHome !== null && mAway !== null) {
         const isExact = p.homeScore === mHome && p.awayScore === mAway;
         const actualDiff = mHome - mAway;
         const predDiff = p.homeScore - p.awayScore;
@@ -120,6 +130,12 @@ export function UserPredictionsHistory({
           type = 'miss';
           points = 0;
         }
+      } else if (isLive) {
+        type = 'live';
+      } else {
+        // El partido está bloqueado pero aún no empieza ni finaliza: NO es un fallo
+        type = 'locked';
+        points = 0;
       }
 
       list.push({
@@ -142,16 +158,30 @@ export function UserPredictionsHistory({
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [predictions, matches]);
 
-  // Statistics calculation
+  // Statistics calculation (strictly based on completed matches!)
   const stats = useMemo(() => {
-    const total = evaluatedItems.length;
+    const finishedItems = evaluatedItems.filter(i => i.type === 'exact' || i.type === 'outcome' || i.type === 'miss');
+    const totalFinished = finishedItems.length;
     const exact = evaluatedItems.filter(i => i.type === 'exact').length;
     const outcome = evaluatedItems.filter(i => i.type === 'outcome').length;
     const miss = evaluatedItems.filter(i => i.type === 'miss').length;
-    const totalPoints = evaluatedItems.reduce((acc, curr) => acc + (curr.points || 0), 0);
-    const efficiency = total > 0 ? Math.round(((exact + outcome) / total) * 100) : 0;
+    const live = evaluatedItems.filter(i => i.type === 'live').length;
+    const locked = evaluatedItems.filter(i => i.type === 'locked').length;
 
-    return { total, exact, outcome, miss, totalPoints, efficiency };
+    const totalPoints = finishedItems.reduce((acc, curr) => acc + (curr.points || 0), 0);
+    const efficiency = totalFinished > 0 ? Math.round(((exact + outcome) / totalFinished) * 100) : 0;
+
+    return { 
+      total: totalFinished, 
+      totalAll: evaluatedItems.length,
+      exact, 
+      outcome, 
+      miss, 
+      live, 
+      locked, 
+      totalPoints, 
+      efficiency 
+    };
   }, [evaluatedItems]);
 
   // Filtered items
@@ -159,6 +189,8 @@ export function UserPredictionsHistory({
     if (filter === 'exact') return evaluatedItems.filter(i => i.type === 'exact');
     if (filter === 'outcome') return evaluatedItems.filter(i => i.type === 'outcome');
     if (filter === 'miss') return evaluatedItems.filter(i => i.type === 'miss');
+    if (filter === 'live') return evaluatedItems.filter(i => i.type === 'live');
+    if (filter === 'locked') return evaluatedItems.filter(i => i.type === 'locked');
     return evaluatedItems;
   }, [evaluatedItems, filter]);
 
@@ -180,7 +212,8 @@ export function UserPredictionsHistory({
           <span>Historial de Pronósticos</span>
         </h4>
         <span className="text-[10px] font-mono text-zinc-500 font-bold">
-          {stats.total} {stats.total === 1 ? 'partido' : 'partidos'}
+          {stats.total} {stats.total === 1 ? 'partido finalizado' : 'partidos finalizados'}
+          {stats.locked > 0 && ` · ${stats.locked} por empezar`}
         </span>
       </div>
 
@@ -220,7 +253,7 @@ export function UserPredictionsHistory({
           </div>
 
           {/* FILTER PILLS */}
-          <div className="flex bg-[#121217] p-1 rounded-xl border border-zinc-800 gap-1 text-[10px] font-bold">
+          <div className="flex bg-[#121217] p-1 rounded-xl border border-zinc-800 gap-1 text-[10px] font-bold overflow-x-auto">
             <button
               type="button"
               onClick={() => {
@@ -228,11 +261,11 @@ export function UserPredictionsHistory({
                 setFilter('all');
               }}
               className={cn(
-                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                "py-1 px-2.5 rounded-lg transition-colors cursor-pointer text-center whitespace-nowrap shrink-0",
                 filter === 'all' ? "bg-zinc-700 text-white shadow-sm" : "text-zinc-400 hover:text-white"
               )}
             >
-              Todos ({stats.total})
+              Todos ({stats.totalAll})
             </button>
             <button
               type="button"
@@ -241,7 +274,7 @@ export function UserPredictionsHistory({
                 setFilter('exact');
               }}
               className={cn(
-                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                "py-1 px-2.5 rounded-lg transition-colors cursor-pointer text-center whitespace-nowrap shrink-0",
                 filter === 'exact' ? "bg-emerald-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
               )}
             >
@@ -254,7 +287,7 @@ export function UserPredictionsHistory({
                 setFilter('outcome');
               }}
               className={cn(
-                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                "py-1 px-2.5 rounded-lg transition-colors cursor-pointer text-center whitespace-nowrap shrink-0",
                 filter === 'outcome' ? "bg-sky-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
               )}
             >
@@ -267,12 +300,42 @@ export function UserPredictionsHistory({
                 setFilter('miss');
               }}
               className={cn(
-                "flex-1 py-1 px-1 rounded-lg transition-colors cursor-pointer text-center",
+                "py-1 px-2.5 rounded-lg transition-colors cursor-pointer text-center whitespace-nowrap shrink-0",
                 filter === 'miss' ? "bg-rose-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
               )}
             >
               ❌ Fallos ({stats.miss})
             </button>
+            {stats.live > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  vibrateTap();
+                  setFilter('live');
+                }}
+                className={cn(
+                  "py-1 px-2.5 rounded-lg transition-colors cursor-pointer text-center whitespace-nowrap shrink-0",
+                  filter === 'live' ? "bg-orange-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+                )}
+              >
+                ⚡ En Vivo ({stats.live})
+              </button>
+            )}
+            {stats.locked > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  vibrateTap();
+                  setFilter('locked');
+                }}
+                className={cn(
+                  "py-1 px-2.5 rounded-lg transition-colors cursor-pointer text-center whitespace-nowrap shrink-0",
+                  filter === 'locked' ? "bg-amber-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+                )}
+              >
+                ⏳ Por Empezar ({stats.locked})
+              </button>
+            )}
           </div>
 
           {/* PREDICTIONS LIST */}
@@ -290,7 +353,8 @@ export function UserPredictionsHistory({
                     item.type === 'exact' && "border-emerald-500/40 bg-gradient-to-b from-[#0b1712] to-[#0f1412] shadow-[0_0_15px_rgba(16,185,129,0.1)]",
                     item.type === 'outcome' && "border-sky-500/40 bg-gradient-to-b from-[#0a1726] to-[#0e1218] shadow-[0_0_15px_rgba(56,189,248,0.1)]",
                     item.type === 'miss' && "border-rose-500/30 bg-gradient-to-b from-[#180e11] to-[#121113]",
-                    item.type === 'live' && "border-orange-500/50 bg-gradient-to-b from-[#1d120a] to-[#14110e] shadow-[0_0_15px_rgba(249,115,22,0.15)]"
+                    item.type === 'live' && "border-orange-500/50 bg-gradient-to-b from-[#1d120a] to-[#14110e] shadow-[0_0_15px_rgba(249,115,22,0.15)]",
+                    item.type === 'locked' && "border-zinc-700/60 bg-gradient-to-b from-[#18181b] to-[#111113]"
                   )}
                 >
                   {/* Header: Date + Round + Points Pill */}
@@ -319,6 +383,10 @@ export function UserPredictionsHistory({
                         <span className="text-[10px] font-black text-orange-300 bg-orange-500/20 border border-orange-500/40 px-2 py-0.5 rounded-full animate-pulse">
                           ⚡ En Juego
                         </span>
+                      ) : item.type === 'locked' ? (
+                        <span className="text-[10px] font-bold text-amber-300/90 bg-amber-500/10 border border-amber-500/30 px-2 py-0.5 rounded-full flex items-center gap-1">
+                          <Clock className="w-3 h-3 text-amber-400" /> Por Empezar
+                        </span>
                       ) : (
                         <span className="text-[10px] font-black text-rose-300 bg-rose-500/20 border border-rose-500/30 px-2 py-0.5 rounded-full">
                           ❌ 0 Pts (Fallo)
@@ -345,9 +413,15 @@ export function UserPredictionsHistory({
                     <div className="flex flex-col items-center justify-center shrink-0 px-2">
                       {/* Marcador Real */}
                       <div className="font-mono font-black text-sm text-white bg-black/50 px-2.5 py-0.5 rounded-lg border border-zinc-700/80 shadow-inner">
-                        <span>{item.matchHome ?? '-'}</span>
-                        <span className="text-zinc-500 px-1">-</span>
-                        <span>{item.matchAway ?? '-'}</span>
+                        {item.type === 'locked' ? (
+                          <span className="text-zinc-500 text-[11px] font-sans font-bold px-1">vs</span>
+                        ) : (
+                          <>
+                            <span>{item.matchHome ?? '-'}</span>
+                            <span className="text-zinc-500 px-1">-</span>
+                            <span>{item.matchAway ?? '-'}</span>
+                          </>
+                        )}
                       </div>
 
                       {/* Apuesta del Usuario */}
