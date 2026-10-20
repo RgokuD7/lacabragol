@@ -238,6 +238,8 @@ export const KNOWN_FOOTBALL_ALIASES: Record<string, string[]> = {
   'raphinha': ['raphael dias belloli', 'raphael dias'],
   'vitinha': ['vitor machado ferreira', 'vitor machado', 'vitor ferreira'],
   'alisson': ['alisson becker'],
+  'alexsandro': ['alexsandro ribeiro', 'alexsandro victor de souza ribeiro', 'alexsandro de souza ribeiro'],
+  'isaque': ['isaque severino silva', 'isaque silva'],
   'ederson': ['ederson moraes'],
   'marquinhos': ['marcos aoas correa'],
   'gabriel martinelli': ['g. martinelli', 'martinelli'],
