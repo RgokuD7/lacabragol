@@ -601,7 +601,14 @@ export function RankingTab() {
         </div>
       </div>
 
-      <UserProfileModal user={selectedUser} isOpen={selectedUser !== null} onClose={() => setSelectedUser(null)} groupId={activeGroupId} />
+      <UserProfileModal 
+        user={selectedUser} 
+        isOpen={selectedUser !== null} 
+        onClose={() => setSelectedUser(null)} 
+        groupId={activeGroupId}
+        selectedStageId={selectedStageId}
+        stages={stages}
+      />
 
       <StageWinnersModal
         isOpen={showWinnersModal}

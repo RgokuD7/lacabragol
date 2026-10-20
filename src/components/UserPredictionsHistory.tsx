@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { Prediction, Match } from '../types';
+import { Prediction, Match, Stage } from '../types';
 import { useMatches } from '../hooks/useMatches';
+import { useSettings } from './SettingsProvider';
+import { subscribeStages } from '../lib/stages';
 import { TeamBadge } from './TeamBadge';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
@@ -18,13 +20,16 @@ import {
   Sparkles, 
   Filter, 
   Flame,
-  Award
+  Award,
+  Layers
 } from 'lucide-react';
 
 interface UserPredictionsHistoryProps {
   userId: string;
   groupId?: string | null;
   userName?: string;
+  initialStageId?: string;
+  stages?: Stage[];
 }
 
 interface EvaluatedPrediction {
@@ -45,12 +50,37 @@ interface EvaluatedPrediction {
 export function UserPredictionsHistory({
   userId,
   groupId,
-  userName = 'este usuario'
+  userName = 'este usuario',
+  initialStageId,
+  stages
 }: UserPredictionsHistoryProps) {
   const { matches } = useMatches();
+  const { settings } = useSettings();
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [filter, setFilter] = useState<'all' | 'exact' | 'outcome' | 'miss' | 'live' | 'locked'>('all');
+  const [stageFilter, setStageFilter] = useState<string>(initialStageId || 'all');
+  const [internalStages, setInternalStages] = useState<Stage[]>(stages || []);
+
+  // Sincronizar etapas del grupo (por prop o suscripción)
+  useEffect(() => {
+    if (stages && stages.length > 0) {
+      setInternalStages(stages);
+      return;
+    }
+    if (!groupId) return;
+    const unsub = subscribeStages(groupId, (fetched) => {
+      setInternalStages(fetched);
+    });
+    return () => unsub();
+  }, [groupId, stages]);
+
+  // Si cambia la fase seleccionada en el Ranking o el usuario a inspeccionar, actualizar el filtro
+  useEffect(() => {
+    if (initialStageId !== undefined) {
+      setStageFilter(initialStageId);
+    }
+  }, [initialStageId, userId]);
 
   useEffect(() => {
     if (!userId) return;
@@ -73,7 +103,38 @@ export function UserPredictionsHistory({
     return () => unsub();
   }, [userId, groupId]);
 
-  // Combine predictions with matches and evaluate outcomes
+  // Jornadas únicas disponibles entre los partidos
+  const availableMatchGroups = useMemo(() => {
+    const set = new Set<string>();
+    matches.forEach(m => {
+      if (m.group) set.add(m.group);
+    });
+    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+  }, [matches]);
+
+  // Determinar los IDs de partidos correspondientes a la fase/etapa seleccionada
+  const stageFilterMatchIds = useMemo(() => {
+    if (stageFilter === 'all') return null; // 'all' incluye todo sin filtrar por etapa
+
+    // 1. ¿Es un ID de etapa de internalStages?
+    const st = internalStages.find(s => s.id === stageFilter);
+    if (st) {
+      const groupSet = new Set(st.matchGroups || []);
+      return new Set(matches.filter(m => groupSet.has(m.group || 'Fase Regular')).map(m => m.id));
+    }
+
+    // 2. ¿Es un grupo de partido directo (ej: 'Jornada 1', 'Jornada 3')?
+    return new Set(matches.filter(m => (m.group || 'Fase Regular') === stageFilter).map(m => m.id));
+  }, [stageFilter, internalStages, matches]);
+
+  const currentStageLabel = useMemo(() => {
+    if (stageFilter === 'all') return 'Todas las Fases (Acumulado)';
+    const st = internalStages.find(s => s.id === stageFilter);
+    if (st) return `${st.name}${st.status === 'active' ? ' (Fase Actual)' : ''}`;
+    return stageFilter;
+  }, [stageFilter, internalStages]);
+
+  // Combinar predicciones con partidos y evaluar resultados
   const evaluatedItems = useMemo<EvaluatedPrediction[]>(() => {
     if (predictions.length === 0 || matches.length === 0) return [];
 
@@ -81,6 +142,11 @@ export function UserPredictionsHistory({
     const list: EvaluatedPrediction[] = [];
 
     predictions.forEach(p => {
+      // Filtrar según la fase elegida si hay filtro activo
+      if (stageFilterMatchIds && !stageFilterMatchIds.has(p.matchId)) {
+        return;
+      }
+
       const m = matches.find(match => match.id === p.matchId);
       if (!m) return;
 
@@ -100,7 +166,7 @@ export function UserPredictionsHistory({
                          estadoLower.includes('ft') || 
                          estadoLower.includes('termin');
 
-      // Security check: Only show predictions if match has kicked off, is live, is finished, or is locked
+      // Solo mostrar predicciones de partidos finalizados, en juego, o bloqueados por jugar
       if (!isFinished && !isLive && !isLocked) {
         return;
       }
@@ -112,6 +178,9 @@ export function UserPredictionsHistory({
       let type: 'exact' | 'outcome' | 'miss' | 'live' | 'locked' = 'locked';
       let points = p.pointsEarned ?? 0;
 
+      const pointsExact = settings?.pointsExactMatch ?? 3;
+      const pointsWinner = settings?.pointsWinnerTie ?? 1;
+
       if (isFinished && mHome !== null && mAway !== null) {
         const isExact = p.homeScore === mHome && p.awayScore === mAway;
         const actualDiff = mHome - mAway;
@@ -122,10 +191,10 @@ export function UserPredictionsHistory({
 
         if (isExact) {
           type = 'exact';
-          if (!points) points = 6;
+          if (!points) points = pointsExact;
         } else if (isOutcome) {
           type = 'outcome';
-          if (!points) points = 3;
+          if (!points) points = pointsWinner;
         } else {
           type = 'miss';
           points = 0;
@@ -133,7 +202,7 @@ export function UserPredictionsHistory({
       } else if (isLive) {
         type = 'live';
       } else {
-        // El partido está bloqueado pero aún no empieza ni finaliza: NO es un fallo
+        // El partido está bloqueado o por empezar hoy, pero AÚN NO HA COMENZADO NI FINALIZADO
         type = 'locked';
         points = 0;
       }
@@ -154,11 +223,11 @@ export function UserPredictionsHistory({
       });
     });
 
-    // Sort by date descending (most recent first)
+    // Ordenar por fecha descendente (más recientes primero)
     return list.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [predictions, matches]);
+  }, [predictions, matches, stageFilterMatchIds, settings]);
 
-  // Statistics calculation (strictly based on completed matches!)
+  // Cálculo de estadísticas (estrictamente sobre partidos finalizados con marcador real)
   const stats = useMemo(() => {
     const finishedItems = evaluatedItems.filter(i => i.type === 'exact' || i.type === 'outcome' || i.type === 'miss');
     const totalFinished = finishedItems.length;
@@ -184,7 +253,7 @@ export function UserPredictionsHistory({
     };
   }, [evaluatedItems]);
 
-  // Filtered items
+  // Items filtrados por categoría
   const filteredItems = useMemo(() => {
     if (filter === 'exact') return evaluatedItems.filter(i => i.type === 'exact');
     if (filter === 'outcome') return evaluatedItems.filter(i => i.type === 'outcome');
@@ -217,6 +286,52 @@ export function UserPredictionsHistory({
         </span>
       </div>
 
+      {/* SELECTOR DE FASE / ETAPA */}
+      <div className="bg-[#121217] border border-zinc-800/90 rounded-xl p-2.5 flex items-center justify-between gap-2 shadow-sm">
+        <div className="flex items-center gap-2 min-w-0">
+          <div className="w-6 h-6 rounded-lg bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 shrink-0">
+            <Layers className="w-3.5 h-3.5" />
+          </div>
+          <div className="flex flex-col min-w-0">
+            <span className="text-[9px] uppercase font-bold text-zinc-500 tracking-wider">Fase Evaluada:</span>
+            <span className="text-[11px] font-bold text-white truncate max-w-[150px] sm:max-w-[200px]" title={currentStageLabel}>
+              {currentStageLabel}
+            </span>
+          </div>
+        </div>
+
+        <select
+          value={stageFilter}
+          onChange={(e) => {
+            vibrateTap();
+            setStageFilter(e.target.value);
+            setFilter('all');
+          }}
+          className="bg-zinc-900 border border-zinc-700/80 hover:border-amber-400/60 rounded-lg px-2.5 py-1.5 text-xs text-white font-bold outline-none focus:border-amber-400 max-w-[190px] sm:max-w-[240px] truncate cursor-pointer transition-colors shadow-inner"
+        >
+          <option value="all">🏆 Todas las Fases (Acumulado)</option>
+          {internalStages.length > 0 && (
+            <optgroup label="Etapas del Torneo">
+              {internalStages.map(st => (
+                <option key={st.id} value={st.id}>
+                  {st.status === 'active' ? '⚡ ' : '🏁 '}
+                  {st.name} {st.status === 'active' ? '(Fase Actual)' : ''}
+                </option>
+              ))}
+            </optgroup>
+          )}
+          {availableMatchGroups.length > 0 && (
+            <optgroup label="Por Jornada">
+              {availableMatchGroups.map(g => (
+                <option key={g} value={g}>
+                  📅 {g}
+                </option>
+              ))}
+            </optgroup>
+          )}
+        </select>
+      </div>
+
       {loading ? (
         <div className="py-6 text-center text-xs text-zinc-500 space-y-1">
           <Clock className="w-5 h-5 mx-auto text-zinc-600 animate-spin" />
@@ -225,30 +340,48 @@ export function UserPredictionsHistory({
       ) : evaluatedItems.length === 0 ? (
         <div className="bg-zinc-900/30 rounded-2xl p-6 text-center border border-zinc-800/40 border-dashed space-y-1.5">
           <Clock className="w-6 h-6 mx-auto text-zinc-600" />
-          <p className="text-xs font-bold text-zinc-400">Sin pronósticos evaluados todavía</p>
+          <p className="text-xs font-bold text-zinc-400">Sin pronósticos en esta fase</p>
           <p className="text-[11px] text-zinc-600">
-            Los resultados aparecerán aquí una vez que comiencen o finalicen los partidos.
+            {stageFilter !== 'all' 
+              ? 'Este usuario no tiene pronósticos registrados en la fase seleccionada.'
+              : 'Los resultados aparecerán aquí una vez que comiencen o finalicen los partidos.'}
           </p>
+          {stageFilter !== 'all' && (
+            <button
+              type="button"
+              onClick={() => {
+                vibrateTap();
+                setStageFilter('all');
+              }}
+              className="mt-2 text-xs font-bold text-amber-400 hover:text-amber-300 underline cursor-pointer"
+            >
+              Ver todas las fases acumuladas
+            </button>
+          )}
         </div>
       ) : (
         <>
-          {/* STATS PERFORMANCE GRID */}
-          <div className="grid grid-cols-4 gap-2">
-            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
-              <span className="text-[9px] uppercase font-bold text-zinc-500 block">Jugados</span>
+          {/* STATS PERFORMANCE GRID CON PUNTOS DE LA FASE */}
+          <div className="grid grid-cols-5 gap-1.5 sm:gap-2">
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+              <span className="text-[8px] sm:text-[9px] uppercase font-bold text-zinc-500 block truncate">Jugados</span>
               <span className="font-mono font-black text-sm text-white">{stats.total}</span>
             </div>
-            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
-              <span className="text-[9px] uppercase font-bold text-emerald-500 block">🎯 Plenos</span>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+              <span className="text-[8px] sm:text-[9px] uppercase font-bold text-emerald-500 block truncate">🎯 Plenos</span>
               <span className="font-mono font-black text-sm text-emerald-400">{stats.exact}</span>
             </div>
-            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
-              <span className="text-[9px] uppercase font-bold text-sky-500 block">⚽ Aciertos</span>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+              <span className="text-[8px] sm:text-[9px] uppercase font-bold text-sky-500 block truncate">⚽ Aciertos</span>
               <span className="font-mono font-black text-sm text-sky-400">{stats.outcome}</span>
             </div>
-            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2.5 text-center shadow-inner">
-              <span className="text-[9px] uppercase font-bold text-amber-500 block">Efectividad</span>
-              <span className="font-mono font-black text-sm text-amber-400">{stats.efficiency}%</span>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+              <span className="text-[8px] sm:text-[9px] uppercase font-bold text-amber-500 block truncate">🏆 Puntos</span>
+              <span className="font-mono font-black text-sm text-amber-400">+{stats.totalPoints}</span>
+            </div>
+            <div className="bg-[#121217] border border-zinc-800 rounded-xl p-2 text-center shadow-inner">
+              <span className="text-[8px] sm:text-[9px] uppercase font-bold text-purple-400 block truncate">Efectiv.</span>
+              <span className="font-mono font-black text-sm text-purple-300">{stats.efficiency}%</span>
             </div>
           </div>
 

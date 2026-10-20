@@ -5,7 +5,7 @@ import { PodiumDisplay } from './PodiumDisplay';
 import { Hash, Mail, Trophy, Award } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db } from '../lib/firebase';
-import { User, Podium } from '../types';
+import { User, Podium, Stage } from '../types';
 import { getGroupPodium } from '../lib/podium';
 import { AchievementBadge } from './AchievementBadge';
 import { TrophyRoomModal } from './TrophyRoomModal';
@@ -17,9 +17,18 @@ interface UserProfileModalProps {
   isOpen: boolean;
   onClose: () => void;
   groupId?: string | null;
+  selectedStageId?: string;
+  stages?: Stage[];
 }
 
-export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfileModalProps) {
+export function UserProfileModal({ 
+  user, 
+  isOpen, 
+  onClose, 
+  groupId,
+  selectedStageId,
+  stages
+}: UserProfileModalProps) {
   const [podium, setPodium] = useState<Podium | null>(null);
   const [loading, setLoading] = useState(false);
   const [isTrophyRoomOpen, setIsTrophyRoomOpen] = useState(false);
@@ -147,6 +156,8 @@ export function UserProfileModal({ user, isOpen, onClose, groupId }: UserProfile
           userId={user.uid}
           groupId={groupId}
           userName={user.nickname || user.displayName}
+          initialStageId={selectedStageId}
+          stages={stages}
         />
       </div>
 
