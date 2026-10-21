@@ -1473,8 +1473,16 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     }
   };
 
+  // Obtener usuarios exclusivos del grupo activo para cálculo y cierre de etapas
+  const getStageGroupUsers = () => {
+    if (!activeGroup?.members || activeGroup.members.length === 0) return users;
+    const mSet = new Set(activeGroup.members);
+    return users.filter(u => mSet.has(u.uid));
+  };
+
   const handleInitiateCloseStage = (stage: Stage) => {
-    const standings = calculateStageStandings(stage, matches, groupPredictions, users);
+    const stageUsers = getStageGroupUsers();
+    const standings = calculateStageStandings(stage, matches, groupPredictions, stageUsers);
     setStageStandingsPreview(standings);
     setStageToClose(stage);
     setShowCloseModal(true);
@@ -1486,12 +1494,13 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setIsClosingStage(true);
     vibrateTap();
     try {
+      const stageUsers = getStageGroupUsers();
       const { winners } = await closeStage(
         stageToClose.id,
         stageToClose,
         matches,
         groupPredictions,
-        users,
+        stageUsers,
         user?.uid
       );
       vibrateSuccess();
@@ -1525,7 +1534,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
   const handleRecalculateStage = async (stage: Stage) => {
     vibrateTap();
     try {
-      await recalculateClosedStage(stage.id, stage, matches, groupPredictions, users);
+      const stageUsers = getStageGroupUsers();
+      await recalculateClosedStage(stage.id, stage, matches, groupPredictions, stageUsers);
       vibrateSuccess();
       setFeedback({ type: 'success', text: `Ganadores de la etapa "${stage.name}" recalculados con éxito.` });
     } catch (err: any) {
@@ -5032,7 +5042,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         const activeStageMatchesTotal = activeStageMatches.length;
 
         const liveStandings = activeStage
-          ? calculateStageStandings(activeStage, matches, groupPredictions, users)
+          ? calculateStageStandings(activeStage, matches, groupPredictions, getStageGroupUsers())
           : [];
 
         return (
@@ -5739,6 +5749,7 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
         isOpen={showWinnersModal}
         onClose={() => setShowWinnersModal(false)}
         stages={stages}
+        memberIds={activeGroup?.members}
       />
 
       {/* Match JSON / IA Admin Modal */}

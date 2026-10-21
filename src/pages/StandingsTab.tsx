@@ -12,7 +12,8 @@ import {
   Table2, 
   GitFork, 
   RotateCcw,
-  Info
+  Info,
+  Play
 } from 'lucide-react';
 import { recalculateStandings } from '../lib/standings';
 import { vibrateTap } from '../lib/haptics';
@@ -20,6 +21,8 @@ import { cn } from '../lib/utils';
 import { TopScorersView } from '../components/TopScorersView';
 import { TopAssistsView } from '../components/TopAssistsView';
 import { TeamMatchesModal } from '../components/TeamMatchesModal';
+import { useMatches } from '../hooks/useMatches';
+import { RankingEvolutionModal } from '../components/RankingEvolutionModal';
 
 export interface StandingTeam {
   id?: number;
@@ -288,6 +291,8 @@ const DEFAULT_UCL_ROUNDS: IRoundProps[] = [
 
 export function StandingsTab() {
   const { standings, seasonInfo, cupTrees, loading } = useStandings();
+  const { matches } = useMatches();
+  const [isEvolutionOpen, setIsEvolutionOpen] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'table' | 'brackets'>('table');
@@ -478,20 +483,34 @@ export function StandingsTab() {
           </div>
 
           {activeSection === 'standings' && (
-            <button
-              type="button"
-              onClick={async () => {
-                setIsRefreshing(true);
-                vibrateTap();
-                await recalculateStandings().catch(console.error);
-                setIsRefreshing(false);
-              }}
-              disabled={isRefreshing}
-              className="p-2 bg-[#121215] hover:bg-zinc-800 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
-              title="Recalcular Tabla Oficial"
-            >
-              <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-blue-400")} />
-            </button>
+            <div className="flex items-center gap-1.5 shrink-0">
+              <button
+                type="button"
+                onClick={() => {
+                  vibrateTap();
+                  setIsEvolutionOpen(true);
+                }}
+                className="px-2.5 py-1.5 rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 border border-emerald-500/40 text-emerald-300 font-bold text-xs flex items-center gap-1.5 transition-colors cursor-pointer"
+                title="Ver animación de la evolución de la tabla de posiciones partido a partido"
+              >
+                <Play className="w-3 h-3 fill-emerald-300 text-emerald-300" />
+                <span className="hidden sm:inline">Evolución</span>
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  setIsRefreshing(true);
+                  vibrateTap();
+                  await recalculateStandings().catch(console.error);
+                  setIsRefreshing(false);
+                }}
+                disabled={isRefreshing}
+                className="p-2 bg-[#121215] hover:bg-zinc-800 border border-zinc-800 rounded-lg text-zinc-400 hover:text-white transition-colors cursor-pointer shrink-0 disabled:opacity-50"
+                title="Recalcular Tabla Oficial"
+              >
+                <RefreshCw className={cn("w-3.5 h-3.5", isRefreshing && "animate-spin text-blue-400")} />
+              </button>
+            </div>
           )}
         </div>
 
@@ -704,6 +723,17 @@ export function StandingsTab() {
         teamName={selectedTeamForModal?.name || null}
         teamLogo={selectedTeamForModal?.logo}
         standingRow={selectedTeamForModal?.row}
+      />
+
+      {/* Modal de Evolución de la Tabla */}
+      <RankingEvolutionModal
+        isOpen={isEvolutionOpen}
+        onClose={() => setIsEvolutionOpen(false)}
+        matches={matches}
+        predictions={[]}
+        users={[]}
+        stages={[]}
+        initialViewType="teams"
       />
     </div>
   );

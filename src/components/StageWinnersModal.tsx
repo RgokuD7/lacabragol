@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { BaseBottomSheet } from './BaseBottomSheet';
 import { Stage, StageStandingItem } from '../types';
 import { UserAvatar } from './UserAvatar';
@@ -11,6 +11,7 @@ interface StageWinnersModalProps {
   onClose: () => void;
   stages: Stage[];
   onSelectUser?: (userId: string) => void;
+  memberIds?: string[];
 }
 
 export function StageWinnersModal({
@@ -18,8 +19,13 @@ export function StageWinnersModal({
   onClose,
   stages,
   onSelectUser,
+  memberIds,
 }: StageWinnersModalProps) {
   const [expandedStageId, setExpandedStageId] = useState<string | null>(null);
+
+  const memberSet = useMemo(() => {
+    return memberIds && memberIds.length > 0 ? new Set(memberIds) : null;
+  }, [memberIds]);
 
   if (!isOpen) return null;
 
@@ -92,12 +98,35 @@ export function StageWinnersModal({
           </div>
         ) : (
           closedStages.map((stage) => {
-            const winners = stage.winners || [];
-            const top1 = winners.find(w => w.rank === 1);
-            const top2 = winners.find(w => w.rank === 2);
-            const top3 = winners.find(w => w.rank === 3);
+            // Filtrar estrictamente por los miembros del grupo actual si se proporciona memberSet
+            let rawStandings = stage.fullStandings || [];
+            if (memberSet) {
+              rawStandings = rawStandings.filter(s => memberSet.has(s.userId));
+            }
+
+            // Asignar rangos correctos dentro de los miembros de este grupo
+            let currentRank = 1;
+            const fullStandings: StageStandingItem[] = [];
+            for (let i = 0; i < rawStandings.length; i++) {
+              if (i > 0) {
+                const prev = rawStandings[i - 1];
+                const curr = rawStandings[i];
+                if (curr.points === prev.points && curr.exactMatches === prev.exactMatches) {
+                  // Empate en puntos y plenos
+                } else {
+                  currentRank = i + 1;
+                }
+              }
+              fullStandings.push({
+                ...rawStandings[i],
+                rank: currentRank
+              });
+            }
+
+            const top1 = fullStandings.find(w => w.rank === 1);
+            const top2 = fullStandings.find(w => w.rank === 2);
+            const top3 = fullStandings.find(w => w.rank === 3);
             const isExpanded = expandedStageId === stage.id;
-            const fullStandings = stage.fullStandings || [];
 
             return (
               <div

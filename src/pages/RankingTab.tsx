@@ -10,6 +10,7 @@ import { getGroupPodium } from '../lib/podium';
 import { handleFirestoreError, OperationType } from '../lib/utils';
 import { subscribeStages, calculateStageStandings } from '../lib/stages';
 import { StageWinnersModal } from '../components/StageWinnersModal';
+import { RankingEvolutionModal } from '../components/RankingEvolutionModal';
 import { 
   Search, 
   Crown,
@@ -24,7 +25,8 @@ import {
   Hash,
   ChevronRight,
   Layers,
-  Sparkles
+  Sparkles,
+  Play
 } from 'lucide-react';
 import { BaseBottomSheet } from '../components/BaseBottomSheet';
 import { UserAvatar } from '../components/UserAvatar';
@@ -46,6 +48,7 @@ export function RankingTab() {
   const [selectedStageId, setSelectedStageId] = useState<string>('all');
   const [userSelectedFilter, setUserSelectedFilter] = useState(false);
   const [showWinnersModal, setShowWinnersModal] = useState(false);
+  const [isEvolutionOpen, setIsEvolutionOpen] = useState(false);
   const [matches, setMatches] = useState<Match[]>([]);
   const [groupPredictions, setGroupPredictions] = useState<Prediction[]>([]);
 
@@ -215,20 +218,34 @@ export function RankingTab() {
           </p>
         </div>
 
-        {/* Current user position badge without repeating points already on top navbar */}
-        {profile && currentUserIndex !== -1 && (
-          <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1 flex items-center gap-2 shrink-0 shadow-sm">
-            <span className="w-5 h-5 rounded-lg bg-blue-600 text-white font-black text-[10px] flex items-center justify-center font-mono">
-              #{currentUserIndex + 1}
-            </span>
-            <div className="leading-tight">
-              <p className="text-[9px] text-zinc-400 font-bold uppercase">Tu Posición</p>
-              <p className="text-[11px] font-bold text-emerald-400 font-mono">
-                {users[currentUserIndex]?.exactMatches || 0} <span className="text-[9px] text-zinc-400 font-normal">exactos</span>
-              </p>
+        <div className="flex items-center gap-2">
+          {/* Botón Play Evolución */}
+          <button
+            type="button"
+            onClick={() => setIsEvolutionOpen(true)}
+            className="px-2.5 py-1.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-black text-[11px] flex items-center gap-1.5 shadow-md shadow-emerald-900/30 transition-all cursor-pointer hover:scale-[1.02] active:scale-[0.98]"
+            title="Ver animación de cómo evolucionó el ranking partido a partido"
+          >
+            <Play className="w-3.5 h-3.5 fill-white text-white" />
+            <span className="hidden sm:inline">Ver Evolución</span>
+            <span className="sm:hidden">Evolución</span>
+          </button>
+
+          {/* Current user position badge without repeating points already on top navbar */}
+          {profile && currentUserIndex !== -1 && (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-xl px-2.5 py-1 flex items-center gap-2 shrink-0 shadow-sm">
+              <span className="w-5 h-5 rounded-lg bg-blue-600 text-white font-black text-[10px] flex items-center justify-center font-mono">
+                #{currentUserIndex + 1}
+              </span>
+              <div className="leading-tight">
+                <p className="text-[9px] text-zinc-400 font-bold uppercase">Tu Posición</p>
+                <p className="text-[11px] font-bold text-emerald-400 font-mono">
+                  {users[currentUserIndex]?.exactMatches || 0} <span className="text-[9px] text-zinc-400 font-normal">exactos</span>
+                </p>
+              </div>
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Salón de Ganadores por Etapa Banner */}
@@ -614,12 +631,28 @@ export function RankingTab() {
         isOpen={showWinnersModal}
         onClose={() => setShowWinnersModal(false)}
         stages={stages}
+        memberIds={activeGroup?.members}
         onSelectUser={(uid) => {
           const u = rawUsers.find(x => x.uid === uid) || users.find(x => x.uid === uid);
           if (u) {
             handleUserClick(u);
           }
         }}
+      />
+
+      {/* Modal de Evolución del Ranking */}
+      <RankingEvolutionModal
+        isOpen={isEvolutionOpen}
+        onClose={() => setIsEvolutionOpen(false)}
+        matches={matches}
+        predictions={groupPredictions}
+        users={rawUsers}
+        stages={stages}
+        selectedStageId={selectedStageId}
+        activeGroupId={activeGroupId}
+        pointsExact={settings?.pointsExactMatch || 3}
+        pointsWinner={settings?.pointsWinnerTie || 1}
+        onSelectUser={(u) => handleUserClick(u)}
       />
     </div>
   );
