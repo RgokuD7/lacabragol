@@ -24,7 +24,7 @@ export function BottomNav({ activeTab, setActiveTab, unpredictedCount, isAdmin }
 
   return (
     <nav 
-      className="fixed bottom-0 left-0 w-full z-[999] m-0 bg-[#111114]/95 backdrop-blur-2xl border-t border-zinc-800/80 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
+      className="fixed bottom-0 left-0 w-full z-[999] m-0 bg-[#111114] border-t border-zinc-800 shadow-[0_-10px_40px_rgba(0,0,0,0.5)]"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       <div className="max-w-4xl mx-auto flex justify-between px-1 py-1">

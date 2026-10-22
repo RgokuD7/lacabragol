@@ -145,9 +145,14 @@ export function QuickQRScannerModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {/* Backdrop */}
       <div 
-        className="relative w-full max-w-sm bg-[#121215] border border-zinc-800 rounded-3xl p-5 shadow-2xl overflow-hidden flex flex-col items-center text-center"
+        className="fixed inset-0 bg-black/80 animate-in fade-in duration-150" 
+        onClick={onClose} 
+      />
+      <div 
+        className="relative z-10 w-full max-w-sm bg-[#121215] border border-zinc-800 rounded-3xl p-5 shadow-2xl overflow-hidden flex flex-col items-center text-center antialiased"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Close Button */}

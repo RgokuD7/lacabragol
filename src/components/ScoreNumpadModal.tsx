@@ -138,7 +138,7 @@ export function ScoreNumpadModal({
       <div className="fixed inset-0 z-[1050] flex flex-col justify-end animate-in fade-in duration-200">
         {/* Backdrop */}
         <div 
-          className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+          className="absolute inset-0 bg-black/75"
           onClick={onClose}
         />
 

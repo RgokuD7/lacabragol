@@ -419,7 +419,7 @@ export function Layout() {
   return (
     <div className={`flex flex-col ${activeTab === 'standings' ? 'h-[100dvh] overflow-hidden' : 'min-h-[100dvh]'} w-full bg-[#09090b] text-[#e4e4e7] font-sans relative`}>
       {/* Top Navbar Compacto para Teléfono */}
-      <header className="bg-[#111114]/95 backdrop-blur-md border-b border-zinc-800/80 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
+      <header className="bg-[#111114] border-b border-zinc-800 sticky top-0 z-40 shrink-0 pt-[env(safe-area-inset-top,0px)]">
         <div className="max-w-4xl mx-auto px-3 sm:px-4 h-14 flex items-center justify-between gap-2">
           {/* Logo & Brand Info */}
           <div className="flex items-center gap-3 min-w-0">
@@ -472,7 +472,7 @@ export function Layout() {
 
       {/* Floating Toast: Límite de Cuota IA (HTTP 429) */}
       {rateLimitNotice && (
-        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[999] w-[92%] max-w-md bg-amber-950/95 border border-amber-500/70 backdrop-blur-md rounded-xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
+        <div className="fixed top-16 left-1/2 -translate-x-1/2 z-[999] w-[92%] max-w-md bg-[#251006] border border-amber-500/80 rounded-xl p-3 shadow-2xl flex items-center gap-3 animate-in fade-in slide-in-from-top-4 duration-300">
           <div className="w-8 h-8 rounded-lg bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
             <AlertTriangle className="w-4 h-4" />
           </div>

@@ -4207,8 +4207,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
           {/* MODAL 1: CAMBIAR CLUB DE GOLEADOR EN PARTIDOS */}
           {editingScorerPlayer && (
-            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-[#121215] border border-blue-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-blue-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 antialiased">
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                   <div className="flex items-center gap-2">
                     <Shield className="w-5 h-5 text-blue-400" />
@@ -4319,8 +4319,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
           {/* MODAL 2: AÑADIR JUGADOR MANUAL AL CATÁLOGO OFICIAL */}
           {addingCustomPlayer && (
-            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-[#121215] border border-emerald-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-emerald-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 antialiased">
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                   <div className="flex items-center gap-2">
                     <Plus className="w-5 h-5 text-emerald-400" />
@@ -4426,8 +4426,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
           {/* MODAL 3: VINCULAR JUGADOR MANUAL A OFICIAL */}
           {linkingCustomPlayer && (
-            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-[#121215] border border-amber-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-amber-500/40 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 antialiased">
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                   <div className="flex items-center gap-2">
                     <Link2 className="w-5 h-5 text-amber-400" />
@@ -4534,8 +4534,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
           {/* MODAL 4: EDITAR JUGADOR DEL CATÁLOGO */}
           {editingCatalogPlayer && (
-            <div className="fixed inset-0 z-[1000] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4">
-              <div className="bg-[#121215] border border-zinc-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200">
+            <div className="fixed inset-0 z-[1000] bg-black/80 flex items-center justify-center p-4">
+              <div className="bg-[#121215] border border-zinc-700 rounded-2xl w-full max-w-md p-5 space-y-4 shadow-2xl animate-in zoom-in-95 duration-200 antialiased">
                 <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                   <div className="flex items-center gap-2">
                     <Edit3 className="w-5 h-5 text-amber-400" />
@@ -4767,8 +4767,9 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
 
           {/* MODAL 5: ACTUALIZAR CATÁLOGO CON JSON (MATCH INTELIGENTE) */}
           {updateJsonModalOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-              <div className="bg-[#121215] border border-amber-500/40 rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col text-white">
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+              <div className="fixed inset-0 bg-black/80 animate-in fade-in duration-150" onClick={() => setUpdateJsonModalOpen(false)} />
+              <div className="relative z-10 bg-[#121215] border border-amber-500/40 rounded-2xl max-w-2xl w-full p-5 space-y-4 shadow-2xl max-h-[90vh] flex flex-col text-white antialiased">
                 {/* Header */}
                 <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
                   <div className="flex items-center gap-2.5">

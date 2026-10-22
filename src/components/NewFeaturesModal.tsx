@@ -81,13 +81,13 @@ export function NewFeaturesModal({
     <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4 animate-in fade-in duration-200">
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-black/80 backdrop-blur-md"
+        className="absolute inset-0 bg-black/80"
         onClick={handleDismiss}
       />
 
       {/* Modal Dialog Box */}
       <div 
-        className="relative bg-gradient-to-b from-[#181822] to-[#101015] border border-zinc-700/80 w-full max-w-md mx-auto rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[90vh] transition-all"
+        className="relative bg-gradient-to-b from-[#181822] to-[#101015] border border-zinc-700/80 w-full max-w-md mx-auto rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[90vh] transition-all antialiased"
       >
         {/* Ambient Top Glow */}
         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-64 h-32 bg-blue-600/20 rounded-full blur-3xl pointer-events-none" />

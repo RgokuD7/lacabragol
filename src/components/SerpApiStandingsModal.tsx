@@ -44,9 +44,14 @@ export function SerpApiStandingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[1050] flex items-end sm:items-center justify-center bg-black/85 backdrop-blur-md p-0 sm:p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[1050] flex items-end sm:items-center justify-center p-0 sm:p-4">
+      {/* Backdrop */}
       <div 
-        className="bg-[#121215] border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl max-h-[90dvh] flex flex-col shadow-2xl overflow-hidden"
+        className="fixed inset-0 bg-black/80 animate-in fade-in duration-150" 
+        onClick={onClose} 
+      />
+      <div 
+        className="relative z-10 bg-[#121215] border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl max-h-[90dvh] flex flex-col shadow-2xl overflow-hidden antialiased"
         onClick={e => e.stopPropagation()}
       >
         {/* Header del Modal */}

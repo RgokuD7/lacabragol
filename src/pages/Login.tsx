@@ -26,7 +26,7 @@ export function Login() {
       {/* Subtle background ambient glow */}
       <div className="absolute w-[350px] h-[350px] bg-blue-600/10 rounded-full blur-[100px] pointer-events-none top-1/4 left-1/2 -translate-x-1/2" />
 
-      <div className="w-full max-w-sm bg-[#121215]/90 backdrop-blur-xl rounded-3xl shadow-2xl p-7 sm:p-8 border border-zinc-800/80 relative z-10 space-y-6">
+      <div className="w-full max-w-sm bg-[#121215] rounded-3xl shadow-2xl p-7 sm:p-8 border border-zinc-800/80 relative z-10 space-y-6 antialiased">
         {/* Brand Icon */}
         <div className="flex flex-col items-center text-center space-y-3">
           <img src="/logo.png" alt="La Cabra Gol Logo" className="w-24 h-24 object-contain drop-shadow-[0_0_15px_rgba(59,130,246,0.3)]" />

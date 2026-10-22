@@ -212,8 +212,16 @@ ${jsonStr}`;
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/80 backdrop-blur-sm animate-in fade-in duration-200">
-      <div className="bg-[#121217] border border-purple-500/40 rounded-2xl max-w-3xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col text-white custom-scrollbar overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+      {/* Backdrop */}
+      <div 
+        className="fixed inset-0 bg-black/80 animate-in fade-in duration-150" 
+        onClick={onClose} 
+      />
+      <div 
+        className="relative z-10 bg-[#121217] border border-purple-500/40 rounded-2xl max-w-3xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col text-white custom-scrollbar overflow-y-auto antialiased"
+        onClick={e => e.stopPropagation()}
+      >
         
         {/* HEADER */}
         <div className="flex items-center justify-between pb-3 border-b border-zinc-800">

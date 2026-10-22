@@ -523,7 +523,7 @@ export function MatchVsSummaryModal({
       </div>
 
       {/* STICKY BOTTOM ACTIONS */}
-      <div className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-[#0e0e13]/95 backdrop-blur-md border-t border-zinc-800 flex items-center justify-center gap-3 z-30 max-w-md mx-auto">
+      <div className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 bg-[#0e0e13] border-t border-zinc-800 flex items-center justify-center gap-3 z-30 max-w-md mx-auto">
         {onPredictClick && (
           <button
             type="button"

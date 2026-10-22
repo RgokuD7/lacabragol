@@ -46,7 +46,7 @@ export function BaseBottomSheet({
     )}>
       {/* Backdrop */}
       <div 
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-black/75"
         onClick={onClose}
       />
       
@@ -54,7 +54,7 @@ export function BaseBottomSheet({
       <div 
         id={id}
         className={cn(
-          "relative bg-[#111114] border-t border-zinc-800 w-full max-w-4xl mx-auto rounded-t-3xl shadow-2xl flex flex-col transition-transform duration-300 max-h-[90vh]",
+          "relative bg-[#111114] border-t border-zinc-800 w-full max-w-4xl mx-auto rounded-t-3xl shadow-2xl flex flex-col transition-transform duration-300 max-h-[90vh] antialiased",
           isOpen ? "translate-y-0" : "translate-y-full"
         )}
       >

@@ -668,7 +668,7 @@ export function StandingsTab() {
                     </td>
 
                     {/* Sticky PTS column */}
-                    <td className="py-1.5 px-2 text-center font-mono font-black text-xs text-white bg-blue-950/95 backdrop-blur-sm border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-10 w-12 min-w-[48px] max-w-[48px]">
+                    <td className="py-1.5 px-2 text-center font-mono font-black text-xs text-white bg-[#0e1f3d] border-r border-zinc-800 shadow-[2px_0_5px_rgba(0,0,0,0.5)] sticky left-[158px] z-10 w-12 min-w-[48px] max-w-[48px]">
                       {row.points}
                     </td>
                     <td className="py-1.5 px-2 text-center font-mono text-zinc-300 text-[11px]">{row.matches}</td>

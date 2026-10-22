@@ -78,9 +78,14 @@ export function PushNotificationPromptModal({ isTutorialActive = false }: PushNo
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[1100] flex items-end sm:items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-[1100] flex items-end sm:items-center justify-center p-4">
+      {/* Backdrop */}
       <div 
-        className="w-full max-w-sm bg-[#121215] border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl relative animate-in slide-in-from-bottom-4 duration-300 flex flex-col items-center text-center space-y-4"
+        className="fixed inset-0 bg-black/75 animate-in fade-in duration-150" 
+        onClick={handleDismiss} 
+      />
+      <div 
+        className="relative z-10 w-full max-w-sm bg-[#121215] border border-zinc-800 rounded-3xl p-5 sm:p-6 shadow-2xl animate-in slide-in-from-bottom-4 duration-300 flex flex-col items-center text-center space-y-4 antialiased"
         role="dialog"
         aria-modal="true"
       >

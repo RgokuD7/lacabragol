@@ -37,8 +37,9 @@ export const PWAInstallButton: React.FC = () => {
         </button>
 
         {showIOSGuide && (
-          <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in">
-            <div className="w-full max-w-sm rounded-2xl bg-[#121215] border border-zinc-800 p-6 shadow-2xl relative animate-in zoom-in-95">
+          <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+            <div className="fixed inset-0 bg-black/80 animate-in fade-in" onClick={() => setShowIOSGuide(false)} />
+            <div className="relative z-10 w-full max-w-sm rounded-2xl bg-[#121215] border border-zinc-800 p-6 shadow-2xl animate-in zoom-in-95 antialiased">
               <button 
                 onClick={() => setShowIOSGuide(false)}
                 className="absolute top-4 right-4 text-zinc-500 hover:text-white"

@@ -62,7 +62,7 @@ export function ContextMenu({ onSelectEmoji, onReply, onMoreEmojis, onClose, pos
     <>
       {/* Semi-transparent backdrop to focus and dismiss on tap outside */}
       <div 
-        className="fixed inset-0 z-[1190] bg-black/40 backdrop-blur-[1px] animate-in fade-in duration-150 select-none"
+        className="fixed inset-0 z-[1190] bg-black/50 animate-in fade-in duration-150 select-none"
         onClick={(e) => {
           e.stopPropagation();
           onClose();
