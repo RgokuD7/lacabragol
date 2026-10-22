@@ -3,25 +3,17 @@ import {
   Play, 
   Pause, 
   RotateCcw, 
-  SkipBack, 
   SkipForward, 
   ChevronLeft, 
   ChevronRight, 
   Trophy, 
-  Crown, 
-  Medal, 
-  Target, 
-  Sparkles, 
-  X, 
-  Layers, 
   Calendar, 
   Users, 
   Shield, 
-  Clock, 
   ArrowUp, 
   ArrowDown, 
-  Minus,
-  CheckCircle2
+  Minus, 
+  X 
 } from 'lucide-react';
 import { Match, Prediction, User, Stage } from '../types';
 import { UserAvatar } from './UserAvatar';
@@ -77,7 +69,7 @@ interface TeamStandingFrame {
 }
 
 interface TimelineFrame {
-  index: number; // 0 = start, 1..N = matches
+  index: number;
   match: Match | null;
   userStandings: UserStandingFrame[];
   teamStandings: TeamStandingFrame[];
@@ -91,10 +83,10 @@ interface TimelineFrame {
 export function RankingEvolutionModal({
   isOpen,
   onClose,
-  matches,
-  predictions,
-  users,
-  stages,
+  matches = [],
+  predictions = [],
+  users = [],
+  stages = [],
   selectedStageId = 'all',
   activeGroupId,
   pointsExact = 3,
@@ -102,15 +94,22 @@ export function RankingEvolutionModal({
   initialViewType = 'users',
   onSelectUser,
 }: RankingEvolutionModalProps) {
-  const [viewType, setViewType] = useState<'users' | 'teams'>(initialViewType);
+  // Si no hay usuarios en la prop (ej. abierto desde StandingsTab), forzar modo 'teams'
+  const effectiveInitialView = users.length === 0 ? 'teams' : initialViewType;
+  const [viewType, setViewType] = useState<'users' | 'teams'>(effectiveInitialView);
   const [currentFrameIndex, setCurrentFrameIndex] = useState<number>(0);
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [speed, setSpeed] = useState<number>(1); // 1 = 1x (1200ms), 2 = 2x (700ms), 3 = 3x (380ms)
+  const [speed, setSpeed] = useState<number>(1); // 1 = 1x, 2 = 2x, 3 = 3x
   const timerRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Sincronizar vista inicial cuando se abre
   useEffect(() => {
-    if (initialViewType) setViewType(initialViewType);
-  }, [initialViewType, isOpen]);
+    if (users.length === 0) {
+      setViewType('teams');
+    } else if (initialViewType) {
+      setViewType(initialViewType);
+    }
+  }, [initialViewType, users.length, isOpen]);
 
   // Etapa seleccionada
   const activeStage = useMemo(() => {
@@ -120,8 +119,7 @@ export function RankingEvolutionModal({
 
   // Partidos finalizados y ordenados cronológicamente
   const finishedMatches = useMemo(() => {
-    // 1. Filtrar solo partidos finalizados con marcador válido
-    let list = matches.filter(m => 
+    let list = (matches || []).filter(m => 
       m.status === 'finished' && 
       m.homeScore !== null && 
       m.homeScore !== undefined && 
@@ -129,20 +127,19 @@ export function RankingEvolutionModal({
       m.awayScore !== undefined
     );
 
-    // 2. Filtrar por etapa si corresponde
+    // Filtrar por etapa si corresponde
     if (activeStage) {
       const groupSet = new Set(activeStage.matchGroups || []);
       list = list.filter(m => groupSet.has(m.group || 'Fase Regular'));
     }
 
-    // 3. Ordenar por fecha cronológica ascendente
     return list.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
   }, [matches, activeStage]);
 
   // Predicciones indexadas por matchId y userId
   const predsMap = useMemo(() => {
     const map = new Map<string, Map<string, Prediction>>();
-    predictions.forEach(p => {
+    (predictions || []).forEach(p => {
       if (!map.has(p.matchId)) {
         map.set(p.matchId, new Map());
       }
@@ -153,15 +150,13 @@ export function RankingEvolutionModal({
 
   // Construir todos los frames de la línea de tiempo cronológica
   const timelineFrames = useMemo<TimelineFrame[]>(() => {
-    if (users.length === 0) return [];
-
     const frames: TimelineFrame[] = [];
 
-    // Estado inicial acumulador para usuarios
+    // Estado acumulador para usuarios (si existen)
     const userTotals = new Map<string, { points: number; exactMatches: number }>();
-    users.forEach(u => userTotals.set(u.uid, { points: 0, exactMatches: 0 }));
+    (users || []).forEach(u => userTotals.set(u.uid, { points: 0, exactMatches: 0 }));
 
-    // Estado inicial acumulador para equipos UCL
+    // Estado acumulador para equipos UCL (siempre 36 equipos)
     const teamTotals = new Map<string, {
       played: number; won: number; drawn: number; lost: number;
       gf: number; ga: number; gd: number; points: number;
@@ -175,6 +170,8 @@ export function RankingEvolutionModal({
       gainsThisMatch: Map<string, { points: number; isExact: boolean }>,
       prevRanks: Map<string, number>
     ): UserStandingFrame[] => {
+      if (!users || users.length === 0) return [];
+
       const list = users.map(u => {
         const tot = userTotals.get(u.uid) || { points: 0, exactMatches: 0 };
         const gain = gainsThisMatch.get(u.uid) || { points: 0, isExact: false };
@@ -192,14 +189,12 @@ export function RankingEvolutionModal({
         };
       });
 
-      // Ordenar por puntos desc, exactMatches desc, nombre asc
       list.sort((a, b) => 
         b.points - a.points || 
         b.exactMatches - a.exactMatches || 
         (a.user.nickname || a.user.displayName || '').localeCompare(b.user.nickname || b.user.displayName || '')
       );
 
-      // Asignar rangos manejando empates
       let currRank = 1;
       for (let i = 0; i < list.length; i++) {
         if (i > 0) {
@@ -212,7 +207,7 @@ export function RankingEvolutionModal({
           }
         }
         list[i].rank = currRank;
-        list[i].rankDelta = list[i].prevRank - currRank; // > 0 subió, < 0 bajó
+        list[i].rankDelta = (list[i].prevRank || currRank) - currRank;
       }
 
       return list;
@@ -252,15 +247,15 @@ export function RankingEvolutionModal({
           }
         }
         list[i].rank = currRank;
-        list[i].rankDelta = list[i].prevRank - currRank;
+        list[i].rankDelta = (list[i].prevRank || currRank) - currRank;
       }
 
       return list;
     };
 
-    // FRAME 0: Estado Inicial (todos en 0)
+    // FRAME 0: Estado Inicial (todos con 0 pts)
     const initialUserRanks = new Map<string, number>();
-    users.forEach(u => initialUserRanks.set(u.uid, 1));
+    (users || []).forEach(u => initialUserRanks.set(u.uid, 1));
     const initialTeamRanks = new Map<string, number>();
     UCL_36_TEAMS.forEach(t => initialTeamRanks.set(t.name, 1));
 
@@ -287,38 +282,42 @@ export function RankingEvolutionModal({
       const mHome = m.homeScore!;
       const mAway = m.awayScore!;
 
-      // 1. Calcular puntos de este partido para los usuarios
-      users.forEach(u => {
-        const pred = matchPreds?.get(u.uid);
-        if (!pred) return;
+      // 1. Calcular puntos para usuarios
+      if (users && users.length > 0) {
+        users.forEach(u => {
+          const pred = matchPreds?.get(u.uid);
+          if (!pred) return;
 
-        const pHome = pred.homeScore;
-        const pAway = pred.awayScore;
+          const pHome = pred.homeScore;
+          const pAway = pred.awayScore;
 
-        const isExact = pHome === mHome && pAway === mAway;
-        const actualDiff = mHome - mAway;
-        const predDiff = pHome - pAway;
-        const isOutcome = (actualDiff > 0 && predDiff > 0) ||
-                          (actualDiff < 0 && predDiff < 0) ||
-                          (actualDiff === 0 && predDiff === 0);
+          const isExact = pHome === mHome && pAway === mAway;
+          const actualDiff = mHome - mAway;
+          const predDiff = pHome - pAway;
+          const isOutcome = (actualDiff > 0 && predDiff > 0) ||
+                            (actualDiff < 0 && predDiff < 0) ||
+                            (actualDiff === 0 && predDiff === 0);
 
-        let earned = 0;
-        if (isExact) {
-          earned = pointsExact;
-        } else if (isOutcome) {
-          earned = pointsWinner;
-        }
+          let earned = 0;
+          if (isExact) {
+            earned = pointsExact;
+          } else if (isOutcome) {
+            earned = pointsWinner;
+          }
 
-        if (earned > 0) {
-          userGains.set(u.uid, { points: earned, isExact });
-          const currentTotal = userTotals.get(u.uid)!;
-          currentTotal.points += earned;
-          if (isExact) currentTotal.exactMatches += 1;
-          scorers.push({ user: u, points: earned, isExact });
-        }
-      });
+          if (earned > 0) {
+            userGains.set(u.uid, { points: earned, isExact });
+            const currentTotal = userTotals.get(u.uid);
+            if (currentTotal) {
+              currentTotal.points += earned;
+              if (isExact) currentTotal.exactMatches += 1;
+            }
+            scorers.push({ user: u, points: earned, isExact });
+          }
+        });
+      }
 
-      // 2. Calcular puntos de este partido para los equipos UCL
+      // 2. Calcular puntos para equipos UCL
       const teamGains = new Map<string, number>();
       const homeTeamStat = teamTotals.get(m.homeTeam);
       const awayTeamStat = teamTotals.get(m.awayTeam);
@@ -353,7 +352,6 @@ export function RankingEvolutionModal({
         }
       }
 
-      // Ordenar goleadores del partido (plenos primero)
       scorers.sort((a, b) => b.points - a.points);
 
       const userStandings = computeUserRankings(userGains, lastUserRanks);
@@ -374,18 +372,27 @@ export function RankingEvolutionModal({
     return frames;
   }, [users, finishedMatches, predsMap, pointsExact, pointsWinner]);
 
-  // Frame actual activo
-  const currentFrame = timelineFrames[currentFrameIndex] || timelineFrames[0];
-  const totalFrames = timelineFrames.length - 1;
+  // Frame actual activo (completamente seguro contra undefined)
+  const currentFrame: TimelineFrame = timelineFrames[currentFrameIndex] || timelineFrames[0] || {
+    index: 0,
+    match: null,
+    userStandings: [],
+    teamStandings: [],
+    scorersInMatch: []
+  };
 
-  // Lógica de reproducción automática
+  const totalFrames = Math.max(0, timelineFrames.length - 1);
+
+  // Intervalo de reproducción según velocidad seleccionada
+  const stepIntervalMs = speed === 1 ? 1400 : speed === 2 ? 800 : 450;
+  // Duración de la animación CSS de las barras y el movimiento vertical
+  const animDurationMs = speed === 1 ? 750 : speed === 2 ? 500 : 320;
+
   useEffect(() => {
     if (!isPlaying) {
       if (timerRef.current) clearInterval(timerRef.current);
       return;
     }
-
-    const intervalMs = speed === 1 ? 1200 : speed === 2 ? 700 : 380;
 
     timerRef.current = setInterval(() => {
       setCurrentFrameIndex(prev => {
@@ -397,14 +404,13 @@ export function RankingEvolutionModal({
         vibrateTap();
         return prev + 1;
       });
-    }, intervalMs);
+    }, stepIntervalMs);
 
     return () => {
       if (timerRef.current) clearInterval(timerRef.current);
     };
-  }, [isPlaying, speed, totalFrames]);
+  }, [isPlaying, stepIntervalMs, totalFrames]);
 
-  // Reiniciar a frame 0 cuando cambia la etapa o se abre el modal
   useEffect(() => {
     setCurrentFrameIndex(0);
     setIsPlaying(false);
@@ -412,8 +418,15 @@ export function RankingEvolutionModal({
 
   if (!isOpen) return null;
 
-  const maxPoints = currentFrame?.userStandings?.[0]?.points || 1;
-  const maxTeamPoints = currentFrame?.teamStandings?.[0]?.points || 1;
+  // Puntaje máximo para calcular porcentaje de ancho de barra
+  const maxUserPoints = Math.max(1, currentFrame.userStandings[0]?.points || 1);
+  const maxTeamPoints = Math.max(1, currentFrame.teamStandings[0]?.points || 1);
+
+  // Dimensiones para el Bar Chart Race animado
+  const userRowHeight = 62;
+  const userRowGap = 6;
+  const teamRowHeight = 54;
+  const teamRowGap = 6;
 
   return (
     <div className="fixed inset-0 z-[1100] flex items-center justify-center p-2 sm:p-4 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
@@ -435,43 +448,45 @@ export function RankingEvolutionModal({
                 </span>
               </div>
               <p className="text-[11px] text-zinc-400 truncate">
-                Simula el avance partido a partido desde 0 puntos hasta la actualidad.
+                Simula el avance partido a partido con barras de crecimiento continuo.
               </p>
             </div>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
             {/* Selector de Vista: Amigos vs Clubes */}
-            <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[10px] font-bold">
-              <button
-                type="button"
-                onClick={() => {
-                  vibrateTap();
-                  setViewType('users');
-                }}
-                className={cn(
-                  "px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1",
-                  viewType === 'users' ? "bg-emerald-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
-                )}
-              >
-                <Users className="w-3 h-3" />
-                <span className="hidden sm:inline">Amigos</span>
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  vibrateTap();
-                  setViewType('teams');
-                }}
-                className={cn(
-                  "px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1",
-                  viewType === 'teams' ? "bg-emerald-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
-                )}
-              >
-                <Shield className="w-3 h-3" />
-                <span className="hidden sm:inline">Clubes UCL</span>
-              </button>
-            </div>
+            {users.length > 0 && (
+              <div className="flex bg-zinc-900 border border-zinc-800 rounded-lg p-0.5 text-[10px] font-bold">
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrateTap();
+                    setViewType('users');
+                  }}
+                  className={cn(
+                    "px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1",
+                    viewType === 'users' ? "bg-emerald-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <Users className="w-3 h-3" />
+                  <span className="hidden sm:inline">Amigos</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrateTap();
+                    setViewType('teams');
+                  }}
+                  className={cn(
+                    "px-2 py-1 rounded-md transition-all cursor-pointer flex items-center gap-1",
+                    viewType === 'teams' ? "bg-emerald-600 text-white shadow-sm" : "text-zinc-400 hover:text-white"
+                  )}
+                >
+                  <Shield className="w-3 h-3" />
+                  <span className="hidden sm:inline">Clubes UCL</span>
+                </button>
+              </div>
+            )}
 
             <button
               type="button"
@@ -486,7 +501,7 @@ export function RankingEvolutionModal({
         {/* CONTROLES DE REPRODUCCIÓN */}
         <div className="bg-zinc-900/80 border border-zinc-800 rounded-xl p-3 space-y-2.5 shadow-inner">
           <div className="flex items-center justify-between gap-2 flex-wrap">
-            {/* Botones de acción (Play, Pause, Step) */}
+            {/* Botones de acción */}
             <div className="flex items-center gap-1.5">
               <button
                 type="button"
@@ -574,7 +589,7 @@ export function RankingEvolutionModal({
               </button>
             </div>
 
-            {/* Velocidad */}
+            {/* Selector de Velocidad */}
             <div className="flex items-center gap-1">
               <span className="text-[10px] text-zinc-500 uppercase font-bold mr-1">Velocidad:</span>
               {[1, 2, 3].map(s => (
@@ -596,11 +611,11 @@ export function RankingEvolutionModal({
             </div>
           </div>
 
-          {/* Scrubber / Slider */}
+          {/* Slider / Scrubber */}
           <div className="space-y-1">
             <div className="flex items-center justify-between text-[10px] text-zinc-400 font-bold">
               <span>Inicio (0 pts)</span>
-              <span className="text-emerald-400 font-mono">
+              <span className="text-emerald-400 font-mono font-bold">
                 {currentFrameIndex === 0 ? '🏁 Inicio' : `Partido ${currentFrameIndex} de ${totalFrames}`}
               </span>
               <span>Actualidad</span>
@@ -619,8 +634,8 @@ export function RankingEvolutionModal({
           </div>
         </div>
 
-        {/* TARJETA DEL PARTIDO EN DISPUTA */}
-        {currentFrame.match ? (
+        {/* TARJETA DEL PARTIDO ACTUAL */}
+        {currentFrame?.match ? (
           <div className="bg-gradient-to-r from-zinc-900 via-[#18181f] to-zinc-900 border border-emerald-500/30 rounded-xl p-3 shadow-md animate-in fade-in space-y-2">
             <div className="flex items-center justify-between text-[10px] pb-1.5 border-b border-zinc-800/80">
               <div className="flex items-center gap-2">
@@ -685,7 +700,7 @@ export function RankingEvolutionModal({
                     Ningún participante sumó puntos en este partido
                   </span>
                 ) : (
-                  currentFrame.scorersInMatch.map((s, idx) => (
+                  currentFrame.scorersInMatch.map((s) => (
                     <span
                       key={s.user.uid}
                       className={cn(
@@ -714,203 +729,249 @@ export function RankingEvolutionModal({
           </div>
         )}
 
-        {/* TABLA DE POSICIONES ANIMADA */}
-        <div className="space-y-1.5 flex-1 min-h-[260px] max-h-[46vh] overflow-y-auto pr-1 custom-scrollbar">
+        {/* BAR CHART RACE: TABLA ANIMADA FLUIDA */}
+        <div className="flex-1 min-h-[300px] max-h-[50vh] overflow-y-auto pr-1 custom-scrollbar">
           {viewType === 'users' ? (
-            currentFrame.userStandings.map((item) => {
-              const pct = maxPoints > 0 ? (item.points / maxPoints) * 100 : 0;
-              const isFirst = item.rank === 1;
-              const isSecond = item.rank === 2;
-              const isThird = item.rank === 3;
+            <div 
+              className="relative w-full transition-all duration-300"
+              style={{ height: `${users.length * (userRowHeight + userRowGap)}px` }}
+            >
+              {users.map((u) => {
+                const rankIndex = currentFrame.userStandings.findIndex(s => s.userId === u.uid);
+                if (rankIndex === -1) return null;
+                const standing = currentFrame.userStandings[rankIndex];
 
-              return (
-                <div
-                  key={item.userId}
-                  onClick={() => onSelectUser?.(item.user)}
-                  className={cn(
-                    "p-2.5 rounded-xl border flex items-center justify-between gap-3 transition-all duration-300 cursor-pointer relative overflow-hidden",
-                    item.scoredThisMatch && "ring-1 ring-emerald-500/60 bg-emerald-950/20",
-                    isFirst ? "bg-gradient-to-r from-amber-950/30 to-[#121215] border-amber-500/50" :
-                    isSecond ? "bg-zinc-900/80 border-zinc-700/80" :
-                    isThird ? "bg-zinc-900/80 border-amber-900/40" :
-                    "bg-[#141418] border-zinc-800/80 hover:bg-zinc-800/40"
-                  )}
-                >
-                  {/* Background Progress Bar (Bar Chart Race) */}
+                const pct = maxUserPoints > 0 ? (standing.points / maxUserPoints) * 100 : 0;
+                const isFirst = standing.rank === 1 && standing.points > 0;
+                const isSecond = standing.rank === 2 && standing.points > 0;
+                const isThird = standing.rank === 3 && standing.points > 0;
+
+                return (
                   <div
+                    key={u.uid}
+                    onClick={() => onSelectUser?.(u)}
                     className={cn(
-                      "absolute left-0 top-0 bottom-0 opacity-15 pointer-events-none transition-all duration-500",
-                      isFirst ? "bg-amber-400" : isSecond ? "bg-zinc-400" : isThird ? "bg-amber-600" : "bg-emerald-500"
+                      "absolute left-0 right-0 p-2.5 rounded-xl border flex flex-col justify-between cursor-pointer",
+                      standing.scoredThisMatch && "ring-1 ring-emerald-500/60 bg-emerald-950/20",
+                      isFirst ? "bg-gradient-to-r from-amber-950/40 via-[#18181f] to-[#121215] border-amber-500/50 shadow-md shadow-amber-900/20" :
+                      isSecond ? "bg-zinc-900/90 border-zinc-700/80" :
+                      isThird ? "bg-zinc-900/90 border-amber-900/40" :
+                      "bg-[#141418] border-zinc-800/80 hover:bg-zinc-800/40"
                     )}
-                    style={{ width: `${Math.max(4, pct)}%` }}
-                  />
+                    style={{
+                      height: `${userRowHeight}px`,
+                      transform: `translateY(${rankIndex * (userRowHeight + userRowGap)}px)`,
+                      transition: `transform ${animDurationMs}ms cubic-bezier(0.4, 0, 0.2, 1), background-color 300ms ease`
+                    }}
+                  >
+                    {/* Top Row: Info + Avatar + Points */}
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      {/* Left: Rank + Indicator + Avatar + Name */}
+                      <div className="flex items-center gap-2 min-w-0">
+                        {/* Rank Badge */}
+                        <div className="w-5 text-center shrink-0">
+                          {isFirst ? (
+                            <span className="w-5 h-5 rounded-full bg-amber-500 text-black font-black text-[10px] inline-flex items-center justify-center shadow">1</span>
+                          ) : isSecond ? (
+                            <span className="w-5 h-5 rounded-full bg-zinc-600 text-white font-black text-[10px] inline-flex items-center justify-center">2</span>
+                          ) : isThird ? (
+                            <span className="w-5 h-5 rounded-full bg-amber-900 text-amber-200 font-black text-[10px] inline-flex items-center justify-center">3</span>
+                          ) : (
+                            <span className="font-mono text-zinc-500 font-black text-xs">#{standing.rank}</span>
+                          )}
+                        </div>
 
-                  {/* Left: Rank + Indicator + Avatar + Name */}
-                  <div className="flex items-center gap-2.5 min-w-0 z-10">
-                    {/* Rank Badge */}
-                    <div className="w-6 text-center shrink-0">
-                      {isFirst ? (
-                        <span className="w-5 h-5 rounded-full bg-amber-500 text-black font-black text-[10px] inline-flex items-center justify-center shadow">1</span>
-                      ) : isSecond ? (
-                        <span className="w-5 h-5 rounded-full bg-zinc-600 text-white font-black text-[10px] inline-flex items-center justify-center">2</span>
-                      ) : isThird ? (
-                        <span className="w-5 h-5 rounded-full bg-amber-900 text-amber-200 font-black text-[10px] inline-flex items-center justify-center">3</span>
-                      ) : (
-                        <span className="font-mono text-zinc-500 font-black text-xs">#{item.rank}</span>
-                      )}
+                        {/* Rank Delta (▲ +2, ▼ -1, -) */}
+                        <div className="w-6 text-center shrink-0 text-[10px] font-black">
+                          {standing.rankDelta > 0 ? (
+                            <span className="text-emerald-400 flex items-center justify-center animate-bounce">
+                              <ArrowUp className="w-3 h-3" />
+                              <span>{standing.rankDelta}</span>
+                            </span>
+                          ) : standing.rankDelta < 0 ? (
+                            <span className="text-rose-400 flex items-center justify-center">
+                              <ArrowDown className="w-3 h-3" />
+                              <span>{Math.abs(standing.rankDelta)}</span>
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600">
+                              <Minus className="w-3 h-3 mx-auto" />
+                            </span>
+                          )}
+                        </div>
+
+                        {/* User Avatar */}
+                        <UserAvatar
+                          src={u.photoURL}
+                          name={u.nickname || u.displayName || ''}
+                          size="sm"
+                          className={cn(isFirst && "border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.3)]")}
+                        />
+
+                        {/* Name */}
+                        <div className="min-w-0">
+                          <span className={cn(
+                            "font-bold text-xs truncate block leading-tight",
+                            isFirst ? "text-amber-200 font-black" : "text-white"
+                          )}>
+                            {u.nickname || u.displayName || 'Participante'}
+                          </span>
+                          <span className="text-[9.5px] text-zinc-500 font-mono">
+                            {standing.exactMatches} plenos
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Right: Points ticker */}
+                      <div className="flex items-center gap-1.5 shrink-0 text-right">
+                        {standing.pointsGainedThisMatch > 0 && (
+                          <span className={cn(
+                            "text-[10px] font-black px-1.5 py-0.5 rounded-full shadow-sm animate-in zoom-in-75",
+                            standing.isExactThisMatch ? "bg-emerald-500 text-black shadow-emerald-500/30" : "bg-sky-400 text-black"
+                          )}>
+                            +{standing.pointsGainedThisMatch}
+                          </span>
+                        )}
+
+                        <div className="min-w-[42px]">
+                          <span className={cn(
+                            "font-mono font-black text-sm block leading-tight",
+                            isFirst ? "text-amber-400" : "text-white"
+                          )}>
+                            {standing.points}
+                          </span>
+                          <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">PTS</span>
+                        </div>
+                      </div>
                     </div>
 
-                    {/* Rank Delta (▲ +2, ▼ -1, -) */}
-                    <div className="w-7 text-center shrink-0 text-[10px] font-black">
-                      {item.rankDelta > 0 ? (
-                        <span className="text-emerald-400 flex items-center justify-center animate-bounce">
-                          <ArrowUp className="w-3 h-3" />
-                          <span>{item.rankDelta}</span>
-                        </span>
-                      ) : item.rankDelta < 0 ? (
-                        <span className="text-rose-400 flex items-center justify-center">
-                          <ArrowDown className="w-3 h-3" />
-                          <span>{Math.abs(item.rankDelta)}</span>
-                        </span>
-                      ) : (
-                        <span className="text-zinc-600">
-                          <Minus className="w-3 h-3 mx-auto" />
-                        </span>
-                      )}
-                    </div>
-
-                    {/* User Avatar */}
-                    <UserAvatar
-                      src={item.user.photoURL}
-                      name={item.user.nickname || item.user.displayName || ''}
-                      size="sm"
-                      className={cn(isFirst && "border-amber-400 shadow-[0_0_8px_rgba(251,191,36,0.3)]")}
-                    />
-
-                    {/* Name */}
-                    <div className="min-w-0">
-                      <span className={cn(
-                        "font-bold text-xs truncate block leading-tight",
-                        isFirst ? "text-amber-200 font-black" : "text-white"
-                      )}>
-                        {item.user.nickname || item.user.displayName || 'Participante'}
-                      </span>
-                      <span className="text-[10px] text-zinc-500 font-mono">
-                        {item.exactMatches} plenos
-                      </span>
+                    {/* Bottom Row: Visible Animated Progress Bar (Bar Chart Race) */}
+                    <div className="w-full bg-zinc-800/80 rounded-full h-2 overflow-hidden border border-zinc-700/50 relative mt-1">
+                      <div
+                        className={cn(
+                          "h-full rounded-full shadow-sm",
+                          isFirst ? "bg-gradient-to-r from-amber-500 via-amber-400 to-yellow-300 shadow-[0_0_8px_rgba(251,191,36,0.5)]" :
+                          isSecond ? "bg-gradient-to-r from-zinc-400 via-zinc-300 to-white" :
+                          isThird ? "bg-gradient-to-r from-amber-700 via-amber-600 to-amber-500" :
+                          "bg-gradient-to-r from-emerald-600 via-teal-500 to-emerald-400"
+                        )}
+                        style={{
+                          width: `${Math.max(2.5, pct)}%`,
+                          transition: `width ${animDurationMs}ms cubic-bezier(0.25, 1, 0.5, 1)`
+                        }}
+                      />
                     </div>
                   </div>
-
-                  {/* Right: Points + Gained Pill */}
-                  <div className="flex items-center gap-2 shrink-0 z-10 text-right">
-                    {item.pointsGainedThisMatch > 0 && (
-                      <span className={cn(
-                        "text-[10px] font-black px-1.5 py-0.5 rounded-full animate-in zoom-in-90",
-                        item.isExactThisMatch ? "bg-emerald-500 text-black shadow-sm" : "bg-sky-500 text-black"
-                      )}>
-                        +{item.pointsGainedThisMatch}
-                      </span>
-                    )}
-
-                    <div className="min-w-[50px]">
-                      <span className={cn(
-                        "font-mono font-black text-sm block leading-tight",
-                        isFirst ? "text-amber-400" : "text-white"
-                      )}>
-                        {item.points}
-                      </span>
-                      <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">PTS</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </div>
           ) : (
-            currentFrame.teamStandings.map((item) => {
-              const pct = maxTeamPoints > 0 ? (item.points / maxTeamPoints) * 100 : 0;
-              const isTop8 = item.rank <= 8;
-              const isPlayoff = item.rank >= 9 && item.rank <= 24;
+            <div 
+              className="relative w-full transition-all duration-300"
+              style={{ height: `${UCL_36_TEAMS.length * (teamRowHeight + teamRowGap)}px` }}
+            >
+              {UCL_36_TEAMS.map((t) => {
+                const rankIndex = currentFrame.teamStandings.findIndex(s => s.name === t.name);
+                if (rankIndex === -1) return null;
+                const standing = currentFrame.teamStandings[rankIndex];
 
-              return (
-                <div
-                  key={item.name}
-                  className={cn(
-                    "p-2 rounded-xl border flex items-center justify-between gap-3 transition-all duration-300 relative overflow-hidden",
-                    item.pointsGainedThisMatch > 0 && "ring-1 ring-emerald-500/50 bg-emerald-950/20",
-                    isTop8 ? "bg-[#141418] border-emerald-500/30" :
-                    isPlayoff ? "bg-[#141418] border-blue-500/20" :
-                    "bg-[#141418] border-zinc-800/80"
-                  )}
-                >
-                  {/* Progress Bar */}
+                const pct = maxTeamPoints > 0 ? (standing.points / maxTeamPoints) * 100 : 0;
+                const isTop8 = standing.rank <= 8;
+                const isPlayoff = standing.rank >= 9 && standing.rank <= 24;
+
+                return (
                   <div
+                    key={t.name}
                     className={cn(
-                      "absolute left-0 top-0 bottom-0 opacity-15 pointer-events-none transition-all duration-500",
-                      isTop8 ? "bg-emerald-400" : isPlayoff ? "bg-blue-400" : "bg-zinc-600"
+                      "absolute left-0 right-0 p-2 rounded-xl border flex flex-col justify-between",
+                      standing.pointsGainedThisMatch > 0 && "ring-1 ring-emerald-500/50 bg-emerald-950/20",
+                      isTop8 ? "bg-[#141418] border-emerald-500/30" :
+                      isPlayoff ? "bg-[#141418] border-blue-500/20" :
+                      "bg-[#141418] border-zinc-800/80"
                     )}
-                    style={{ width: `${Math.max(4, pct)}%` }}
-                  />
+                    style={{
+                      height: `${teamRowHeight}px`,
+                      transform: `translateY(${rankIndex * (teamRowHeight + teamRowGap)}px)`,
+                      transition: `transform ${animDurationMs}ms cubic-bezier(0.4, 0, 0.2, 1), background-color 300ms ease`
+                    }}
+                  >
+                    {/* Top Row: Rank + Team + Points */}
+                    <div className="flex items-center justify-between gap-2 min-w-0">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className={cn(
+                          "w-5 h-5 rounded-md font-mono font-black text-[10px] inline-flex items-center justify-center shrink-0",
+                          isTop8 ? "bg-emerald-600/30 text-emerald-300 border border-emerald-500/40" :
+                          isPlayoff ? "bg-blue-600/30 text-blue-300 border border-blue-500/40" :
+                          "bg-zinc-800 text-zinc-400"
+                        )}>
+                          {standing.rank}
+                        </span>
 
-                  {/* Left: Rank + Delta + Badge + Team Name */}
-                  <div className="flex items-center gap-2 min-w-0 z-10">
-                    <span className={cn(
-                      "w-5 h-5 rounded-md font-mono font-black text-[10px] inline-flex items-center justify-center shrink-0",
-                      isTop8 ? "bg-emerald-600/30 text-emerald-300 border border-emerald-500/40" :
-                      isPlayoff ? "bg-blue-600/30 text-blue-300 border border-blue-500/40" :
-                      "bg-zinc-800 text-zinc-400"
-                    )}>
-                      {item.rank}
-                    </span>
+                        <div className="w-5 text-center shrink-0 text-[9px] font-black">
+                          {standing.rankDelta > 0 ? (
+                            <span className="text-emerald-400 flex items-center justify-center">
+                              <ArrowUp className="w-2.5 h-2.5" />
+                              <span>{standing.rankDelta}</span>
+                            </span>
+                          ) : standing.rankDelta < 0 ? (
+                            <span className="text-rose-400 flex items-center justify-center">
+                              <ArrowDown className="w-2.5 h-2.5" />
+                              <span>{Math.abs(standing.rankDelta)}</span>
+                            </span>
+                          ) : (
+                            <span className="text-zinc-600">
+                              <Minus className="w-2.5 h-2.5 mx-auto" />
+                            </span>
+                          )}
+                        </div>
 
-                    {/* Rank Delta */}
-                    <div className="w-5 text-center shrink-0 text-[9px] font-black">
-                      {item.rankDelta > 0 ? (
-                        <span className="text-emerald-400 flex items-center justify-center">
-                          <ArrowUp className="w-2.5 h-2.5" />
-                          <span>{item.rankDelta}</span>
-                        </span>
-                      ) : item.rankDelta < 0 ? (
-                        <span className="text-rose-400 flex items-center justify-center">
-                          <ArrowDown className="w-2.5 h-2.5" />
-                          <span>{Math.abs(item.rankDelta)}</span>
-                        </span>
-                      ) : (
-                        <span className="text-zinc-600">
-                          <Minus className="w-2.5 h-2.5 mx-auto" />
-                        </span>
-                      )}
+                        <TeamBadge teamName={t.name} className="w-5 h-5 shrink-0 object-contain drop-shadow" />
+
+                        <div className="min-w-0">
+                          <span className="font-bold text-xs text-white truncate block leading-tight">
+                            {t.name}
+                          </span>
+                          <span className="text-[9px] text-zinc-500 font-mono">
+                            PJ: {standing.played} · V:{standing.won} E:{standing.drawn} D:{standing.lost} · DG:{standing.gd > 0 ? `+${standing.gd}` : standing.gd}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0 text-right">
+                        {standing.pointsGainedThisMatch > 0 && (
+                          <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-500 text-black shadow-sm">
+                            +{standing.pointsGainedThisMatch}
+                          </span>
+                        )}
+
+                        <div className="min-w-[36px]">
+                          <span className="font-mono font-black text-sm text-white block leading-tight">
+                            {standing.points}
+                          </span>
+                          <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">PTS</span>
+                        </div>
+                      </div>
                     </div>
 
-                    <TeamBadge teamName={item.name} className="w-5 h-5 shrink-0 object-contain drop-shadow" />
-
-                    <div className="min-w-0">
-                      <span className="font-bold text-xs text-white truncate block leading-tight">
-                        {item.name}
-                      </span>
-                      <span className="text-[9px] text-zinc-500 font-mono">
-                        PJ: {item.played} · V:{item.won} E:{item.drawn} D:{item.lost} · DG:{item.gd > 0 ? `+${item.gd}` : item.gd}
-                      </span>
+                    {/* Bottom Row: Animated Progress Bar */}
+                    <div className="w-full bg-zinc-800/80 rounded-full h-1.5 overflow-hidden border border-zinc-700/50 mt-1 relative">
+                      <div
+                        className={cn(
+                          "h-full rounded-full shadow-sm",
+                          isTop8 ? "bg-gradient-to-r from-emerald-500 to-teal-400" :
+                          isPlayoff ? "bg-gradient-to-r from-blue-500 to-sky-400" :
+                          "bg-zinc-600"
+                        )}
+                        style={{
+                          width: `${Math.max(2.5, pct)}%`,
+                          transition: `width ${animDurationMs}ms cubic-bezier(0.25, 1, 0.5, 1)`
+                        }}
+                      />
                     </div>
                   </div>
-
-                  {/* Right: Points */}
-                  <div className="flex items-center gap-2 shrink-0 z-10 text-right">
-                    {item.pointsGainedThisMatch > 0 && (
-                      <span className="text-[9px] font-black px-1.5 py-0.5 rounded-full bg-emerald-500 text-black">
-                        +{item.pointsGainedThisMatch}
-                      </span>
-                    )}
-
-                    <div className="min-w-[40px]">
-                      <span className="font-mono font-black text-sm text-white block leading-tight">
-                        {item.points}
-                      </span>
-                      <span className="text-[8px] uppercase tracking-wider text-zinc-500 font-bold">PTS</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })
+                );
+              })}
+            </div>
           )}
         </div>
 
