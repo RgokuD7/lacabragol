@@ -63,6 +63,7 @@ import { vibrateTap, vibrateSuccess, vibrateError } from '../lib/haptics';
 export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => void }) {
   const { user, profile } = useAuth();
   const { groups, activeGroupId } = useGroups();
+  const activeGroup = groups.find(g => g.id === activeGroupId);
   const { settings } = useSettings();
   const [adminTab, setAdminTab] = useState<'actions' | 'scores' | 'users' | 'players' | 'stages'>('actions');
 
@@ -1753,8 +1754,8 @@ export function AdminTab({ inline, onBack }: { inline?: boolean, onBack?: () => 
     setPodiumPlayers(cleanedList);
     try {
       // Usar deletedPlayerKeys sincronizado en tiempo real (evita un getDoc innecesario a Firestore)
-      const existingDeleted = Array.from(deletedPlayerKeys);
-      const updatedKeys = new Set(cleanedList.map(p => normalizePlayerKey(p.name)));
+      const existingDeleted = Array.from(deletedPlayerKeys) as string[];
+      const updatedKeys = new Set<string>(cleanedList.map(p => normalizePlayerKey(p.name)));
       const filteredDeleted = existingDeleted.filter(k => !updatedKeys.has(k));
       const payload = sanitizeForFirestore({
         players: cleanedList,

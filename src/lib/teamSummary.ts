@@ -94,7 +94,7 @@ export function getTeamSummary(
   );
 
   const officialName = officialTeam?.name || teamName;
-  const logo = officialTeam?.logo || getTeamLogoByName(teamName);
+  const logo = (officialTeam as any)?.logo || getTeamLogoByName(teamName);
   const country = officialTeam?.country;
 
   // 1. Find Standing Row
