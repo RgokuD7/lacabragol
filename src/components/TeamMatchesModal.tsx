@@ -201,9 +201,6 @@ export function TeamMatchesModal({
       <div className="space-y-4 sm:space-y-5">
         {/* TEAM HERO SUMMARY BANNER */}
         <div className="bg-gradient-to-b from-[#191922] to-[#121217] border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
-          {/* Ambient Glow */}
-          <div className="absolute -top-12 -right-12 w-44 h-44 bg-blue-600/15 rounded-full blur-3xl pointer-events-none" />
-
           {/* Top row: Crest + Team Info */}
           <div className="flex items-center gap-3.5 sm:gap-4 relative z-10">
             <div className="relative shrink-0">

@@ -170,9 +170,6 @@ export function MatchVsSummaryModal({
 
         {/* VERSUS FACE-OFF CARD */}
         <div className="bg-gradient-to-b from-[#181820] to-[#111116] border border-zinc-800 rounded-2xl p-4 sm:p-5 shadow-xl relative overflow-hidden">
-          {/* Subtle glow */}
-          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
           <div className="grid grid-cols-11 gap-2 items-center relative z-10">
             {/* Home Team (Left 5 cols) */}
             <div 

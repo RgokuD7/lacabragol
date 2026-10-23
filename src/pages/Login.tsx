@@ -23,9 +23,6 @@ export function Login() {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#0a0a0b] p-4 text-[#e4e4e7] font-sans relative overflow-hidden">
-      {/* Subtle background ambient glow */}
-      <div className="absolute w-[350px] h-[350px] bg-blue-600/10 rounded-full blur-[100px] pointer-events-none top-1/4 left-1/2 -translate-x-1/2" />
-
       <div className="w-full max-w-sm bg-[#121215] rounded-3xl shadow-2xl p-7 sm:p-8 border border-zinc-800/80 relative z-10 space-y-6 antialiased">
         {/* Brand Icon */}
         <div className="flex flex-col items-center text-center space-y-3">
