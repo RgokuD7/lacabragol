@@ -429,7 +429,13 @@ export function RankingEvolutionModal({
   const teamRowGap = 6;
 
   return (
-    <div className="fixed inset-0 z-[1100] flex items-center justify-center p-2 sm:p-4">
+    <div 
+      className="fixed inset-0 z-[1100] flex items-center justify-center p-2 sm:p-4"
+      style={{
+        paddingTop: 'max(var(--sat, env(safe-area-inset-top, 0px)), 20px)',
+        paddingBottom: 'max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px)'
+      }}
+    >
       {/* Backdrop oscuro limpio sin filtros que desenfoquen a los hijos */}
       <div 
         className="fixed inset-0 bg-black/85 animate-in fade-in duration-150" 
@@ -437,7 +443,10 @@ export function RankingEvolutionModal({
       />
 
       <div 
-        className="relative z-10 bg-[#121217] border border-emerald-500/40 rounded-2xl max-w-3xl w-full p-3 sm:p-5 space-y-3.5 shadow-2xl max-h-[92vh] flex flex-col text-white custom-scrollbar overflow-y-auto antialiased"
+        className="relative z-10 bg-[#121217] border border-emerald-500/40 rounded-2xl max-w-3xl w-full p-3 sm:p-5 space-y-3.5 shadow-2xl flex flex-col text-white custom-scrollbar overflow-y-auto antialiased"
+        style={{
+          maxHeight: 'calc(100dvh - max(var(--sat, env(safe-area-inset-top, 0px)), 20px) - max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px) - 16px)'
+        }}
         onClick={e => e.stopPropagation()}
       >
         

@@ -28,7 +28,7 @@ export function FooterVersion({ className = '' }: FooterVersionProps) {
       className={`w-full py-3 text-center text-[10px] sm:text-[11px] text-zinc-500/70 select-none tracking-wide font-mono cursor-pointer hover:text-zinc-400 active:scale-95 transition-all ${className}`}
       title="Toca para forzar actualización de la app y limpiar caché"
     >
-      LaCabraGol - by Richard Bouryssieres - v0.5.46
+      LaCabraGol - by Richard Bouryssieres - v0.5.47
     </footer>
   );
 }

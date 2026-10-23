@@ -78,7 +78,13 @@ export function NewFeaturesModal({
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[1200] flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div 
+      className="fixed inset-0 z-[1200] flex items-center justify-center p-4 animate-in fade-in duration-200"
+      style={{
+        paddingTop: 'max(var(--sat, env(safe-area-inset-top, 0px)), 20px)',
+        paddingBottom: 'max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px)'
+      }}
+    >
       {/* Backdrop */}
       <div 
         className="absolute inset-0 bg-black/80"
@@ -87,7 +93,10 @@ export function NewFeaturesModal({
 
       {/* Modal Dialog Box */}
       <div 
-        className="relative bg-gradient-to-b from-[#181822] to-[#101015] border border-zinc-700/80 w-full max-w-md mx-auto rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col max-h-[90vh] transition-all antialiased"
+        className="relative bg-gradient-to-b from-[#181822] to-[#101015] border border-zinc-700/80 w-full max-w-md mx-auto rounded-3xl shadow-[0_0_50px_rgba(0,0,0,0.8)] overflow-hidden flex flex-col transition-all antialiased"
+        style={{
+          maxHeight: 'calc(100dvh - max(var(--sat, env(safe-area-inset-top, 0px)), 20px) - max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px) - 16px)'
+        }}
       >
         {/* Top Header Bar */}
         <div className="relative flex items-center justify-between px-5 pt-4 pb-2 z-10">

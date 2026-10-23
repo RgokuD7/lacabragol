@@ -6,6 +6,21 @@
   --font-display: "Marcellus", serif;
 }
 
+:root {
+  --sat: env(safe-area-inset-top, 0px);
+  --sab: env(safe-area-inset-bottom, 0px);
+}
+
+/* Fallback seguro para PWA en iOS donde existe Isla Dinámica (~54px) o Notch (~47px) */
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    :root {
+      --sat: max(env(safe-area-inset-top, 0px), 54px);
+      --sab: max(env(safe-area-inset-bottom, 0px), 20px);
+    }
+  }
+}
+
 html, body {
   margin: 0;
   padding: 0;

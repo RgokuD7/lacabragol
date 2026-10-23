@@ -54,9 +54,12 @@ export function BaseBottomSheet({
       <div 
         id={id}
         className={cn(
-          "relative bg-[#111114] border-t border-zinc-800 w-full max-w-4xl mx-auto rounded-t-3xl shadow-2xl flex flex-col transition-transform duration-300 max-h-[90vh] antialiased",
+          "relative bg-[#111114] border-t border-zinc-800 w-full max-w-4xl mx-auto rounded-t-3xl shadow-2xl flex flex-col transition-transform duration-300 antialiased",
           isOpen ? "translate-y-0" : "translate-y-full"
         )}
+        style={{
+          maxHeight: 'calc(100dvh - max(var(--sat, env(safe-area-inset-top, 0px)), 54px) - 12px)'
+        }}
       >
         {/* Drag handle area */}
         <div className="flex justify-center pt-3 pb-2 w-full" onClick={onClose}>

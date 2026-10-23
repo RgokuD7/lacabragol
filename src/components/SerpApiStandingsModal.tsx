@@ -44,14 +44,23 @@ export function SerpApiStandingsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-[1050] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div 
+      className="fixed inset-0 z-[1050] flex items-end sm:items-center justify-center p-0 sm:p-4"
+      style={{
+        paddingTop: 'max(var(--sat, env(safe-area-inset-top, 0px)), 20px)',
+        paddingBottom: 'max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px)'
+      }}
+    >
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-black/80 animate-in fade-in duration-150" 
         onClick={onClose} 
       />
       <div 
-        className="relative z-10 bg-[#121215] border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl max-h-[90dvh] flex flex-col shadow-2xl overflow-hidden antialiased"
+        className="relative z-10 bg-[#121215] border border-zinc-800 rounded-t-2xl sm:rounded-2xl w-full max-w-3xl flex flex-col shadow-2xl overflow-hidden antialiased"
+        style={{
+          maxHeight: 'calc(100dvh - max(var(--sat, env(safe-area-inset-top, 0px)), 20px) - 16px)'
+        }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header del Modal */}

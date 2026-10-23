@@ -144,8 +144,9 @@ export function ScoreNumpadModal({
 
         {/* Sheet Content Container */}
         <div 
-          className="relative bg-[#121216] border-t border-zinc-800 w-full max-w-md mx-auto rounded-t-3xl shadow-2xl flex flex-col max-h-[94vh] overflow-y-auto transition-transform duration-200"
+          className="relative bg-[#121216] border-t border-zinc-800 w-full max-w-md mx-auto rounded-t-3xl shadow-2xl flex flex-col overflow-y-auto transition-transform duration-200"
           style={{
+            maxHeight: 'calc(100dvh - max(var(--sat, env(safe-area-inset-top, 0px)), 54px) - 12px)',
             paddingBottom: 'max(calc(env(safe-area-inset-bottom, 0px) + 20px), 24px)'
           }}
         >

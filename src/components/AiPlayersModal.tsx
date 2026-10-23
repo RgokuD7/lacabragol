@@ -212,14 +212,23 @@ ${jsonStr}`;
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4">
+    <div 
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4"
+      style={{
+        paddingTop: 'max(var(--sat, env(safe-area-inset-top, 0px)), 20px)',
+        paddingBottom: 'max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px)'
+      }}
+    >
       {/* Backdrop */}
       <div 
         className="fixed inset-0 bg-black/80 animate-in fade-in duration-150" 
         onClick={onClose} 
       />
       <div 
-        className="relative z-10 bg-[#121217] border border-purple-500/40 rounded-2xl max-w-3xl w-full p-4 sm:p-6 space-y-4 shadow-2xl max-h-[92vh] flex flex-col text-white custom-scrollbar overflow-y-auto antialiased"
+        className="relative z-10 bg-[#121217] border border-purple-500/40 rounded-2xl max-w-3xl w-full p-4 sm:p-6 space-y-4 shadow-2xl flex flex-col text-white custom-scrollbar overflow-y-auto antialiased"
+        style={{
+          maxHeight: 'calc(100dvh - max(var(--sat, env(safe-area-inset-top, 0px)), 20px) - max(var(--sab, env(safe-area-inset-bottom, 0px)), 16px) - 16px)'
+        }}
         onClick={e => e.stopPropagation()}
       >
         
